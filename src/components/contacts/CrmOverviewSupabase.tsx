@@ -12,6 +12,7 @@ import {
   type CrmCustomer,
 } from '@/hooks/useCrmApi';
 import PartyFormDrawer from './PartyFormDrawer';
+import PartyProfile from './PartyProfile';
 
 interface CrmOverviewProps {
   onToast: (m: string) => void;
@@ -45,6 +46,32 @@ export default function CrmOverviewSupabase({ onToast, onNavigate, onCreate }: C
   const { data: leads } = useCrmLeads();
   const [showCreate, setShowCreate] = useState(false);
   const [peekId, setPeekId] = useState<string | null>(null);
+  // In-screen profile swap — when the user clicks 'Open' on the peek
+  // drawer, we render PartyProfile directly instead of navigating to the
+  // customer table (which forced a second click on the same row).
+  const [profileId, setProfileId] = useState<string | null>(null);
+
+  if (profileId) {
+    const c = customers.find(x => x.id === profileId);
+    return (
+      <PartyProfile
+        partyId={profileId}
+        source="crm_customers"
+        backLabel="CRM Overview"
+        summary={{
+          name: c ? fullName(c) : undefined,
+          roles: ['customer'],
+          balance: c?.outstanding_balance,
+          email: c?.email,
+          phone: c?.phone,
+        }}
+        onToast={onToast}
+        onBack={() => setProfileId(null)}
+        onNavigate={onNavigate}
+        onCreate={onCreate}
+      />
+    );
+  }
 
   /* At-risk: customers with no activity in 30+ days and balance > 0 */
   const atRiskRows = customers
@@ -280,7 +307,7 @@ export default function CrmOverviewSupabase({ onToast, onNavigate, onCreate }: C
                 <span className="text-headline-sm truncate">{fullName(peek)}</span>
               </div>
               <div className="flex items-center gap-1">
-                <button className="h-7 px-2.5 rounded bg-primary text-white text-label-sm hover:bg-primary-container flex items-center gap-1" onClick={() => onNavigate ? onNavigate('contacts', 'customers') : onToast('Navigate → Customers')}>
+                <button className="h-7 px-2.5 rounded bg-primary text-white text-label-sm hover:bg-primary-container flex items-center gap-1" onClick={() => { const id = peek.id; setPeekId(null); setProfileId(id); }}>
                   <span className="material-symbols-outlined text-[14px]">open_in_new</span>Open
                 </button>
                 <button className="w-7 h-7 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setPeekId(null)}>
@@ -305,7 +332,7 @@ export default function CrmOverviewSupabase({ onToast, onNavigate, onCreate }: C
                 <div className="kv"><dt>Total visits</dt><dd>{peek.total_visits || 0}</dd></div>
               </dl>
               <div className="mt-4 pt-3 border-t border-surface-dim grid grid-cols-2 gap-2">
-                <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center justify-center gap-1" onClick={() => onNavigate ? onNavigate('contacts', 'customers') : onToast('Navigate → Customers')}>
+                <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center justify-center gap-1" onClick={() => { const id = peek.id; setPeekId(null); setProfileId(id); }}>
                   <span className="material-symbols-outlined text-[16px]">open_in_new</span>Open
                 </button>
                 <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center justify-center gap-1" onClick={() => onToast(`Compose email to ${peek.email}`)}>

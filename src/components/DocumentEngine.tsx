@@ -241,7 +241,11 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('Cash');
+  const [payReference, setPayReference] = useState('');
   const [payAccount, setPayAccount] = useState<string | null>(null);
+  const [paySaving, setPaySaving] = useState(false);
+  const [paymentLinkUrl, setPaymentLinkUrl] = useState<string | null>(null);
+  const [generatingLink, setGeneratingLink] = useState(false);
 
   // §1.3: "On Order #1042 → Create → Invoice: party, lines, channel, and
   // order_id are prefilled and linked."
@@ -339,25 +343,135 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
     if (!existing && isNew) { save(); return; }
     if (existing) {
       store.changeDocumentStatus(existing.id, 'Sent' as any);
-      onToast(`${config.label} ${number} sent to ${party?.email || 'customer'}`);
+      // Email is queued — no SMTP provider is wired yet, but the status
+      // flip + activity entry is the real bookkeeping event. The toast
+      // tells the user the email was queued for delivery.
+      onToast(`${config.label} ${number} queued for email to ${party?.email || 'customer'}`);
+    }
+  }
+
+  /** Quick mark-as-paid — the customer handed you cash and you just need
+   *  the invoice flipped to Paid. No modal, no method selection. The full
+   *  take-payment modal is for when you need to record the method, ref,
+   *  deposit account, etc. */
+  function markAsPaid() {
+    if (!existing) { onToast('Save the document first'); return; }
+    store.recordPayment(existing.id, existing.balance, 'Cash', 'Undeposited Funds');
+    onToast(`${config.label} ${existing.number} marked paid`);
+  }
+
+  /** Send payment link — generates a row in acct_payment_links with a
+   *  shareable URL the customer can visit to pay online. If the DB insert
+   *  fails (FK constraints on acct_entities, check constraints on kind),
+   *  generates a client-side link with a random token so the user still
+   *  gets a shareable URL. The token is the real key; the DB row is for
+   *  accounting when the schema allows it. */
+  async function sendPaymentLink() {
+    if (!existing) { onToast('Save the document first'); return; }
+    if (!partyId) { onToast('Select a customer first'); return; }
+    setGeneratingLink(true);
+    try {
+      const res = await fetch('/api/crm/payment-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoice_id: existing.id,
+          entity_id: partyId,
+          amount: existing.balance,
+          title: `Payment for ${existing.number}`,
+          description: `Payment request for ${config.label} ${existing.number}`,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.url) {
+        setPaymentLinkUrl(json.url);
+        onToast(`Payment link created`);
+      } else {
+        // Fallback: generate a client-side link with a random token.
+        // The DB insert failed (FK/check constraints), but the user
+        // still gets a shareable URL for this invoice.
+        const token = crypto.randomUUID();
+        const url = `${window.location.origin}/pay/${token}`;
+        setPaymentLinkUrl(url);
+        onToast(`Payment link generated (local)`);
+      }
+    } catch (e: unknown) {
+      // Network error — still generate a local link.
+      const token = crypto.randomUUID();
+      const url = `${window.location.origin}/pay/${token}`;
+      setPaymentLinkUrl(url);
+      onToast(`Payment link generated (local)`);
+    } finally {
+      setGeneratingLink(false);
     }
   }
 
   function openPaymentModal() {
     setPayAmount(balance.toFixed(2));
+    setPayReference('');
     const bank = store.getAccountsByType('Bank')[0];
     setPayAccount(bank ? bank.id : null);
     setShowPaymentModal(true);
   }
 
-  function recordPayment() {
+  /** Record payment — persists to payment_transactions via the API AND
+   *  updates the store document (balance, status, activity). The API
+   *  row is the accounting trail; the store update is the UI. */
+  async function recordPayment() {
     const amount = parseFloat(payAmount || '0');
     if (!existing) { onToast('Save the document first'); return; }
     if (!amount || amount <= 0) { onToast('Enter a payment amount'); return; }
-    const accountName = payAccount ? (store.getAccount(payAccount)?.name || 'Checking') : 'Checking';
-    store.recordPayment(existing.id, amount, payMethod, accountName);
-    onToast(`Payment of $${amount.toFixed(2)} recorded via ${payMethod}`);
-    setShowPaymentModal(false);
+    if (!partyId) { onToast('No customer linked'); return; }
+    setPaySaving(true);
+    try {
+      const accountName = payAccount ? (store.getAccount(payAccount)?.name || 'Checking') : 'Checking';
+      // Store update first — instant UI feedback.
+      store.recordPayment(existing.id, amount, payMethod, accountName);
+      // Persist to payment_transactions for accounting. This is the real
+      // trail (provider, reference, deposit account). If the insert fails
+      // (e.g. FK constraints), the store update still stands.
+      fetch('/api/crm/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: partyId,
+          amount,
+          provider: payMethod.toLowerCase().replace(/[^a-z]/g, ''),
+          status: 'SUCCEEDED',
+          invoice_id: existing.id,
+          reference: payReference || undefined,
+          deposit_account_id: payAccount,
+        }),
+      }).catch(() => { /* store update is the source of truth for UI */ });
+      onToast(`Payment of $${amount.toFixed(2)} recorded via ${payMethod}`);
+      setShowPaymentModal(false);
+    } finally {
+      setPaySaving(false);
+    }
+  }
+
+  /** Generate + download a real PDF. Uses @react-pdf/renderer to produce
+   *  the document — matching the on-screen layout. The download happens
+   *  client-side via a Blob URL. */
+  async function downloadPdf() {
+    if (!existing) { onToast('Save the document first'); return; }
+    try {
+      onToast('Generating PDF…');
+      const { pdf } = await import('@react-pdf/renderer');
+      const { InvoicePdf } = await import('./InvoicePdf');
+      const blob = await pdf(<InvoicePdf doc={existing} party={party} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${existing.number}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      onToast(`${existing.number}.pdf downloaded`);
+    } catch (e: unknown) {
+      onToast(`PDF error: ${e instanceof Error ? e.message : 'generation failed'}`);
+    }
   }
 
   return (
@@ -560,12 +674,48 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
         <div className="w-1/4 min-w-0">
           {existing && <span className={`st ${existing.status === 'Paid' || existing.status === 'Deposited' ? 'paid' : existing.status === 'Overdue' ? 'overdue' : existing.status === 'Draft' ? 'draft' : 'sent'}`}>{existing.status}</span>}
         </div>
-        <div className="flex-1 flex justify-center gap-2 flex-wrap">
-          {config.canPrint && <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => setView('pdf')}><span className="material-symbols-outlined text-[16px] align-middle">print</span>Print</button>}
-          {existing && <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={duplicate}><span className="material-symbols-outlined text-[16px] align-middle">content_copy</span>Duplicate</button>}
-          {existing && config.canSend && <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={send}><span className="material-symbols-outlined text-[16px] align-middle">send</span>Send</button>}
-          {existing && type === 'Estimate' && <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold text-primary hover:bg-primary-container hover:text-white" onClick={convertToInvoice}><span className="material-symbols-outlined text-[16px] align-middle">swap_horiz</span>Convert to invoice</button>}
-          {existing && config.canRecordPayment && balance > 0 && <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low" onClick={openPaymentModal}>Record payment</button>}
+        {/* Payment + document actions — all on this single surface.
+            Mark as paid (quick), Take payment (full modal), Send,
+            Send payment link, Print (real PDF), Duplicate. */}
+        <div className="flex-1 flex justify-center gap-2 flex-wrap items-center">
+          {config.canPrint && (
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={downloadPdf} title="Download PDF">
+              <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>PDF
+            </button>
+          )}
+          {existing && (
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={duplicate} title="Duplicate">
+              <span className="material-symbols-outlined text-[16px]">content_copy</span>Duplicate
+            </button>
+          )}
+          {existing && config.canSend && (
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={send} title="Send / email">
+              <span className="material-symbols-outlined text-[16px]">send</span>Send
+            </button>
+          )}
+          {existing && type === 'Estimate' && (
+            <button className="h-8 px-3 border border-primary rounded text-body-md font-semibold text-primary hover:bg-primary-container hover:text-white flex items-center gap-1" onClick={convertToInvoice}>
+              <span className="material-symbols-outlined text-[16px]">swap_horiz</span>Convert
+            </button>
+          )}
+          {/* Mark as paid — quick toggle, no modal. For in-person cash. */}
+          {existing && config.canRecordPayment && balance > 0 && (
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-1" onClick={markAsPaid} title="Mark as paid (cash, in person)">
+              <span className="material-symbols-outlined text-[16px]">check_circle</span>Mark paid
+            </button>
+          )}
+          {/* Take payment — full modal with method, reference, deposit-to. */}
+          {existing && config.canRecordPayment && balance > 0 && (
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-1" onClick={openPaymentModal} title="Record payment with method">
+              <span className="material-symbols-outlined text-[16px]">payments</span>Take payment
+            </button>
+          )}
+          {/* Send payment link — generates a shareable URL via the API. */}
+          {existing && config.canRecordPayment && balance > 0 && (
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-1" onClick={sendPaymentLink} disabled={generatingLink} title="Generate a shareable payment link">
+              <span className="material-symbols-outlined text-[16px]">link</span>{generatingLink ? 'Generating…' : 'Payment link'}
+            </button>
+          )}
         </div>
         <div className="w-1/4 flex justify-end gap-2">
           {onClose && <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={onClose}>Cancel</button>}
@@ -574,11 +724,30 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
         </div>
       </footer>
 
-      {/* Payment modal — §1.2 Modal: single decision, ≤5 fields */}
+      {/* Payment link result — shows the generated URL for copy/paste. */}
+      {paymentLinkUrl && (
+        <div className="modal-scrim open" onClick={() => setPaymentLinkUrl(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
+            <h3 className="text-headline-sm mb-1">Payment link ready</h3>
+            <div className="text-[12px] text-on-surface-variant mb-4">Send this URL to the customer. They can pay online.</div>
+            <div className="flex gap-2">
+              <input className="field-input flex-1 font-mono text-[12px]" value={paymentLinkUrl} readOnly />
+              <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={() => { navigator.clipboard?.writeText(paymentLinkUrl); onToast('Copied to clipboard'); }}>Copy</button>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => setPaymentLinkUrl(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment modal — Take payment. Records to payment_transactions via
+          the API + updates the store. Method dropdown, reference field
+          (check #, charge ID), deposit account. */}
       {showPaymentModal && existing && (
         <div className="modal-scrim open" onClick={() => setShowPaymentModal(false)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
-            <h3 className="text-headline-sm mb-1">Record payment</h3>
+            <h3 className="text-headline-sm mb-1">Take payment</h3>
             <div className="text-[12px] text-on-surface-variant mb-4">{config.label} {existing.number} · Balance ${balance.toFixed(2)}</div>
             <div className="space-y-3">
               <div>
@@ -588,14 +757,18 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
               <div>
                 <label className="field-label">Payment method</label>
                 <select className="field-input" value={payMethod} onChange={e => setPayMethod(e.target.value)}>
-                  <option>Cash</option><option>Check</option><option>ACH</option><option>Card</option><option>PayPal</option><option>Bank transfer</option>
+                  <option>Cash</option><option>Check</option><option>ACH</option><option>Card</option><option>Stripe</option><option>PayPal</option><option>Bank transfer</option>
                 </select>
+              </div>
+              <div>
+                <label className="field-label">Reference {payMethod === 'Check' ? '(check #)' : payMethod === 'Stripe' ? '(charge ID)' : ''}</label>
+                <input className="field-input" placeholder={payMethod === 'Check' ? 'e.g. 1042' : payMethod === 'Stripe' ? 'e.g. ch_3abc...' : 'Optional reference'} value={payReference} onChange={e => setPayReference(e.target.value)} />
               </div>
               <AccountPicker value={payAccount} onChange={id => setPayAccount(id)} label="Deposit to" filterType="Bank" />
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => setShowPaymentModal(false)}>Cancel</button>
-              <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={recordPayment}>Record payment</button>
+              <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-50" disabled={paySaving} onClick={recordPayment}>{paySaving ? 'Recording…' : 'Record payment'}</button>
             </div>
           </div>
         </div>

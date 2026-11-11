@@ -18,6 +18,7 @@ import PeekDrawer from './PeekDrawer';
 import RecordDrawer from './RecordDrawer';
 import StudioDrawer from './StudioDrawer';
 import DocumentEngine, { DocTabType } from './DocumentEngine';
+import PaymentModal, { type PaymentPrefill } from './PaymentModal';
 import PartyFormDrawer from './contacts/PartyFormDrawer';
 import { usePlatformStore, type DocumentType, type PartyRole } from '@/lib/platformStore';
 import { supabaseRecordToStoreParty, type SupabasePartyRecord } from '@/lib/partyMirror';
@@ -174,6 +175,14 @@ export default function GlobalShell() {
   // row menu), the engine opens with that party already selected.
   const [docPartyId, setDocPartyId] = useState<string | null>(null);
   const store = usePlatformStore();
+
+  // Payment modal — opened from a customer profile's New Transaction →
+  // Payment (or the row-menu Receive payment). Opens a focused payment
+  // form (amount, method, apply-to-invoice, deposit-to) instead of the
+  // DocumentEngine — the user isn't creating an invoice, they're
+  // recording money received.
+  const [paymentModalOpen, setPaymentModalOpen] = useState<boolean>(false);
+  const [paymentPrefill, setPaymentPrefill] = useState<PaymentPrefill | null>(null);
 
   const [createFlyoutOpen, setCreateFlyoutOpen] = useState<boolean>(false);
   const [navigationHubOpen, setNavigationHubOpen] = useState<boolean>(false);
@@ -684,15 +693,27 @@ export default function GlobalShell() {
         'Restock suggestions': 'PurchaseOrder',
         'Reorder POs': 'PurchaseOrder',
         'Receive items': 'PurchaseOrder',
-        // ── Payment-type labels: open as a SalesReceipt (instant
-        // settlement — a payment received right now) with the party
-        // preselected when launched from a customer profile, instead of
-        // navigating to the global invoices list. A sales receipt IS a
-        // received payment; the invoice list is not. ──
-        'Receive payment': 'SalesReceipt',
-        'Recurring payment': 'SalesReceipt',
-        'Recurring sales receipt': 'SalesReceipt',
       };
+
+      // ── Payment: open the PaymentModal, NOT the DocumentEngine ──
+      // When the user clicks "Payment" from a customer profile (or "Receive
+      // payment" from a row menu), they're recording money received — not
+      // creating an invoice or a sales receipt. The modal has amount,
+      // payment method (cash/check/card/Stripe/ACH), apply-to-invoice,
+      // deposit-to, and settlement status (settled vs pending for Stripe
+      // payouts). It persists to payment_transactions and marks the linked
+      // invoice Paid in the store.
+      if (label === 'Receive payment') {
+        setPaymentPrefill({
+          partyId: prefill?.partyId || null,
+          partyName: prefill?.partyName || null,
+          source: prefill?.source,
+          email: prefill?.email ?? null,
+        });
+        setPaymentModalOpen(true);
+        return;
+      }
+
       const asDoc = ciLookup(docTypeMap, label);
       if (asDoc && label !== 'Void') {
         // §1.3 Context Envelope — creating from a party record resolves that
@@ -1175,6 +1196,17 @@ export default function GlobalShell() {
           />
         </div>
       )}
+
+      {/* Payment modal — focused payment form (not a document engine).
+          Opens from customer profile → New transaction → Payment, or
+          row-menu → Receive payment. Records to payment_transactions
+          and optionally marks an invoice Paid. */}
+      <PaymentModal
+        open={paymentModalOpen}
+        prefill={paymentPrefill}
+        onToast={showToast}
+        onClose={() => { setPaymentModalOpen(false); setPaymentPrefill(null); }}
+      />
 
       <CreateFlyout
         open={createFlyoutOpen}

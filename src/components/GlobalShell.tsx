@@ -684,6 +684,14 @@ export default function GlobalShell() {
         'Restock suggestions': 'PurchaseOrder',
         'Reorder POs': 'PurchaseOrder',
         'Receive items': 'PurchaseOrder',
+        // ── Payment-type labels: open as a SalesReceipt (instant
+        // settlement — a payment received right now) with the party
+        // preselected when launched from a customer profile, instead of
+        // navigating to the global invoices list. A sales receipt IS a
+        // received payment; the invoice list is not. ──
+        'Receive payment': 'SalesReceipt',
+        'Recurring payment': 'SalesReceipt',
+        'Recurring sales receipt': 'SalesReceipt',
       };
       const asDoc = ciLookup(docTypeMap, label);
       if (asDoc && label !== 'Void') {

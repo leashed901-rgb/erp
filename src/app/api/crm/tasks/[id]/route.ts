@@ -48,3 +48,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   return NextResponse.json({ data });
 }
+
+/**
+ * DELETE /api/crm/tasks/[id] — permanently remove a task.
+ * Tenant-scoped so a cross-tenant id can't be deleted.
+ */
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  const { error } = await supabaseAdmin()
+    .from('crm_tasks')
+    .delete()
+    .eq('id', id)
+    .eq('tenant_id', DEFAULT_TENANT_ID);
+
+  if (error) {
+    return NextResponse.json(
+      { error: { code: 'INTERNAL', message: error.message, requestId: crypto.randomUUID() } },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ data: { id, deleted: true } });
+}

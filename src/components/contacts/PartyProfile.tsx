@@ -101,11 +101,19 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'done' | 'overdue'>('all');
   const noteInputRef = useRef<HTMLInputElement>(null);
 
-  const { createNote, createTask } = usePlatformMutations(onToast);
+  const { createNote, updateNote, deleteNote, createTask, updateTask, deleteTask } = usePlatformMutations(onToast);
   const [noteBody, setNoteBody] = useState('');
+  // Note inline-edit state — editingNoteId === null means no note is being
+  // edited; when set, that note's body renders as a textarea instead of text.
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteBody, setEditingNoteBody] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDue, setTaskDue] = useState('');
   const [taskPriority, setTaskPriority] = useState('medium');
+  // Task drawer edit mode — editingTaskId === null means the drawer is
+  // creating a new task; when set, the drawer is editing that task and the
+  // Save button PATCHes instead of POSTs.
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
   // Derive the role label from the source table for display + menu.
   const roleKey = source === 'crm_customers' ? 'customer'
@@ -240,12 +248,23 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
         due_at: taskDue || null,
       });
       onToast('Task created');
-      setTaskTitle('');
-      setTaskDue('');
-      setTaskPriority('medium');
       setTaskDrawerOpen(false);
+      resetTaskForm();
       refresh();
     } catch (e: any) { onToast(`Error: ${e.message}`); }
+  }
+  // Save (drawer) — creates a new task OR patches the editing one.
+  async function handleSaveTask() {
+    if (editingTaskId) {
+      const res = await updateTask(editingTaskId, {
+        title: taskTitle,
+        priority: taskPriority,
+        due_at: taskDue || null,
+      });
+      if (res.ok) { setTaskDrawerOpen(false); resetTaskForm(); refresh(); }
+      return;
+    }
+    await handleAddTask();
   }
 
   function handleNewTxn(label: string) {
@@ -253,6 +272,49 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
     if (onCreate) {
       onCreate(label, { partyName: displayName, partyId, source, email: party?.email ?? summary?.email ?? null });
     }
+  }
+
+  // ── Note edit/delete ──
+  function startEditNote(id: string, body: string) {
+    setEditingNoteId(id);
+    setEditingNoteBody(body);
+  }
+  function cancelEditNote() {
+    setEditingNoteId(null);
+    setEditingNoteBody('');
+  }
+  async function saveEditNote(id: string) {
+    const body = editingNoteBody.trim();
+    if (!body) { onToast('Note body cannot be empty'); return; }
+    const res = await updateNote(id, { body });
+    if (res.ok) { cancelEditNote(); refresh(); }
+  }
+  async function handleDeleteNote(id: string) {
+    if (!confirm('Delete this note?')) return;
+    const res = await deleteNote(id);
+    if (res.ok) refresh();
+  }
+
+  // ── Task edit/delete ──
+  // Edit reuses the same task drawer — prefill the form fields and set
+  // editingTaskId so Save knows to PATCH instead of POST.
+  function startEditTask(t: { id: string; title: string; priority: string; due_at: string | null }) {
+    setEditingTaskId(t.id);
+    setTaskTitle(t.title);
+    setTaskPriority(t.priority || 'medium');
+    setTaskDue(t.due_at ? t.due_at.slice(0, 10) : '');
+    setTaskDrawerOpen(true);
+  }
+  function resetTaskForm() {
+    setEditingTaskId(null);
+    setTaskTitle('');
+    setTaskDue('');
+    setTaskPriority('medium');
+  }
+  async function handleDeleteTask(id: string) {
+    if (!confirm('Delete this task?')) return;
+    const res = await deleteTask(id);
+    if (res.ok) refresh();
   }
 
   const notes = party?.notes || [];
@@ -728,9 +790,32 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                   <div key={n.id} className="bg-white border border-surface-dim rounded-lg p-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className="pill tag">{n.note_type || 'general'}</span>
-                      <span className="text-[11px] text-on-surface-variant">{fmtDate(n.created_at)}</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] text-on-surface-variant mr-2">{fmtDate(n.created_at)}</span>
+                        {editingNoteId === n.id ? (
+                          <>
+                            <button className="w-7 h-7 rounded hover:bg-surface-container flex items-center justify-center text-primary" title="Save" onClick={() => saveEditNote(n.id)}><span className="material-symbols-outlined text-[16px]">save</span></button>
+                            <button className="w-7 h-7 rounded hover:bg-surface-container flex items-center justify-center text-on-surface-variant" title="Cancel" onClick={cancelEditNote}><span className="material-symbols-outlined text-[16px]">close</span></button>
+                          </>
+                        ) : (
+                          <>
+                            <button className="w-7 h-7 rounded hover:bg-surface-container flex items-center justify-center text-on-surface-variant" title="Edit note" onClick={() => startEditNote(n.id, n.body)}><span className="material-symbols-outlined text-[16px]">edit</span></button>
+                            <button className="w-7 h-7 rounded hover:bg-surface-container flex items-center justify-center text-error" title="Delete note" onClick={() => handleDeleteNote(n.id)}><span className="material-symbols-outlined text-[16px]">delete</span></button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-[13px]">{n.body}</div>
+                    {editingNoteId === n.id ? (
+                      <textarea
+                        className="field-input min-h-[80px] resize-y"
+                        value={editingNoteBody}
+                        onChange={e => setEditingNoteBody(e.target.value)}
+                        autoFocus
+                        onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveEditNote(n.id); if (e.key === 'Escape') cancelEditNote(); }}
+                      />
+                    ) : (
+                      <div className="text-[13px] whitespace-pre-wrap">{n.body}</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -759,7 +844,7 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                   <option value="overdue">Overdue</option>
                   <option value="done">Done</option>
                 </select>
-                <button className="h-8 px-3 bg-primary text-white text-[13px] font-semibold rounded hover:bg-primary-container flex items-center gap-1" onClick={() => setTaskDrawerOpen(true)}><span className="material-symbols-outlined text-[16px]">add</span>Add task</button>
+                <button className="h-8 px-3 bg-primary text-white text-[13px] font-semibold rounded hover:bg-primary-container flex items-center gap-1" onClick={() => { resetTaskForm(); setTaskDrawerOpen(true); }}><span className="material-symbols-outlined text-[16px]">add</span>Add task</button>
               </div>
             </div>
             <div className="bg-white border border-surface-dim rounded-xl overflow-hidden">
@@ -790,10 +875,12 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                           <td><span className={`pill tag ${t.priority === 'high' ? 'role vendor' : t.priority === 'low' ? 'tag' : ''}`}>{t.priority}</span></td>
                           <td><span className={`pill status ${done ? 'tag' : 'role customer'}`}>{t.status}</span></td>
                           <td>{fmtDate(t.due_at)}</td>
-                          <td className="text-right">
+                          <td className="text-right whitespace-nowrap">
+                            <button className="action-link" onClick={() => startEditTask(t)}>Edit</button>
                             {done
-                              ? <button className="action-link" onClick={() => handleSetTaskStatus(t.id, 'open')}>Reopen</button>
-                              : <button className="action-link" onClick={() => handleSetTaskStatus(t.id, 'done')}>Complete</button>}
+                              ? <button className="action-link ml-2" onClick={() => handleSetTaskStatus(t.id, 'open')}>Reopen</button>
+                              : <button className="action-link ml-2" onClick={() => handleSetTaskStatus(t.id, 'done')}>Complete</button>}
+                            <button className="action-link ml-2 text-error" onClick={() => handleDeleteTask(t.id)}>Delete</button>
                           </td>
                         </tr>
                       );
@@ -814,8 +901,8 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
           <div className="drawer-scrim open" onClick={() => setTaskDrawerOpen(false)} />
           <div className="drawer open" style={{ width: 560 }}>
             <div className="flex items-center justify-between px-6 h-14 border-b border-surface-dim shrink-0">
-              <h3 className="text-[16px] font-semibold">Add task</h3>
-              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setTaskDrawerOpen(false)}><span className="material-symbols-outlined text-[20px]">close</span></button>
+              <h3 className="text-[16px] font-semibold">{editingTaskId ? 'Edit task' : 'Add task'}</h3>
+              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => { setTaskDrawerOpen(false); resetTaskForm(); }}><span className="material-symbols-outlined text-[20px]">close</span></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div>
@@ -842,8 +929,9 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                 </div>
               </div>
             </div>
-            <div className="p-4 border-t border-surface-dim flex justify-end shrink-0">
-              <button className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container" onClick={handleAddTask}>Save</button>
+            <div className="p-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">
+              <button className="h-8 px-4 border border-surface-dim rounded text-[13px] font-semibold hover:bg-surface-container" onClick={() => { setTaskDrawerOpen(false); resetTaskForm(); }}>Cancel</button>
+              <button className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container" onClick={handleSaveTask}>{editingTaskId ? 'Save changes' : 'Save'}</button>
             </div>
           </div>
         </>

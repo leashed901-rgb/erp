@@ -714,6 +714,20 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
+  const updateNote = useCallback(async (id: string, updates: Partial<Pick<CrmNote, 'body' | 'note_type'>>) => {
+    const res = await fetchJson<{ data: CrmNote }>(`/api/crm/notes/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Note saved');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const deleteNote = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/crm/notes/${id}`, { method: 'DELETE' });
+    if (res.ok) toast('Note deleted');
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
   const createTask = useCallback(async (input: Partial<CrmTask>) => {
     const res = await fetchJson<{ data: CrmTask }>('/api/crm/tasks', { method: 'POST', body: JSON.stringify(input) });
     if (res.ok) toast('Task created');
@@ -721,9 +735,25 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
+  const updateTask = useCallback(async (id: string, updates: Partial<Pick<CrmTask, 'title' | 'priority' | 'due_at' | 'status'>>) => {
+    const res = await fetchJson<{ data: CrmTask }>(`/api/crm/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Task saved');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const deleteTask = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/crm/tasks/${id}`, { method: 'DELETE' });
+    if (res.ok) toast('Task deleted');
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
   return {
     createParty, createCustomer, updateCustomer, archiveCustomer,
-    createLead, updateLead, deleteLead, createNote, createTask,
+    createLead, updateLead, deleteLead,
+    createNote, updateNote, deleteNote,
+    createTask, updateTask, deleteTask,
   };
 }
 

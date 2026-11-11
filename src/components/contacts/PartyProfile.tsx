@@ -989,10 +989,10 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                   <option value="reminder">Reminder</option>
                 </select>
               </div>
-              <div>
+              <div className="flex flex-col flex-1">
                 <label className="field-label">Note</label>
                 <textarea
-                  className="field-input min-h-[240px] resize-y text-[14px] leading-relaxed"
+                  className="field-input flex-1 min-h-[400px] resize-y text-[14px] leading-relaxed"
                   placeholder="Type your note here…"
                   value={noteBody}
                   onChange={e => setNoteBody(e.target.value)}
@@ -1029,21 +1029,27 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               <div>
                 <label className="field-label">Task name</label>
-                <input className="field-input" placeholder="e.g. Follow up" value={taskTitle} onChange={e => setTaskTitle(e.target.value)} />
+                <input className="field-input" placeholder="e.g. Follow up with customer" value={taskTitle} onChange={e => setTaskTitle(e.target.value)} autoFocus />
               </div>
               <div>
-                <label className="field-label">Priority</label>
-                <select className="field-input" value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
-                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-                </select>
+                <label className="field-label">Description (optional)</label>
+                <textarea className="field-input min-h-[120px] resize-y text-[14px] leading-relaxed" placeholder="Add details about this task…" />
               </div>
-              <div>
-                <label className="field-label">Due date</label>
-                <input className="field-input" type="date" value={taskDue} onChange={e => setTaskDue(e.target.value)} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="field-label">Priority</label>
+                  <select className="field-input" value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
+                    <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="field-label">Due date</label>
+                  <input className="field-input" type="date" value={taskDue} onChange={e => setTaskDue(e.target.value)} />
+                </div>
               </div>
               <div className="pt-4 border-t border-surface-dim">
                 <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-semibold text-[13px]">Linked records (1)</h4>
+                  <h4 className="font-semibold text-[13px]">Linked record</h4>
                 </div>
                 <div className="text-[12px]">
                   <span className="text-primary font-medium">{roleLabel}</span><br />

@@ -18,7 +18,7 @@
  * lifecycle stage changer (customers) / 1099 & terms (vendors) / kind & status
  * (suppliers) / lead source & follow-up (leads).
  */
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   useParty,
   usePlatformMutations,
@@ -98,11 +98,16 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
   const [txnMenuOpen, setTxnMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+  const [noteDrawerOpen, setNoteDrawerOpen] = useState(false);
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'done' | 'overdue'>('all');
-  const noteInputRef = useRef<HTMLInputElement>(null);
 
   const { createNote, updateNote, deleteNote, createTask, updateTask, deleteTask } = usePlatformMutations(onToast);
+  // Note composer drawer state — noteBody is the large textarea in the
+  // drawer, noteType lets the user tag the note (general / call / meeting /
+  // follow-up). The drawer replaces the cramped bottom input so the user
+  // has room to type freely.
   const [noteBody, setNoteBody] = useState('');
+  const [noteType, setNoteType] = useState('general');
   // Note inline-edit state — editingNoteId === null means no note is being
   // edited; when set, that note's body renders as a textarea instead of text.
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -181,17 +186,20 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
   async function handleAddNote() {
     if (!noteBody.trim()) return;
     try {
-      await createNote({ customer_id: partyId, body: noteBody, note_type: 'general' });
+      await createNote({ customer_id: partyId, body: noteBody, note_type: noteType || 'general' });
       onToast('Note added');
       setNoteBody('');
+      setNoteType('general');
+      setNoteDrawerOpen(false);
       refresh();
     } catch (e: any) { onToast(`Error: ${e.message}`); }
   }
 
-  /** Jump to the Notes tab and put the cursor in the composer. */
+  /** Jump to the Notes tab and open the composer drawer so the user can
+   *  type freely — the old cramped bottom input is gone. */
   function focusNoteComposer() {
     setTab('notes');
-    requestAnimationFrame(() => noteInputRef.current?.focus());
+    setNoteDrawerOpen(true);
   }
 
   /** REAL task completion — PATCHes crm_tasks.status and refreshes. */
@@ -820,9 +828,13 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                 ))}
               </div>
             )}
-            <div className="bg-white border border-surface-dim rounded-lg p-4 flex gap-2">
-              <input ref={noteInputRef} className="field-input flex-1" placeholder="Add a note…" value={noteBody} onChange={e => setNoteBody(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAddNote(); }} />
-              <button className="h-8 px-4 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={handleAddNote}>Add note</button>
+            {/* Add note — opens a drawer with a large textarea so the user
+                has room to type freely. The old cramped bottom input felt
+                like you couldn't write a real note. */}
+            <div className="flex justify-center pt-4">
+              <button className="h-9 px-5 border border-surface-dim rounded text-[13px] font-semibold hover:bg-surface-container flex items-center gap-1.5" onClick={() => setNoteDrawerOpen(true)}>
+                <span className="material-symbols-outlined text-[18px]">add</span>Add note
+              </button>
             </div>
           </div>
         )}
@@ -894,6 +906,54 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
         </>
         )}
       </div>
+
+      {/* ═══ NOTE COMPOSER DRAWER ═══ */}
+      {noteDrawerOpen && (
+        <>
+          <div className="drawer-scrim open" onClick={() => { setNoteDrawerOpen(false); setNoteBody(''); setNoteType('general'); }} />
+          <div className="drawer open" style={{ width: 560 }}>
+            <div className="flex items-center justify-between px-6 h-14 border-b border-surface-dim shrink-0">
+              <h3 className="text-[16px] font-semibold">Add note</h3>
+              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => { setNoteDrawerOpen(false); setNoteBody(''); setNoteType('general'); }}><span className="material-symbols-outlined text-[20px]">close</span></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div>
+                <label className="field-label">Note type</label>
+                <select className="field-input" value={noteType} onChange={e => setNoteType(e.target.value)}>
+                  <option value="general">General</option>
+                  <option value="call">Call</option>
+                  <option value="meeting">Meeting</option>
+                  <option value="follow_up">Follow-up</option>
+                  <option value="reminder">Reminder</option>
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Note</label>
+                <textarea
+                  className="field-input min-h-[240px] resize-y text-[14px] leading-relaxed"
+                  placeholder="Type your note here…"
+                  value={noteBody}
+                  onChange={e => setNoteBody(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="pt-4 border-t border-surface-dim">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-[13px]">Linked record</h4>
+                </div>
+                <div className="text-[12px]">
+                  <span className="text-primary font-medium">{roleLabel}</span><br />
+                  <span className="text-on-surface-variant">{displayName}</span>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">
+              <button className="h-8 px-4 border border-surface-dim rounded text-[13px] font-semibold hover:bg-surface-container" onClick={() => { setNoteDrawerOpen(false); setNoteBody(''); setNoteType('general'); }}>Cancel</button>
+              <button className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container disabled:opacity-50" disabled={!noteBody.trim()} onClick={handleAddNote}>Save note</button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ═══ TASK DRAWER ═══ */}
       {taskDrawerOpen && (

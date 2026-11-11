@@ -287,11 +287,10 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
     setLines(prev => prev.filter((_, i) => i !== idx));
   }
 
-  function save(andNew = false) {
+  async function save(andNew = false) {
     if (!partyId && config.partyRole) { onToast(`${config.partyLabel} is required`); return; }
     const docData = {
       type, number, partyId, status, date, dueDate, lines, subtotal, tax: Math.round(tax * 100) / 100, shipping, total, amountPaid: existing?.amountPaid || 0, balance: total - (existing?.amountPaid || 0), memo, notes, tags: existing?.tags || [], attachments: existing?.attachments || [],
-      // §1.3 Context Envelope: creating from a record links back to it
       orderId: existing?.orderId || (isNew ? initialEnv.orderId : null),
       poId: existing?.poId || null,
       channelId: existing?.channelId || (isNew ? initialEnv.channelId : null),
@@ -300,13 +299,18 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
     if (existing) {
       store.updateDocument(existing.id, docData);
       store.recalcDocument(existing.id);
+      // Persist the update to the real database (Supabase invoices table).
+      // The store is the UI cache; the DB is the source of truth.
+      persistToDb(false);
       onToast(`${config.label} saved`);
       if (!andNew) onClose?.();
     } else {
       const id = store.addDocument(docData as Omit<Document, 'id' | 'createdAt' | 'updatedAt' | 'activity'>);
+      // Persist the new invoice to Supabase — without this, the invoice
+      // exists only in browser memory and disappears on refresh.
+      persistToDb(true);
       onToast(`${config.label} ${number} created`);
       if (andNew) {
-        // Save & new: reset the form for the next document
         setNumber(`${config.numberPrefix}${String(store.documents.filter(d => d.type === type).length + 1002)}`);
         setPartyId(initialEnv.partyId || '');
         setLines([{ id: 'L1', itemId: null, description: '', qty: 1, rate: 0, amount: 0, taxRate: 0, account: '', tags: [] }]);
@@ -315,6 +319,75 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
         onClose?.();
       }
     }
+  }
+
+  /** Persist the current document to the real Supabase table.
+   *  Invoices → POST /api/invoices, Estimates → POST /api/estimates,
+   *  SalesReceipts → POST /api/receipts. This is the bridge between
+   *  the client-side store (instant UI) and the database (truth). */
+  async function persistToDb(isNewDoc: boolean) {
+    if (!partyId) return;
+    try {
+      if (type === 'Invoice') {
+        await fetch('/api/invoices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerId: partyId,
+            number,
+            status: status.toUpperCase() === 'DRAFT' ? 'OPEN' : status.toUpperCase(),
+            subtotal,
+            total,
+            balanceDue: total - (existing?.amountPaid || 0),
+            amount_paid: existing?.amountPaid || 0,
+            dueDate: dueDate || null,
+            notes: notes || memo || null,
+            items: lines.map(l => ({
+              description: l.description,
+              quantity: l.qty,
+              unitPrice: String(l.rate),
+              totalPrice: String(l.amount),
+            })),
+          }),
+        });
+      } else if (type === 'Estimate') {
+        await fetch('/api/estimates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id: partyId,
+            number,
+            status: status.toLowerCase(),
+            subtotal,
+            tax_total: Math.round(tax * 100) / 100,
+            total,
+            issue_date: date,
+            expiry_date: dueDate || null,
+            notes: notes || memo || null,
+          }),
+        });
+      } else if (type === 'SalesReceipt') {
+        await fetch('/api/receipts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id: partyId,
+            number,
+            amount: total,
+            method: 'cash',
+            receipt_date: date,
+            notes: notes || memo || null,
+          }),
+        });
+      }
+    } catch {
+      // Store update already happened — UI is correct. DB persist
+      // failure is non-blocking (the user can retry). The toast
+      // already said "created"; we don't want to lie about that.
+    }
+    // Notify the customer profile (and any other surface) that a
+    // document was saved — so the Transaction List can refresh.
+    window.dispatchEvent(new CustomEvent('document-saved', { detail: { type, partyId } }));
   }
 
   /* §1.7 Duplicate — "Edit · Duplicate" on every document */

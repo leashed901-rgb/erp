@@ -18,14 +18,14 @@
  * lifecycle stage changer (customers) / 1099 & terms (vendors) / kind & status
  * (suppliers) / lead source & follow-up (leads).
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   useParty,
   usePlatformMutations,
   fetchJson,
   type PartyDetail,
 } from '@/hooks/useCrmApi';
-import { usePlatformStore } from '@/lib/platformStore';
+import { useCustomerTransactions } from '@/hooks/useAccounting';
 import { exportToCsv } from '@/lib/csvExport';
 import { useSellerStore } from '@/lib/sellerStore';
 import PartyFormDrawer, { type PartyFormEditTarget } from './PartyFormDrawer';
@@ -329,6 +329,47 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
   const notes = party?.notes || [];
   const tasks = party?.tasks || [];
   const activity = party?.activity || [];
+
+  // ── Documents for this party (invoices, estimates, receipts, etc.)
+  //    Read from the REAL Supabase tables via /api/invoices, /api/receipts,
+  //    /api/estimates. NOT the client-side platformStore — that's a cache;
+  //    the database is the source of truth. Saved invoices show up here
+  //    immediately because DocumentEngine.save() POSTs to /api/invoices.
+  const { data: customerTxns, loaded: txnsLoaded, refresh: refreshTxns } = useCustomerTransactions(partyId);
+  const [txnTypeFilter, setTxnTypeFilter] = useState<string>('all');
+  const [txnStatusFilter, setTxnStatusFilter] = useState<string>('all');
+
+  // When the DocumentEngine saves a document for this party (or any
+  // party), refresh the Transaction List so the new invoice/receipt
+  // shows up immediately — the user just saved it, they expect to
+  // see it when they return to the profile.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail || detail.partyId === partyId || !detail.partyId) {
+        refreshTxns();
+      }
+    };
+    window.addEventListener('document-saved', handler);
+    return () => window.removeEventListener('document-saved', handler);
+  }, [partyId, refreshTxns]);
+  const visibleDocuments = useMemo(() => {
+    let docs = customerTxns;
+    if (txnTypeFilter !== 'all') {
+      const map: Record<string, string> = {
+        Invoices: 'Invoice',
+        Estimates: 'Estimate',
+        'Sales Receipts': 'Receipt',
+      };
+      const want = map[txnTypeFilter];
+      if (want) docs = docs.filter((d) => d.type === want);
+    }
+    if (txnStatusFilter !== 'all') {
+      const s = txnStatusFilter.toLowerCase();
+      docs = docs.filter((d) => d.status.toLowerCase().includes(s));
+    }
+    return docs;
+  }, [customerTxns, txnTypeFilter, txnStatusFilter]);
   const openTaskCount = tasks.filter(t => t.status !== 'done' && t.status !== 'closed').length;
   const openBalance = party?.outstanding_balance ?? party?.balance ?? 0;
   const isCustomer = roleKey === 'customer';
@@ -543,16 +584,16 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
 
         {/* ═══ TAB PANES ═══ */}
 
-        {/* 1. Transaction List */}
+        {/* 1. Transaction List — LIVE documents from the store */}
         {tab === 'transactions' && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <button className="h-8 px-3 border border-surface-dim rounded text-[13px] font-semibold text-on-surface-variant hover:bg-surface-container" disabled title="Select rows to enable batch actions">Batch actions</button>
-                <select className="h-8 px-3 border border-surface-dim rounded text-[13px] bg-white">
-                  <option>All transactions</option><option>Invoices</option><option>Estimates</option><option>Bills</option><option>Credit memos</option><option>Sales Receipts</option>
+                <select className="h-8 px-3 border border-surface-dim rounded text-[13px] bg-white" value={txnTypeFilter} onChange={(e) => setTxnTypeFilter(e.target.value)}>
+                  <option value="all">All transactions</option><option value="Invoices">Invoices</option><option value="Estimates">Estimates</option><option value="Bills">Bills</option><option value="Credit memos">Credit memos</option><option value="Sales Receipts">Sales Receipts</option>
                 </select>
-                <select className="h-8 px-3 border border-surface-dim rounded text-[13px] bg-white"><option>All</option><option>Open</option><option>Overdue</option><option>Paid</option></select>
+                <select className="h-8 px-3 border border-surface-dim rounded text-[13px] bg-white" value={txnStatusFilter} onChange={(e) => setTxnStatusFilter(e.target.value)}><option value="all">All</option><option value="Open">Open</option><option value="Overdue">Overdue</option><option value="Paid">Paid</option><option value="Draft">Draft</option><option value="Sent">Sent</option></select>
               </div>
               <div className="flex items-center gap-1">
                 <button className="icon-btn" title="Print" onClick={handlePrint}><span className="material-symbols-outlined text-[18px]">print</span></button>
@@ -567,14 +608,34 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                   <th className="text-right">Amount</th><th>Status</th><th className="text-right">Action</th>
                 </tr></thead>
                 <tbody>
-                  <tr><td colSpan={9} className="text-center py-10 text-on-surface-variant">
-                    <div className="flex flex-col items-center gap-2">
-                      <span className="material-symbols-outlined text-[40px] text-outline-variant">receipt_long</span>
-                      <div className="font-semibold text-[14px] text-on-surface">No transactions yet</div>
-                      <div className="text-[12px]">Create one with “New transaction” above.</div>
-                      <button className="mt-2 h-8 px-3 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container" onClick={() => handleNewTxn(txnMenu[0])}>Create {txnMenu[0]}</button>
-                    </div>
-                  </td></tr>
+                  {visibleDocuments.length === 0 ? (
+                    <tr><td colSpan={9} className="text-center py-10 text-on-surface-variant">
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="material-symbols-outlined text-[40px] text-outline-variant">receipt_long</span>
+                        <div className="font-semibold text-[14px] text-on-surface">{txnsLoaded ? 'No transactions yet' : 'Loading…'}</div>
+                        {txnsLoaded && <div className="text-[12px]">Create one with &ldquo;New transaction&rdquo; above.</div>}
+                        {txnsLoaded && <button className="mt-2 h-8 px-3 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container" onClick={() => handleNewTxn(txnMenu[0])}>Create {txnMenu[0]}</button>}
+                      </div>
+                    </td></tr>
+                  ) : (
+                    visibleDocuments.map((d) => (
+                      <tr key={d.id} className="hover:bg-surface-container-low">
+                        <td><input type="checkbox" className="accent-primary" /></td>
+                        <td>{d.date}</td>
+                        <td>{d.type}</td>
+                        <td className="font-mono text-[12px] font-semibold">{d.number}</td>
+                        <td>{displayName}</td>
+                        <td className="text-on-surface-variant truncate max-w-[200px]">{d.memo || '—'}</td>
+                        <td className="text-right font-semibold">${d.total.toFixed(2)}</td>
+                        <td>
+                          <span className={`pill status ${d.status === 'PAID' || d.status === 'Paid' || d.status === 'Deposited' ? 'tag' : d.status === 'OVERDUE' || d.status === 'Overdue' ? 'role vendor' : d.status === 'DRAFT' || d.status === 'Draft' ? 'tag' : 'role customer'}`}>{d.status}</span>
+                        </td>
+                        <td className="text-right">
+                          <button className="action-link" onClick={() => handleNewTxn(d.type)}>View</button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

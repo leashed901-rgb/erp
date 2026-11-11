@@ -18,13 +18,14 @@
  * lifecycle stage changer (customers) / 1099 & terms (vendors) / kind & status
  * (suppliers) / lead source & follow-up (leads).
  */
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   useParty,
   usePlatformMutations,
   fetchJson,
   type PartyDetail,
 } from '@/hooks/useCrmApi';
+import { usePlatformStore } from '@/lib/platformStore';
 import { exportToCsv } from '@/lib/csvExport';
 import { useSellerStore } from '@/lib/sellerStore';
 import PartyFormDrawer, { type PartyFormEditTarget } from './PartyFormDrawer';

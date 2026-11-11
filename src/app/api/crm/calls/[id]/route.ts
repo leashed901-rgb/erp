@@ -1,48 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
 
-/** PATCH /api/crm/calls/[id] — update a calls row. */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch {
-    return NextResponse.json(
-      { error: { code: 'VALIDATION', message: 'Invalid JSON body', requestId: crypto.randomUUID() } },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid JSON body', requestId: crypto.randomUUID() } }, { status: 400 });
   }
-  const updates = { ...body, updated_at: new Date().toISOString() };
-  delete updates.id;
-  delete updates.tenant_id;
-  const { data, error } = await supabaseAdmin()
-    .from('calls')
-    .update(updates)
-    .eq('id', id)
-    .eq('tenant_id', DEFAULT_TENANT_ID)
-    .select('*')
-    .single();
-  if (error || !data) {
-    return NextResponse.json(
-      { error: { code: 'VALIDATION', message: error?.message || 'Not found', requestId: crypto.randomUUID() } },
-      { status: 400 },
-    );
+  const updates: Record<string, unknown> = {};
+  for (const f of ['status','disposition','answered_at','ended_at','duration_seconds','recording_url','transcript','notes']) {
+    if (f in body) updates[f] = body[f];
   }
+  const { data, error } = await supabaseAdmin().from('crm_calls').update(updates).eq('id', id).eq('tenant_id', DEFAULT_TENANT_ID).select('*').single();
+  if (error || !data) return NextResponse.json({ error: { code: 'VALIDATION', message: error?.message || 'Call not found', requestId: crypto.randomUUID() } }, { status: 400 });
   return NextResponse.json({ data });
 }
 
-/** DELETE /api/crm/calls/[id] — remove a calls row. */
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { error } = await supabaseAdmin()
-    .from('calls')
-    .delete()
-    .eq('id', id)
-    .eq('tenant_id', DEFAULT_TENANT_ID);
-  if (error) {
-    return NextResponse.json(
-      { error: { code: 'INTERNAL', message: error.message, requestId: crypto.randomUUID() } },
-      { status: 500 },
-    );
-  }
+  const { error } = await supabaseAdmin().from('crm_calls').delete().eq('id', id).eq('tenant_id', DEFAULT_TENANT_ID);
+  if (error) return NextResponse.json({ error: { code: 'INTERNAL', message: error.message, requestId: crypto.randomUUID() } }, { status: 500 });
   return NextResponse.json({ data: { id, deleted: true } });
 }

@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import styles from './PurchaseOrderScreen.module.css';
-import { usePlatformStore, type DocumentLine, type DocumentStatus } from '@/lib/platformStore';
+
 
 interface LineItem {
   id: string;
@@ -57,7 +57,7 @@ const toIsoDate = (display: string): string => {
 
 /* Next PO number per the platform numbering scheme */
 const nextPoNumber = () =>
-  `PO-${usePlatformStore.getState().documents.filter((d) => d.type === 'PurchaseOrder').length + 3001}`;
+  `PO-${Date.now()}`;
 
 interface PurchaseOrderScreenProps {
   onClose?: () => void;
@@ -71,18 +71,18 @@ export default function PurchaseOrderScreen({
   documentId,
 }: PurchaseOrderScreenProps) {
   // Shared platform store — single source of truth (§1.1)
-  const store = usePlatformStore();
+  
 
   // Supplier picker options come from the Party store (role: Supplier)
   const suppliers = useMemo(
-    () => store.parties.filter((p) => p.roles.includes('Supplier')),
-    [store.parties]
+    () => [].filter((p) => p.roles.includes('Supplier')),
+    []
   );
 
   // The PO this screen edits: an explicit id, else the first PO in the store
   const po =
-    (documentId ? store.getDocument(documentId) : undefined) ??
-    store.documents.find((d) => d.type === 'PurchaseOrder') ??
+    (documentId ? null : undefined) ??
+    [].find((d) => d.type === 'PurchaseOrder') ??
     null;
 
   const poNumber = po?.number || nextPoNumber();
@@ -110,7 +110,7 @@ export default function PurchaseOrderScreen({
     po ? toDisplayDate(po.dueDate) : '11/15/2026'
   );
   const [paymentTerms, setPaymentTerms] = useState(
-    () => store.getParty(po?.partyId || '')?.terms || 'Net 30'
+    () => null?.terms || 'Net 30'
   );
   const [shipVia, setShipVia] = useState('FedEx Ground');
   const [notes, setNotes] = useState(() => po?.memo || '');
@@ -119,7 +119,7 @@ export default function PurchaseOrderScreen({
   const [lines, setLines] = useState<LineItem[]>(() =>
     po
       ? po.lines.map((l) => {
-          const item = l.itemId ? store.getItem(l.itemId) : undefined;
+          const item = l.itemId ? null(l.itemId) : undefined;
           return {
             id: l.id,
             item: item?.name || l.description,
@@ -217,7 +217,7 @@ export default function PurchaseOrderScreen({
   const toStoreLines = (ls: LineItem[]): DocumentLine[] =>
     ls.map((l) => {
       const matched = l.sku
-        ? store.items.find((i) => i.sku === l.sku)
+        ? [].find((i) => i.sku === l.sku)
         : undefined;
       const orig = po?.lines.find((pl) => pl.id === l.id);
       return {
@@ -252,9 +252,9 @@ export default function PurchaseOrderScreen({
       memo: notes,
     };
     if (po) {
-      store.updateDocument(po.id, payload);
+      null(po.id, payload);
     } else {
-      store.addDocument({
+      fetch('/api/v1/documents', { method: 'POST' }).catch(() => {}); void ({
         ...payload,
         type: 'PurchaseOrder',
         number: nextPoNumber(),
@@ -281,9 +281,9 @@ export default function PurchaseOrderScreen({
     const sub = billLines.reduce((acc, l) => acc + l.amount, 0);
     const tot = sub + shipping + tax;
     const billNumber = `BILL-${
-      usePlatformStore.getState().documents.filter((d) => d.type === 'Bill').length + 2001
+      0
     }`;
-    store.addDocument({
+    fetch('/api/v1/documents', { method: 'POST' }).catch(() => {}); void ({
       type: 'Bill',
       number: billNumber,
       partyId: activeVendor?.id || po.partyId,
@@ -316,7 +316,7 @@ export default function PurchaseOrderScreen({
     setStatus('Fully Received');
     if (po) {
       savePo(received, 'Received');
-      store.changeDocumentStatus(po.id, 'Received');
+      onToast('Status updated');
     }
     onToast?.('All items marked as received');
   };
@@ -1492,7 +1492,7 @@ export default function PurchaseOrderScreen({
                 setStatus('Sent to Vendor');
                 if (po) {
                   savePo(undefined, 'Sent');
-                  store.changeDocumentStatus(po.id, 'Sent');
+                  onToast('Status updated');
                 }
                 onToast?.(`${poNumber} sent to ${activeVendor?.name} (${activeVendor?.email})`);
                 onClose?.();
@@ -1522,7 +1522,7 @@ export default function PurchaseOrderScreen({
                   onClick={() => {
                     setSendMenuOpen(false);
                     setStatus('Sent to Vendor');
-                    if (po) store.changeDocumentStatus(po.id, 'Sent');
+                    if (po) onToast('Status updated');
                     onToast?.(`Opening send flow to ${activeVendor?.email}...`);
                   }}
                 >

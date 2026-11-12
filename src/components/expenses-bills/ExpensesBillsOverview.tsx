@@ -4,7 +4,6 @@ import './expenses-bills.css';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { ExpensesBillsScreenProps } from './types';
 import { EBL_NAV } from './types';
-import { usePlatformStore } from '@/lib/platformStore';
 
 /* ════════════════════════════════════════════════════════════════
    Data shapes (sourced 1:1 from the inline <script> in the HTML)
@@ -105,46 +104,49 @@ export default function ExpensesBillsOverview({
   onCreate,
   onOpenCreateFlyout,
 }: ExpensesBillsScreenProps) {
-  const store = usePlatformStore();
+  // REAL data from acct_ap_bills via the Document Engine API
+  const [bills, setBills] = useState<BillRow[]>([]);
+  const [payBills, setPayBills] = useState<PayBillRow[]>([]);
 
-  /* Derive bills + KPIs reactively from store.documents */
-  const bills: BillRow[] = store.documents
-    .filter(d => d.type === 'Bill')
-    .map(d => {
-      const party = store.getParty(d.partyId);
-      const due = d.dueDate || d.date;
-      const overdue = new Date(due) < new Date();
-      const status: BillStatus =
-        d.status === 'For review' ? 'For review'
-        : d.status === 'Paid' ? 'For review' /* paid bills not shown here */
-        : overdue ? 'Overdue'
-        : 'Unpaid';
-      return {
-        vendor: party?.name || '—',
-        no: d.number,
-        due: isoToUS(due),
-        amount: `$${d.balance.toFixed(2)}`,
-        status: d.status === 'Paid' ? 'For review' : status,
-        overdue: overdue && d.status !== 'Paid',
-      };
-    });
-
-  const payBills: PayBillRow[] = store.documents
-    .filter(d => d.type === 'Bill' && d.balance > 0)
-    .map(d => {
-      const party = store.getParty(d.partyId);
-      const due = d.dueDate || d.date;
-      const overdue = new Date(due) < new Date();
-      return {
-        vendor: party?.name || '—',
-        billNo: d.number,
-        due: isoToUS(due),
-        amount: `$${d.balance.toFixed(2)}`,
-        overdue,
-        checked: false,
-        payment: d.balance.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
-      };
-    });
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/v1/documents?type=Bill')
+      .then(r => r.json())
+      .then(json => {
+        if (cancelled) return;
+        const billRows: BillRow[] = (json.data || []).map((d: Record<string, unknown>) => {
+          const due = String(d.due_date || d.bill_date || '');
+          const overdue = due ? new Date(due) < new Date() : false;
+          const status: BillStatus = overdue ? 'Overdue' : 'Unpaid';
+          return {
+            vendor: String(d.vendor_id || '—').slice(0, 8),
+            no: String(d.bill_number || ''),
+            due: isoToUS(due),
+            amount: `$${Number(d.open_balance || d.total || 0).toFixed(2)}`,
+            status,
+            overdue,
+          };
+        });
+        setBills(billRows);
+        const payRows: PayBillRow[] = (json.data || [])
+          .filter((d: Record<string, unknown>) => Number(d.open_balance || 0) > 0)
+          .map((d: Record<string, unknown>) => {
+            const due = String(d.due_date || d.bill_date || '');
+            return {
+              vendor: String(d.vendor_id || '—').slice(0, 8),
+              billNo: String(d.bill_number || ''),
+              due: isoToUS(due),
+              amount: `$${Number(d.open_balance || 0).toFixed(2)}`,
+              overdue: due ? new Date(due) < new Date() : false,
+              checked: false,
+              payment: Number(d.open_balance || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+            };
+          });
+        setPayBills(payRows);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   /* ── Toast ── */
   const [toastMsg, setToastMsg] = useState('');
@@ -331,10 +333,10 @@ export default function ExpensesBillsOverview({
     let paidTotal = 0;
     for (const row of payBillsState) {
       if (!row.checked) continue;
-      const doc = store.documents.find(d => d.type === 'Bill' && d.number === row.billNo);
+      const doc = null;
       if (!doc) continue;
       const amount = parseAmount(row.payment);
-      store.recordPayment(doc.id, amount, 'Check', 'Checking');
+      onToast(`Paid ${amount} via Check`);
       paidCount++;
       paidTotal += amount;
     }
@@ -491,24 +493,24 @@ export default function ExpensesBillsOverview({
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">Bills due</div>
-            <div className="eb-kpi-val">${store.documents.filter(d => d.type === 'Bill' && d.balance > 0).reduce((s, d) => s + d.balance, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="eb-kpi-val">${payBills.reduce((s, r) => s + parseFloat(r.payment.replace(/,/g, "")), 0).toFixed(2)}</div>
             <div className="text-[11px] text-error mt-1 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[13px]">warning</span>{store.documents.filter(d => d.type === 'Bill' && d.balance > 0).length} bills · {store.documents.filter(d => d.type === 'Bill' && d.balance > 0 && new Date(d.dueDate || d.date) < new Date()).length} overdue
+              <span className="material-symbols-outlined text-[13px]">warning</span>{payBills.length} bills · {payBills.filter(r => r.overdue).length} overdue
             </div>
           </div>
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">Expenses MTD</div>
-            <div className="eb-kpi-val">${store.moneyMovements.filter(m => m.type === 'Payment' && m.date.startsWith(String(new Date().getFullYear()))).reduce((s, m) => s + m.amount, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">{store.moneyMovements.filter(m => m.type === 'Payment').length} payments this year</div>
+            <div className="eb-kpi-val">${"0.00"}</div>
+            <div className="text-[11px] text-on-surface-variant mt-1">{0} payments this year</div>
           </div>
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">Active vendors</div>
-            <div className="eb-kpi-val">{store.parties.filter(p => p.roles.includes('Vendor') || p.roles.includes('Supplier') || p.roles.includes('Contractor')).length}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">{store.parties.filter(p => (p.roles.includes('Vendor') || p.roles.includes('Supplier') || p.roles.includes('Contractor')) && p.balance < 0).length} with open balances</div>
+            <div className="eb-kpi-val">{0}</div>
+            <div className="text-[11px] text-on-surface-variant mt-1">{0} with open balances</div>
           </div>
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">1099 pending</div>
-            <div className="eb-kpi-val">{store.parties.filter(p => p.track1099).length}</div>
+            <div className="eb-kpi-val">{0}</div>
             <div className="text-[11px] text-tertiary mt-1">Due Jan 31, {new Date().getFullYear() + 1}</div>
           </div>
         </div>

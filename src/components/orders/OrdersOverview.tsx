@@ -1,10 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
-import { usePlatformStore } from '@/lib/platformStore';
-import { getOrders } from '@/data/ordersData';
 import styles from './OrdersPages.module.css';
 
 interface OrdersScreenProps {
@@ -14,8 +12,7 @@ interface OrdersScreenProps {
   onOpenCreateFlyout?: () => void;
 }
 
-/* KPI tiles + pipeline + recent orders derive from the shared store */
-
+/* KPI tiles + pipeline derive from REAL erp_orders data */
 
 const CREATE_ACTIONS = [
   { label: 'Create order', icon: 'add_shopping_cart' },
@@ -27,52 +24,42 @@ const CREATE_ACTIONS = [
   { label: 'Pick list', icon: 'checklist' },
 ];
 
-
-const TOP_PRODUCTS = [
-  { name: 'Classic Tee', units: 142, revenue: '$3,408' },
-  { name: 'Hoodie V2', units: 86, revenue: '$4,128' },
-  { name: 'Canvas Tote', units: 64, revenue: '$1,152' },
-  { name: 'Mug 11oz', units: 48, revenue: '$672' },
-];
-
-const ATTENTION_ITEMS = [
-  { icon: 'schedule', title: '2 orders past SLA', sub: '#1047 Acme Corp · #1042 Lakeside Design' },
-  { icon: 'error', title: 'Mug 11oz stockout', sub: '0 on hand · 4 on open orders · reorder now' },
-  { icon: 'assignment_return', title: 'Return #1031 needs processing', sub: 'Northwind Labs · $76 refund pending' },
-  { icon: 'forum', title: 'Customer question on #1045', sub: 'Northwind Labs · asked 2 hours ago' },
-];
-
-const ACTIVITY = [
-  { icon: 'local_shipping', text: 'Order #1044 shipped via Gelato', time: '10 min ago' },
-  { icon: 'check_circle', text: 'Order #1043 delivered to Maple Supply', time: '1 hour ago' },
-  { icon: 'inventory_2', text: 'Classic Tee restocked (+50 from PO-2201)', time: '3 hours ago' },
-  { icon: 'assignment_return', text: 'Return RMA-098 received from Blue Ridge Co.', time: 'Yesterday' },
-];
-
 export function OrdersOverview({ onNavigate, onToast, onCreate, onOpenCreateFlyout }: OrdersScreenProps) {
-  const store = usePlatformStore();
+  const [orders, setOrders] = useState<Record<string, unknown>[]>([]);
 
-  /* Everything below derives from the shared store (§1.1). */
-  const orders = getOrders();
-  const RECENT_ORDERS = orders.slice(0, 5).map(o => ({ order: o.id, customer: o.customer, supplier: o.supplier, total: o.total, status: o.status }));
-  const unfulfilled = orders.filter(o => o.status === 'Unfulfilled');
-  const pastSla = unfulfilled.filter(o => o.slaPast);
-  const shipped = orders.filter(o => o.status === 'Shipped' || o.status === 'Delivered');
-  const revenueMtd = orders.reduce((s, o) => s + (parseFloat(o.total.replace(/[$,]/g, '')) || 0), 0);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/v1/documents?type=SalesOrder')
+      .then(r => r.json())
+      .then(json => { if (!cancelled) setOrders(json.data || []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const RECENT_ORDERS = orders.slice(0, 5).map((o: Record<string, unknown>) => ({
+    order: `#${String(o.order_number || '').replace('SO-', '')}`,
+    customer: o.customer_email ? String(o.customer_email).split('@')[0] : '—',
+    supplier: '—',
+    total: `$${Number(o.total || 0).toFixed(2)}`,
+    status: String(o.status || 'unknown'),
+  }));
+  const unfulfilled = orders.filter(o => o.status === 'open' || o.status === 'pending');
+  const pastSla = orders.filter(o => o.needs_attention === true);
+  const shipped = orders.filter(o => o.status === 'fulfilled' || o.status === 'shipped' || o.status === 'delivered');
+  const revenueMtd = orders.reduce((s, o) => s + Number(o.total || 0), 0);
 
   const KPI_TILES = [
-    { label: 'Orders (all)', value: String(orders.length), delta: `${store.documents.filter(d => d.type === 'SalesOrder').length} sales orders`, icon: 'shopping_cart', color: 'qbBlue' },
-    { label: 'Unfulfilled', value: String(unfulfilled.length), delta: pastSla.length ? `${pastSla.length} past SLA` : 'on schedule', icon: 'schedule', color: 'error' },
+    { label: 'Orders (all)', value: String(orders.length), delta: `${orders.length} sales orders`, icon: 'shopping_cart', color: 'qbBlue' },
+    { label: 'Needs attention', value: String(pastSla.length), delta: pastSla.length ? `${pastSla.length} need attention` : 'on schedule', icon: 'schedule', color: 'error' },
     { label: 'Shipped / Delivered', value: String(shipped.length), delta: 'All time', icon: 'local_shipping', color: 'qbGreen' },
     { label: 'Revenue (orders)', value: `$${revenueMtd.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, delta: `${orders.length} orders`, icon: 'attach_money', color: 'qbTeal' },
   ];
 
   const PIPELINE_STAGES = [
     { name: 'Unfulfilled', value: unfulfilled.length, color: '#8a5a00' },
-    { name: 'Ready to ship', value: orders.filter(o => o.status === 'Ready to Ship').length, color: '#0077c5' },
-    { name: 'Local pickup', value: orders.filter(o => o.status === 'Local Pickup').length, color: '#6b1e8a' },
-    { name: 'Shipped', value: orders.filter(o => o.status === 'Shipped').length, color: '#4a3fc4' },
-    { name: 'Delivered', value: orders.filter(o => o.status === 'Delivered').length, color: '#1e5a38' },
+    { name: 'Needs attention', value: pastSla.length, color: '#a50e0e' },
+    { name: 'Shipped', value: shipped.length, color: '#4a3fc4' },
+    { name: 'Delivered', value: orders.filter(o => o.status === 'delivered').length, color: '#1e5a38' },
   ].map(st => ({ ...st, pct: orders.length ? Math.round((st.value / orders.length) * 100) : 0 }));
 
   return (

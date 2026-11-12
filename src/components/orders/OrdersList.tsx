@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { ORDER_TABS, OrderRow } from '@/data/ordersData';
-import { usePlatformStore } from '@/lib/platformStore';
 import RowMenu, { RowMenuItem, BulkBar } from '@/components/ListPrimitives';
 import { exportToCsv } from '@/lib/csvExport';
 import styles from './OrdersPages.module.css';
@@ -31,38 +30,47 @@ function avatarClass(name: string): string {
 }
 
 export function OrdersList({ onNavigate, onToast, onCreate, onOpenPeek }: OrdersScreenProps) {
-  const store = usePlatformStore();
+  const [allOrders, setAllOrders] = useState<OrderRow[]>([]);
   const [activeTab, setActiveTab] = useState<string>('All');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [splitOpen, setSplitOpen] = useState(false);
 
-  const allOrders: OrderRow[] = store.documents
-    .filter(d => d.type === 'SalesOrder')
-    .map(d => {
-      const party = store.getParty(d.partyId);
-      const firstItem = d.lines[0]?.itemId ? store.getItem(d.lines[0].itemId) : null;
-      const supplier = firstItem?.supplierId ? store.getParty(firstItem.supplierId)?.name || '—' : '—';
-      const items = d.lines.map(l => `${l.description.split(' — ')[0]} ×${l.qty}`).join(', ');
-      const due = d.dueDate || d.date;
-      const slaPast = new Date(due) < new Date('2026-11-06');
-      const status: OrderRow['status'] =
-        d.status === 'Closed' ? 'Delivered'
-        : d.status === 'Fulfilled' ? 'Shipped'
-        : d.amountPaid > 0 ? 'Ready to Ship'
-        : 'Unfulfilled';
-      return {
-        docId: d.id,
-        id: `#${d.number.replace('SO-', '')}`,
-        customer: party?.name || '—',
-        items: items || '—',
-        supplier,
-        total: `$${d.total.toFixed(2)}`,
-        sla: slaPast ? 'Past SLA' : `${Math.max(0, Math.round((new Date(due).getTime() - new Date('2026-11-06').getTime()) / 86400000))}d left`,
-        slaPast,
-        status,
-      };
-    });
+  // REAL data from erp_orders via the Document Engine API
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/v1/documents?type=SalesOrder')
+      .then(r => r.json())
+      .then(json => {
+        if (cancelled) return;
+        const rows: OrderRow[] = (json.data || []).map((d: Record<string, unknown>) => {
+          const total = Number(d.total) || 0;
+          const balance = Number(d.balance_due) || 0;
+          const slaDue = d.sla_due_at as string | null;
+          const slaPast = slaDue ? new Date(slaDue) < new Date() : false;
+          const status: OrderRow['status'] =
+            d.status === 'closed' ? 'Delivered'
+            : d.status === 'fulfilled' || d.status === 'shipped' ? 'Shipped'
+            : Number(d.amount_paid) > 0 ? 'Ready to Ship'
+            : d.needs_attention ? 'Needs Attention'
+            : 'Unfulfilled';
+          return {
+            docId: String(d.id),
+            id: `#${String(d.order_number || '').replace('SO-', '')}`,
+            customer: d.customer_email ? String(d.customer_email).split('@')[0] : String(d.crm_customer_id || '—').slice(0, 8),
+            items: '—',
+            supplier: '—',
+            total: `$${total.toFixed(2)}`,
+            sla: slaDue ? (slaPast ? 'Past SLA' : `${Math.max(0, Math.round((new Date(slaDue).getTime() - Date.now()) / 86400000))}d left`) : '—',
+            slaPast,
+            status,
+          };
+        });
+        setAllOrders(rows);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const filtered = allOrders.filter((row) => {
     if (activeTab !== 'All' && row.status !== activeTab) return false;
@@ -108,15 +116,15 @@ export function OrdersList({ onNavigate, onToast, onCreate, onOpenPeek }: Orders
       items.push({ label: 'Print shipping label', icon: 'print', onClick: () => window.print() });
     }
     if (row.status === 'Ready to Ship' || row.status === 'Unfulfilled') {
-      items.push({ label: 'Mark shipped', icon: 'local_shipping', onClick: () => {
-        store.changeDocumentStatus(row.docId, 'Fulfilled');
+      items.push({ label: 'Mark shipped', icon: 'local_shipping', onClick: async () => {
+        await fetch(`/api/v1/documents/${row.docId}/send?type=SalesOrder`, { method: 'POST' }).catch(() => {});
         onToast(`Order ${row.id} marked shipped`);
       } });
     }
     items.push({ label: 'Refund…', icon: 'undo', dividerBefore: true, onClick: () => onToast(`Refund flow for ${row.id}`) });
     items.push({ label: 'Report a problem…', icon: 'report_problem', onClick: () => onToast(`Reporting problem for ${row.id}`) });
-    items.push({ label: 'Cancel order', icon: 'block', danger: true, onClick: () => {
-      store.changeDocumentStatus(row.docId, 'Void');
+    items.push({ label: 'Cancel order', icon: 'block', danger: true, onClick: async () => {
+      await fetch(`/api/v1/documents/${row.docId}/void?type=SalesOrder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Cancelled by user' }) }).catch(() => {});
       onToast(`Order ${row.id} cancelled`);
     } });
     return items;

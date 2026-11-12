@@ -143,19 +143,14 @@ export default function PaymentModal({
           const newAmountPaid = Number(inv.amount_paid || 0) + amt;
           const newBalance = Number(inv.total) - newAmountPaid;
           const newStatus = newBalance <= 0 ? 'PAID' : 'OPEN';
-          await fetch(`/api/invoices`, {
-            method: 'POST', // TODO: should be PATCH /api/invoices/[id]
+          await fetch(`/api/invoices/${inv.id}`, {
+            method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              customerId: prefill.partyId,
-              number: inv.number,
               status: newStatus,
-              subtotal: Number(inv.subtotal),
-              total: Number(inv.total),
-              balanceDue: newBalance,
               amount_paid: newAmountPaid,
-              dueDate: inv.dueDate,
-              notes: inv.notes,
+              balanceDue: newBalance,
+              paidAt: newBalance <= 0 ? new Date().toISOString() : null,
             }),
           }).catch(() => {});
         }

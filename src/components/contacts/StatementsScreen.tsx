@@ -2,9 +2,10 @@
 /* StatementsScreen — 1:1 port of upload/Contacts_extracted/Contacts/statements.html
    Now derived from the shared store: a statement is the party's invoice
    activity for a period (§Sales: "Statement | Workspace (batch)"). */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
-import { usePlatformStore } from '@/lib/platformStore';
+import type { Invoice } from '@/lib/accountingTypes';
+import type { Party } from '@/lib/platformStore';
 
 interface StatementsScreenProps { onToast: (m: string) => void; onNavigate?: (d: string, s: string) => void; }
 
@@ -23,30 +24,45 @@ const monthOf = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return
 function statusClass(s: string) { return s === 'Sent' ? 'sent' : s === 'Overdue' ? 'overdue' : s === 'Paid' ? 'paid' : s === 'Draft' ? 'draft' : s === 'Partial' ? 'partial' : 'sent'; }
 
 export default function StatementsScreen({ onToast }: StatementsScreenProps) {
-  const store = usePlatformStore();
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [customers, setCustomers] = useState<Party[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch('/api/invoices').then(r => r.json()).then(j => j.data || []),
+      fetch('/api/parties').then(r => r.json()).then(j => j.data || []),
+    ]).then(([inv, parties]) => {
+      if (cancelled) return;
+      setInvoices(inv);
+      setCustomers(parties.filter((p: Party) => p.roles?.includes('Customer') || p.source === 'crm_customers'));
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+    return () => { cancelled = true; };
+  }, []);
 
   /* A statement = one customer's invoice activity for their most recent
-   period, derived live from the shared store. */
-  const items: Stmt[] = store.parties
-    .filter(p => p.roles.includes('Customer'))
+     period, derived from REAL database invoices. */
+  const items: Stmt[] = customers
     .map((p, ci) => {
-      const invoices = store.documents.filter(d => d.partyId === p.id && d.type === 'Invoice');
-      if (invoices.length === 0) return null;
-      const invoiced = invoices.reduce((s, d) => s + d.total, 0);
-      const paid = invoices.reduce((s, d) => s + d.amountPaid, 0);
-      const due = invoices.reduce((s, d) => s + d.balance, 0);
-      const hasOverdue = invoices.some(d => d.status === 'Overdue');
-      const hasDraft = invoices.some(d => d.status === 'Draft');
+      const partyInvoices = invoices.filter(inv => inv.customerId === p.id);
+      if (partyInvoices.length === 0) return null;
+      const invoiced = partyInvoices.reduce((s, d) => s + Number(d.total), 0);
+      const paid = partyInvoices.reduce((s, d) => s + Number(d.amount_paid || 0), 0);
+      const due = partyInvoices.reduce((s, d) => s + Number(d.balanceDue || 0), 0);
+      const hasOverdue = partyInvoices.some(d => d.status === 'OVERDUE' || d.status === 'Overdue');
+      const hasDraft = partyInvoices.some(d => d.status === 'DRAFT' || d.status === 'Draft');
       const status = hasOverdue ? 'Overdue' : hasDraft ? 'Draft' : due <= 0 ? 'Paid' : paid > 0 ? 'Partial' : 'Sent';
-      const latest = invoices.reduce((a, b) => (a.date > b.date ? a : b));
-      const period = monthOf(latest.date);
+      const latest = partyInvoices.reduce((a, b) => ((a.createdAt || '') > (b.createdAt || '') ? a : b));
+      const period = monthOf(latest.createdAt?.slice(0, 10) || '');
       return {
         id: `ST-${p.id.slice(-4)}`, partyId: p.id,
-        customer: p.name, email: p.email,
-        period, date: latest.date, due: latest.dueDate || latest.date,
+        customer: p.name, email: p.email || '',
+        period, date: latest.createdAt?.slice(0, 10) || '', due: latest.dueDate || latest.createdAt?.slice(0, 10) || '',
         invoiced: money(invoiced), paid: `−${money(paid)}`, dueAmt: money(due),
         status, balance: money(due),
-        lines: invoices.map(d => ({ date: d.date.slice(5).replace('-', '/'), desc: `Invoice ${d.number}`, amt: money(d.total), paid: money(d.amountPaid), bal: money(d.balance) })),
+        lines: partyInvoices.map(d => ({ date: (d.createdAt?.slice(0, 10) || '').slice(5).replace('-', '/'), desc: `Invoice ${d.number}`, amt: money(Number(d.total)), paid: money(Number(d.amount_paid || 0)), bal: money(Number(d.balanceDue || 0)) })),
         avatarColor: AVATAR_COLORS[ci % AVATAR_COLORS.length], avatarLetter: (p.name[0] || '?').toUpperCase(),
       };
     }).filter((s): s is Stmt => s !== null);

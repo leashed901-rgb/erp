@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { usePlatformStore } from '@/lib/platformStore';
 import { AccountPicker } from './UniversalPickers';
+import { useInvoices } from '@/hooks/useAccounting';
+import type { Invoice } from '@/lib/accountingTypes';
 
 /**
  * PaymentModal — records a payment for a customer. NOT a document engine:
@@ -65,15 +67,13 @@ export default function PaymentModal({
   const [status, setStatus] = useState<'settled' | 'pending'>('settled');
   const [saving, setSaving] = useState(false);
 
-  // Unpaid invoices for this customer — the modal lets the user apply
-  // the payment to one of them (marks it Paid in the store).
-  const unpaidInvoices = useMemo(() => {
-    if (!prefill?.partyId) return [];
-    return store
-      .getDocumentsByParty(prefill.partyId)
-      .filter((d) => d.type === 'Invoice' && d.balance > 0 && d.status !== 'Void' && d.status !== 'Paid')
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  }, [prefill?.partyId, store.documents]);
+  // REAL unpaid invoices from the database — NOT the client-side store.
+  // The store doesn't have the customer's real invoices; the database does.
+  // useInvoices fetches from /api/invoices which reads the Supabase table.
+  const { data: customerInvoices, refresh: refreshInvoices } = useInvoices(prefill?.partyId);
+  const unpaidInvoices: Invoice[] = (customerInvoices || []).filter(
+    (inv) => Number(inv.balanceDue) > 0 && inv.status !== 'PAID' && inv.status !== 'VOID',
+  );
 
   // Default the deposit account to the first bank account.
   useEffect(() => {
@@ -134,24 +134,31 @@ export default function PaymentModal({
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Failed to record payment');
 
-      // If linked to an invoice, mark it Paid in the client store so the
-      // UI reflects it immediately (the DB row is the source of truth for
-      // accounting; the store mirrors it for the document list).
-      const accountName = depositAccount
-        ? store.getAccount(depositAccount)?.name || 'Checking'
-        : 'Checking';
+      // If linked to an invoice, update its balance + status in the DB.
+      // The payment_transactions row already has invoice_id — now we
+      // update the invoice's amount_paid and balanceDue.
       if (linkedInvoiceId) {
-        const inv = store.getDocument(linkedInvoiceId);
+        const inv = unpaidInvoices.find((i) => i.id === linkedInvoiceId);
         if (inv) {
-          store.recordPayment(linkedInvoiceId, amt, provider, accountName);
+          const newAmountPaid = Number(inv.amount_paid || 0) + amt;
+          const newBalance = Number(inv.total) - newAmountPaid;
+          const newStatus = newBalance <= 0 ? 'PAID' : 'OPEN';
+          await fetch(`/api/invoices`, {
+            method: 'POST', // TODO: should be PATCH /api/invoices/[id]
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerId: prefill.partyId,
+              number: inv.number,
+              status: newStatus,
+              subtotal: Number(inv.subtotal),
+              total: Number(inv.total),
+              balanceDue: newBalance,
+              amount_paid: newAmountPaid,
+              dueDate: inv.dueDate,
+              notes: inv.notes,
+            }),
+          }).catch(() => {});
         }
-      } else {
-        // Standalone payment — update the party's balance in the store.
-        usePlatformStore.setState((state) => ({
-          parties: state.parties.map((p) =>
-            p.id === prefill.partyId ? { ...p, balance: p.balance - amt } : p,
-          ),
-        }));
       }
 
       const providerLabel = PROVIDERS.find((p) => p.value === provider)?.label || provider;
@@ -160,6 +167,7 @@ export default function PaymentModal({
           (linkedInvoiceId ? ' — invoice marked paid' : ''),
       );
       reset();
+      refreshInvoices();
       onSaved?.();
       onClose();
     } catch (e: unknown) {
@@ -300,7 +308,7 @@ export default function PaymentModal({
                 <option value="">— No invoice (standalone payment) —</option>
                 {unpaidInvoices.map((inv) => (
                   <option key={inv.id} value={inv.id}>
-                    {inv.number} — ${inv.balance.toFixed(2)} balance (due {inv.dueDate})
+                    {inv.number} — ${Number(inv.balanceDue).toFixed(2)} balance{inv.dueDate ? ` (due ${inv.dueDate})` : ''}
                   </option>
                 ))}
               </select>

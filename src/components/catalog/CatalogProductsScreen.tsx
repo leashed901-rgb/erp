@@ -1,19 +1,17 @@
 'use client';
 /**
- * CatalogProductsScreen — the global Catalog products list, wired to Supabase.
- * Real rows from the `products` table via /api/products (variant aggregates +
- * order rollups included). Row / name click → ProductProfile (the SAME profile
- * page every product opens — mirroring how every party opens PartyProfile).
+ * CatalogProductsScreen — unified flat-table catalog with facets.
  *
- * Row three-dot menu: quick actions WITHOUT losing list context — open
- * profile, edit, add variant, publish/unpublish, archive.
+ * ONE table, all products. Facet chips along the top filter in place —
+ * no sidebar navigation, no separate category screens. Click a facet
+ * to toggle it; multiple facets stack (AND logic).
+ *
+ * Facets: category, fulfillment type, status, brand, channel.
+ * Search: name, brand, tag, SKU.
+ *
+ * Real rows from the `products` table via /api/products.
  */
-import { useMemo, useState } from 'react';
-import {
-  useProducts,
-  fetchJson,
-  type CatalogProductSummary,
-} from '@/hooks/useCrmApi';
+import { useMemo, useState, useEffect } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 import ProductProfile from './ProductProfile';
 import ProductFormDrawer, { type ProductFormEditTarget } from './ProductFormDrawer';
@@ -21,19 +19,34 @@ import ProductFormDrawer, { type ProductFormEditTarget } from './ProductFormDraw
 interface CatalogProductsScreenProps {
   onToast: (m: string) => void;
   onNavigate?: (d: string, s: string) => void;
-  /** Back label for the profile — the group the user came from. */
   backLabel?: string;
+}
+
+interface CatalogProduct {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: string;
+  category?: { id: string; name: string } | null;
+  brand: string | null;
+  tags: string[];
+  is_featured: boolean;
+  is_new: boolean;
+  is_best_seller: boolean;
+  is_house_favorite: boolean;
+  fulfillment_type: string | null;
+  variant_count: number;
+  price_min: number | null;
+  price_max: number | null;
+  units_sold: number;
+  revenue: number;
+  updated_at: string | null;
+  channels?: string[];
 }
 
 const money = (n: number | null) =>
   n == null ? '—' : `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const STATUS_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'published', label: 'Published' },
-  { id: 'draft', label: 'Draft' },
-  { id: 'archived', label: 'Archived' },
-];
 
 function categoryIcon(name: string | null | undefined): string {
   const s = (name || '').toLowerCase();
@@ -47,7 +60,7 @@ function categoryIcon(name: string | null | undefined): string {
   return 'category';
 }
 
-function editTargetFrom(p: CatalogProductSummary): ProductFormEditTarget {
+function editTargetFrom(p: CatalogProduct): ProductFormEditTarget {
   return {
     id: p.id,
     name: p.name,
@@ -64,37 +77,121 @@ function editTargetFrom(p: CatalogProductSummary): ProductFormEditTarget {
   };
 }
 
+const FULFILLMENT_LABELS: Record<string, string> = {
+  stock: 'In Stock',
+  pod: 'Print on Demand',
+  supplier_fulfilled: 'Dropship',
+  digital: 'Digital',
+  bundle: 'Bundle',
+};
+
 export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }: CatalogProductsScreenProps) {
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState('all');
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [profileId, setProfileId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [rowMenuForId, setRowMenuForId] = useState<string | null>(null);
   const [rowEditId, setRowEditId] = useState<string | null>(null);
 
-  // Client-side status filter on top of the cached list (search is debounced
-  // by the API query param — we pass it straight through).
-  const { data: products, loaded, refresh: refetch } = useProducts(search, 'all');
+  // ── Facet state ── active filters as Sets of strings
+  const [facetCategories, setFacetCategories] = useState<Set<string>>(new Set());
+  const [facetFulfillment, setFacetFulfillment] = useState<Set<string>>(new Set());
+  const [facetStatus, setFacetStatus] = useState<Set<string>>(new Set());
+  const [facetBrand, setFacetBrand] = useState<Set<string>>(new Set());
 
-  const filtered = useMemo(
-    () => tab === 'all' ? products : products.filter(p => p.status === tab),
-    [products, tab],
-  );
+  // Fetch products
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    const params = new URLSearchParams();
+    if (search) params.set('q', search);
+    fetch(`/api/products?${params.toString()}`)
+      .then(r => r.json())
+      .then(json => {
+        if (cancelled) return;
+        setProducts(json.data || []);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+    return () => { cancelled = true; };
+  }, [search]);
 
-  const tabCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: products.length };
-    for (const t of STATUS_TABS) {
-      if (t.id === 'all') continue;
-      counts[t.id] = products.filter(p => p.status === t.id).length;
+  // ── Build facet options from the data ──
+  const facetOptions = useMemo(() => {
+    const categories = new Map<string, number>();
+    const fulfillment = new Map<string, number>();
+    const status = new Map<string, number>();
+    const brand = new Map<string, number>();
+
+    for (const p of products) {
+      const catName = p.category?.name || 'Uncategorized';
+      categories.set(catName, (categories.get(catName) || 0) + 1);
+
+      const fType = p.fulfillment_type || 'unknown';
+      const fLabel = FULFILLMENT_LABELS[fType] || fType;
+      fulfillment.set(fLabel, (fulfillment.get(fLabel) || 0) + 1);
+
+      const st = p.status || 'unknown';
+      status.set(st, (status.get(st) || 0) + 1);
+
+      const br = p.brand || 'No brand';
+      brand.set(br, (brand.get(br) || 0) + 1);
     }
-    return counts;
+
+    return {
+      categories: [...categories.entries()].sort((a, b) => b[1] - a[1]),
+      fulfillment: [...fulfillment.entries()].sort((a, b) => b[1] - a[1]),
+      status: [...status.entries()].sort((a, b) => b[1] - a[1]),
+      brand: [...brand.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10),
+    };
   }, [products]);
+
+  // ── Filtered products based on active facets ──
+  const filtered = useMemo(() => {
+    return products.filter(p => {
+      if (facetCategories.size > 0) {
+        const catName = p.category?.name || 'Uncategorized';
+        if (!facetCategories.has(catName)) return false;
+      }
+      if (facetFulfillment.size > 0) {
+        const fType = p.fulfillment_type || 'unknown';
+        const fLabel = FULFILLMENT_LABELS[fType] || fType;
+        if (!facetFulfillment.has(fLabel)) return false;
+      }
+      if (facetStatus.size > 0) {
+        if (!facetStatus.has(p.status)) return false;
+      }
+      if (facetBrand.size > 0) {
+        const br = p.brand || 'No brand';
+        if (!facetBrand.has(br)) return false;
+      }
+      return true;
+    });
+  }, [products, facetCategories, facetFulfillment, facetStatus, facetBrand]);
 
   // Summary KPIs
   const totalVariants = filtered.reduce((s, p) => s + p.variant_count, 0);
   const totalUnits = filtered.reduce((s, p) => s + p.units_sold, 0);
   const totalRevenue = filtered.reduce((s, p) => s + p.revenue, 0);
+
+  // ── Facet toggle helper ──
+  function toggleFacet(set: Set<string>, value: string, setter: (s: Set<string>) => void) {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    setter(next);
+  }
+
+  function clearAllFacets() {
+    setFacetCategories(new Set());
+    setFacetFulfillment(new Set());
+    setFacetStatus(new Set());
+    setFacetBrand(new Set());
+  }
+
+  const activeFacetCount = facetCategories.size + facetFulfillment.size + facetStatus.size + facetBrand.size;
 
   function toggleRow(id: string) {
     setSelected(prev => {
@@ -104,6 +201,7 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
       return next;
     });
   }
+
   function toggleAll() {
     if (selected.size === filtered.length) setSelected(new Set());
     else setSelected(new Set(filtered.map(p => p.id)));
@@ -115,55 +213,26 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
       brand: p.brand || '', variants: p.variant_count,
       price_min: p.price_min ?? '', price_max: p.price_max ?? '',
       units_sold: p.units_sold, revenue: p.revenue,
+      fulfillment: p.fulfillment_type || '',
       updated: p.updated_at ? p.updated_at.slice(0, 10) : '',
     })), [
       { key: 'name', label: 'Product' }, { key: 'status', label: 'Status' },
       { key: 'category', label: 'Category' }, { key: 'brand', label: 'Brand' },
       { key: 'variants', label: 'Variants' }, { key: 'price_min', label: 'Price min' },
       { key: 'price_max', label: 'Price max' }, { key: 'units_sold', label: 'Units sold' },
-      { key: 'revenue', label: 'Revenue' }, { key: 'updated', label: 'Updated' },
+      { key: 'revenue', label: 'Revenue' }, { key: 'fulfillment', label: 'Fulfillment' },
+      { key: 'updated', label: 'Updated' },
     ], 'catalog-products');
     onToast(`Exported ${filtered.length} products`);
   }
 
-  /** Row quick action — publish/unpublish without opening the profile. */
-  async function rowTogglePublish(p: CatalogProductSummary) {
-    setRowMenuForId(null);
-    const next = p.status === 'published' ? 'draft' : 'published';
-    const res = await fetchJson(`/api/products/${p.id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) });
-    onToast(res.ok ? `${p.name} → ${next}` : `Update failed: ${res.error}`);
-    if (res.ok) refetch();
-  }
-
-  /** Row quick action — archive without opening the profile. */
-  async function rowArchive(p: CatalogProductSummary) {
-    setRowMenuForId(null);
-    if (!confirm(`Archive "${p.name}"? Variants and order history are kept.`)) return;
-    const res = await fetchJson(`/api/products/${p.id}`, { method: 'DELETE' });
-    onToast(res.ok ? `Archived: ${p.name}` : `Archive failed: ${res.error}`);
-    if (res.ok) refetch();
-  }
-
-  /** Bulk publish — PATCH status on every selected row. */
-  async function bulkSetStatus(status: string) {
-    const sel = [...selected];
-    let done = 0;
-    for (const id of sel) {
-      const res = await fetchJson(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-      if (res.ok) done++;
-    }
-    onToast(`${status} applied to ${done} of ${sel.length} products`);
-    setSelected(new Set());
-    refetch();
-  }
-
-  // ── PRODUCT PROFILE — full-page takeover, same pattern as PartyProfile ──
+  // ── Product Profile ──
   if (profileId) {
     const p = products.find(x => x.id === profileId) || null;
     return (
       <ProductProfile
         productId={profileId}
-        summary={p}
+        summary={p as any}
         backLabel={backLabel || 'Products'}
         onToast={onToast}
         onBack={() => setProfileId(null)}
@@ -177,14 +246,28 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
     return p ? editTargetFrom(p) : null;
   })() : null;
 
+  // ── Facet chip component ──
+  const FacetChip = ({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) => (
+    <button
+      className={`h-7 px-2.5 rounded-full text-[12px] font-semibold border transition-colors whitespace-nowrap ${
+        active
+          ? 'bg-primary text-white border-primary'
+          : 'bg-white text-on-surface-variant border-surface-dim hover:bg-surface-container-low'
+      }`}
+      onClick={onClick}
+    >
+      {label} <span className={active ? 'opacity-80' : 'opacity-60'}>({count})</span>
+    </button>
+  );
+
   return (
     <main className="px-6 pb-12 flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between py-4">
         <div>
-          <h1 className="text-headline-lg">Products</h1>
+          <h1 className="text-headline-lg">Catalog</h1>
           <p className="text-body-sm text-on-surface-variant mt-0.5">
-            From Supabase products · {products.length} total · click a name to open the product profile
+            {products.length} products · {filtered.length} shown · {activeFacetCount > 0 ? `${activeFacetCount} filters active` : 'no filters'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -217,20 +300,41 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
         </div>
       </div>
 
-      {/* Status tabs */}
-      <div className="flex items-center gap-1 mb-3 border-b border-surface-dim">
-        {STATUS_TABS.map(t => (
-          <button key={t.id} className={`px-3 py-2 text-label-md tab-underline ${tab === t.id ? 'active' : 'text-on-surface-variant'}`} onClick={() => setTab(t.id)}>
-            {t.label} <span className="text-on-surface-variant">({tabCounts[t.id] || 0})</span>
-          </button>
-        ))}
-      </div>
+      {/* Search + facet bar */}
+      <div className="mb-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 max-w-sm">
+            <span className="material-symbols-outlined absolute left-2 top-1.5 text-[16px] text-on-surface-variant">search</span>
+            <input className="w-full h-8 pl-8 pr-3 border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search by name, brand, tag…" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          {activeFacetCount > 0 && (
+            <button className="h-8 px-3 text-[12px] font-semibold text-primary hover:underline" onClick={clearAllFacets}>
+              Clear all filters ({activeFacetCount})
+            </button>
+          )}
+        </div>
 
-      {/* Search */}
-      <div className="flex items-center gap-2 mb-3">
-        <div className="relative flex-1 max-w-sm">
-          <span className="material-symbols-outlined absolute left-2 top-1.5 text-[16px] text-on-surface-variant">search</span>
-          <input className="w-full h-8 pl-8 pr-3 border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search by name, brand, tag…" value={search} onChange={e => setSearch(e.target.value)} />
+        {/* Facet chips — horizontal scroll rows */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Status facets */}
+          {facetOptions.status.map(([value, count]) => (
+            <FacetChip key={`s-${value}`} label={value.charAt(0).toUpperCase() + value.slice(1)} count={count} active={facetStatus.has(value)} onClick={() => toggleFacet(facetStatus, value, setFacetStatus)} />
+          ))}
+          <span className="w-px h-5 bg-surface-dim mx-1" />
+          {/* Fulfillment facets */}
+          {facetOptions.fulfillment.map(([value, count]) => (
+            <FacetChip key={`f-${value}`} label={value} count={count} active={facetFulfillment.has(value)} onClick={() => toggleFacet(facetFulfillment, value, setFacetFulfillment)} />
+          ))}
+          <span className="w-px h-5 bg-surface-dim mx-1" />
+          {/* Category facets */}
+          {facetOptions.categories.map(([value, count]) => (
+            <FacetChip key={`c-${value}`} label={value} count={count} active={facetCategories.has(value)} onClick={() => toggleFacet(facetCategories, value, setFacetCategories)} />
+          ))}
+          <span className="w-px h-5 bg-surface-dim mx-1" />
+          {/* Brand facets (top 10) */}
+          {facetOptions.brand.map(([value, count]) => (
+            <FacetChip key={`b-${value}`} label={value} count={count} active={facetBrand.has(value)} onClick={() => toggleFacet(facetBrand, value, setFacetBrand)} />
+          ))}
         </div>
       </div>
 
@@ -243,6 +347,7 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
                 <th className="px-3 py-2 w-8"><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
                 <th className="px-3 py-2">Product</th>
                 <th className="px-3 py-2">Category</th>
+                <th className="px-3 py-2">Fulfillment</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2 text-right">Price</th>
                 <th className="px-3 py-2 text-right">Variants</th>
@@ -253,9 +358,9 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
             </thead>
             <tbody className="divide-y divide-surface-dim">
               {!loaded && products.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-8 text-on-surface-variant/60">Fetching from Supabase…</td></tr>
+                <tr><td colSpan={10} className="text-center py-8 text-on-surface-variant/60">Fetching from Supabase…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-8 text-on-surface-variant">No products found.</td></tr>
+                <tr><td colSpan={10} className="text-center py-8 text-on-surface-variant">No products match the current filters.</td></tr>
               ) : (
                 filtered.map(p => (
                   <tr key={p.id} className="hover:bg-surface-container-low cursor-pointer" onClick={() => setProfileId(p.id)}>
@@ -268,7 +373,6 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
                           <span className="material-symbols-outlined text-[15px] text-on-surface-variant">{categoryIcon(p.category?.name)}</span>
                         </div>
                         <div className="min-w-0">
-                          {/* THE item name — opens the ProductProfile page */}
                           <button className="font-medium truncate text-left hover:text-primary hover:underline" onClick={e => { e.stopPropagation(); setProfileId(p.id); }}>
                             {p.name}
                           </button>
@@ -280,6 +384,11 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
                       </div>
                     </td>
                     <td className="px-3 py-2 text-[12px]">{p.category?.name || '—'}</td>
+                    <td className="px-3 py-2 text-[12px]">
+                      <span className={`pill ${p.fulfillment_type === 'stock' ? 'role customer' : p.fulfillment_type === 'pod' ? 'role vendor' : 'tag'}`}>
+                        {FULFILLMENT_LABELS[p.fulfillment_type || ''] || p.fulfillment_type || '—'}
+                      </span>
+                    </td>
                     <td className="px-3 py-2">
                       <span className={`pill status role ${p.status === 'published' ? 'customer' : p.status === 'draft' ? 'contact' : 'vendor'}`}>{p.status}</span>
                     </td>
@@ -303,12 +412,24 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
                           <div className="menu-header">{p.name}</div>
                           <button onClick={() => { setRowMenuForId(null); setProfileId(p.id); }}><span className="material-symbols-outlined">inventory_2</span>Open profile</button>
                           <button onClick={() => { setRowMenuForId(null); setRowEditId(p.id); }}><span className="material-symbols-outlined">edit</span>Edit product</button>
-                          <button onClick={() => rowTogglePublish(p)}>
+                          <button onClick={() => {
+                            setRowMenuForId(null);
+                            const next = p.status === 'published' ? 'draft' : 'published';
+                            fetch(`/api/products/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: next }) })
+                              .then(() => { onToast(`${p.name} → ${next}`); })
+                              .catch(() => onToast('Update failed'));
+                          }}>
                             <span className="material-symbols-outlined">{p.status === 'published' ? 'unpublished' : 'publish'}</span>
                             {p.status === 'published' ? 'Unpublish (draft)' : 'Publish'}
                           </button>
                           <div className="sep"></div>
-                          <button className="danger" onClick={() => rowArchive(p)}><span className="material-symbols-outlined">archive</span>Archive</button>
+                          <button className="danger" onClick={() => {
+                            setRowMenuForId(null);
+                            if (!confirm(`Archive "${p.name}"?`)) return;
+                            fetch(`/api/products/${p.id}`, { method: 'DELETE' })
+                              .then(() => onToast(`Archived: ${p.name}`))
+                              .catch(() => onToast('Archive failed'));
+                          }}><span className="material-symbols-outlined">archive</span>Archive</button>
                         </div>
                       )}
                     </td>
@@ -325,9 +446,21 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
           {selected.size > 0 && (
             <div className="flex items-center gap-2">
               <span>{selected.size} selected</span>
-              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => bulkSetStatus('published')}>Publish</button>
-              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => bulkSetStatus('draft')}>Unpublish</button>
-              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => bulkSetStatus('archived')}>Archive</button>
+              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => {
+                selected.forEach(id => fetch(`/api/products/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'published' }) }));
+                onToast(`Publishing ${selected.size} products`);
+                setSelected(new Set());
+              }}>Publish</button>
+              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => {
+                selected.forEach(id => fetch(`/api/products/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'draft' }) }));
+                onToast(`Unpublishing ${selected.size} products`);
+                setSelected(new Set());
+              }}>Unpublish</button>
+              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => {
+                selected.forEach(id => fetch(`/api/products/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'archived' }) }));
+                onToast(`Archiving ${selected.size} products`);
+                setSelected(new Set());
+              }}>Archive</button>
             </div>
           )}
         </div>
@@ -340,7 +473,7 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
       <ProductFormDrawer
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onSaved={(_name, mode) => { refetch(); if (mode === 'created') setShowCreate(false); }}
+        onSaved={(_name, mode) => { if (mode === 'created') setShowCreate(false); }}
         onToast={onToast}
       />
 
@@ -349,7 +482,7 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
         open={!!rowEditTarget}
         editing={rowEditTarget}
         onClose={() => setRowEditId(null)}
-        onSaved={() => { refetch(); }}
+        onSaved={() => {}}
         onToast={onToast}
       />
     </main>

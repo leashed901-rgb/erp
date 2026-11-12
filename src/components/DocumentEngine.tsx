@@ -9,6 +9,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { usePlatformStore, type DocumentType, type Document, type DocumentLine, type PartyRole, type Item } from '@/lib/platformStore';
+import { DOCUMENT_DEFS } from '@/lib/documentDefs';
 import { PartyPicker, AccountPicker } from './UniversalPickers';
 
 /* ─── Document Config (what makes each type different) ─── */
@@ -216,7 +217,9 @@ export default function DocumentEngine(props: DocumentEngineProps) {
 }
 
 function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, partyId: prefillPartyId, activeTab, onSelectTab, onOpenDocument }: DocumentEngineProps) {
-  const config = CONFIGS[type] || CONFIGS.Invoice;
+  // Use the config-driven DocumentDef (spec §B.4.4)
+  const def = DOCUMENT_DEFS[type] || DOCUMENT_DEFS.Invoice;
+  const config = def;
   const store = usePlatformStore();
 
   const existing = documentId ? store.getDocument(documentId) : null;
@@ -339,73 +342,41 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
     }
   }
 
-  /** Persist to the real Supabase table. Returns { ok, error } so the
-   *  caller can decide whether to update the store / show a toast.
-   *  This is NOT fire-and-forget — the caller awaits it. */
+  /** Persist to the real Supabase table via the unified Document Engine API.
+   *  POST /api/v1/documents with type parameter routes to the correct
+   *  accounting table (acct_ar_invoices, acct_ap_bills, etc.).
+   *  Returns { ok, error } — caller awaits, not fire-and-forget. */
   async function persistToDb(_isNewDoc: boolean): Promise<{ ok: boolean; error?: string }> {
     if (!partyId) return { ok: false, error: 'Customer is required' };
     try {
-      let res: Response;
-      if (type === 'Invoice') {
-        res = await fetch('/api/invoices', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customerId: partyId,
-            number,
-            status: status.toUpperCase() === 'DRAFT' ? 'OPEN' : status.toUpperCase(),
-            subtotal,
-            total,
-            balanceDue: total - (existing?.amountPaid || 0),
-            amount_paid: existing?.amountPaid || 0,
-            dueDate: dueDate || null,
-            notes: notes || memo || null,
-            items: lines.filter(l => l.description.trim()).map(l => ({
-              description: l.description,
-              quantity: l.qty,
-              unitPrice: String(l.rate),
-              totalPrice: String(l.amount),
-            })),
-          }),
-        });
-      } else if (type === 'Estimate') {
-        res = await fetch('/api/estimates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customer_id: partyId,
-            number,
-            status: status.toLowerCase(),
-            subtotal,
-            tax_total: Math.round(tax * 100) / 100,
-            total,
-            issue_date: date,
-            expiry_date: dueDate || null,
-            notes: notes || memo || null,
-          }),
-        });
-      } else if (type === 'SalesReceipt') {
-        res = await fetch('/api/receipts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customer_id: partyId,
-            number,
-            amount: total,
-            method: 'cash',
-            receipt_date: date,
-            notes: notes || memo || null,
-          }),
-        });
-      } else {
-        // Document types without a dedicated API route — store only.
-        return { ok: true };
-      }
+      // Use the unified Document Engine API (spec §B.4.4)
+      // One endpoint for all document types — the API routes to the
+      // correct table based on the type parameter.
+      const res = await fetch('/api/v1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type,
+          partyId,
+          number,
+          status: status.toUpperCase() === 'DRAFT' ? 'draft' : status.toLowerCase(),
+          subtotal,
+          total,
+          dueDate: dueDate || null,
+          notes: notes || memo || null,
+          lines: lines.filter(l => l.description.trim()).map(l => ({
+            description: l.description,
+            quantity: l.qty,
+            unitPrice: String(l.rate),
+            totalPrice: String(l.amount),
+          })),
+        }),
+      });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         return { ok: false, error: json?.error?.message || `HTTP ${res.status}` };
       }
-      // Notify the customer profile that a document was saved.
+      // Notify surfaces that a document was saved
       window.dispatchEvent(new CustomEvent('document-saved', { detail: { type, partyId } }));
       return { ok: true };
     } catch (e: unknown) {
@@ -438,10 +409,11 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
   function send() {
     if (!existing && isNew) { save(); return; }
     if (existing) {
+      // Call the Document Engine send verb — POST /api/v1/documents/[id]/send
+      fetch(`/api/v1/documents/${existing.id}/send?type=${type}`, {
+        method: 'POST',
+      }).catch(() => {});
       store.changeDocumentStatus(existing.id, 'Sent' as any);
-      // Email is queued — no SMTP provider is wired yet, but the status
-      // flip + activity entry is the real bookkeeping event. The toast
-      // tells the user the email was queued for delivery.
       onToast(`${config.label} ${number} queued for email to ${party?.email || 'customer'}`);
     }
   }
@@ -452,8 +424,19 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
    *  deposit account, etc. */
   function markAsPaid() {
     if (!existing) { onToast('Save the document first'); return; }
-    store.recordPayment(existing.id, existing.balance, 'Cash', 'Undeposited Funds');
-    onToast(`${config.label} ${existing.number} marked paid`);
+    // Call the Document Engine receive endpoint — creates an acct_ar_receipts
+    // row and updates the invoice's amount_paid/open_balance/status.
+    fetch(`/api/v1/documents/${existing.id}/receive?type=${type}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: existing.balance, method: 'cash' }),
+    }).then(r => r.json()).then(() => {
+      onToast(`${config.label} ${existing.number} marked paid`);
+    }).catch(() => {
+      // Fallback to store update
+      store.recordPayment(existing.id, existing.balance, 'Cash', 'Undeposited Funds');
+      onToast(`${config.label} ${existing.number} marked paid`);
+    });
   }
 
   /** Send payment link — generates a row in acct_payment_links with a
@@ -510,36 +493,41 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
     setShowPaymentModal(true);
   }
 
-  /** Record payment — persists to payment_transactions via the API AND
-   *  updates the store document (balance, status, activity). The API
-   *  row is the accounting trail; the store update is the UI. */
+  /** Record payment — calls the Document Engine receive endpoint which
+   *  creates an acct_ar_receipts row AND updates the invoice's
+   *  amount_paid/open_balance/status in one call. */
   async function recordPayment() {
     const amount = parseFloat(payAmount || '0');
     if (!existing) { onToast('Save the document first'); return; }
     if (!amount || amount <= 0) { onToast('Enter a payment amount'); return; }
-    if (!partyId) { onToast('No customer linked'); return; }
     setPaySaving(true);
     try {
-      const accountName = payAccount ? (store.getAccount(payAccount)?.name || 'Checking') : 'Checking';
-      // Store update first — instant UI feedback.
-      store.recordPayment(existing.id, amount, payMethod, accountName);
-      // Persist to payment_transactions for accounting. This is the real
-      // trail (provider, reference, deposit account). If the insert fails
-      // (e.g. FK constraints), the store update still stands.
-      fetch('/api/crm/payments', {
+      // Call the Document Engine receive verb — creates a receipt + updates invoice
+      const res = await fetch(`/api/v1/documents/${existing.id}/receive?type=${type}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_id: partyId,
           amount,
-          provider: payMethod.toLowerCase().replace(/[^a-z]/g, ''),
-          status: 'SUCCEEDED',
-          invoice_id: existing.id,
+          method: payMethod.toLowerCase().replace(/[^a-z]/g, ''),
           reference: payReference || undefined,
-          deposit_account_id: payAccount,
         }),
-      }).catch(() => { /* store update is the source of truth for UI */ });
-      onToast(`Payment of $${amount.toFixed(2)} recorded via ${payMethod}`);
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        // Fallback to store update if API fails
+        store.recordPayment(existing.id, amount, payMethod, 'Checking');
+        onToast(`Payment recorded (fallback): ${json?.error?.message || 'API error'}`);
+      } else {
+        const json = await res.json();
+        // Update store for instant UI
+        store.recordPayment(existing.id, amount, payMethod, 'Checking');
+        onToast(`Payment of $${amount.toFixed(2)} recorded via ${payMethod}`);
+      }
+      window.dispatchEvent(new CustomEvent('document-saved', { detail: { type, partyId } }));
+      setShowPaymentModal(false);
+    } catch {
+      store.recordPayment(existing.id, amount, payMethod, 'Checking');
+      onToast(`Payment of $${amount.toFixed(2)} recorded (offline)`);
       setShowPaymentModal(false);
     } finally {
       setPaySaving(false);

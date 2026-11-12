@@ -203,10 +203,26 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
     icon: 'inventory_2',
     groups: [
       {
-        name: 'Catalog',
-        icon: 'inventory_2',
+        name: 'Catalog Overview',
+        icon: 'play_circle',
         bg: 'bg-qb-navy',
-        screens: [{ id: 'products', label: 'Products', type: 'list' }],
+        screens: [{ id: 'catalog-overview', label: 'Overview', type: 'overview' }],
+      },
+      {
+        name: 'Products & Variants',
+        icon: 'checkroom',
+        bg: 'bg-qb-green',
+        screens: [
+          { id: 'products', label: 'Products', type: 'list' },
+          { id: 'listings', label: 'Listings', type: 'list' },
+          { id: 'blanks', label: 'Blanks', type: 'list' },
+          { id: 'catalog-review', label: 'Catalog review', type: 'list' },
+          { id: 'catalog-items', label: 'Catalog items', type: 'list' },
+          { id: 'published-skus', label: 'Published Items & SKUs', type: 'list' },
+          { id: 'bundles', label: 'Bundles', type: 'list' },
+          { id: 'categories', label: 'Categories', type: 'list' },
+          { id: 'catalog-parties', label: 'Suppliers / Vendors / Sellers', type: 'list' },
+        ],
       },
       {
         name: 'Channels',

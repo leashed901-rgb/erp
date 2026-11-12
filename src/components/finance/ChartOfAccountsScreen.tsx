@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
-import { usePlatformStore } from '@/lib/platformStore';
+
 import styles from './ChartOfAccountsScreen.module.css';
 
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense';
@@ -69,7 +69,7 @@ const DETAIL_TYPES: Record<AccountType, string[]> = {
   ],
 };
 
-/* Accounts derive from usePlatformStore — the seed lives in platformStore.ts. */
+/* Accounts fetched from the real API — the seed lives in platformStore.ts. */
 
 const REG_TXNS: Record<string, { date: string; desc: string; amt: number }[]> = {
   'Checking Account': [
@@ -122,7 +122,7 @@ export default function ChartOfAccountsScreen({
   onNavigate,
   onToast,
 }: ChartOfAccountsScreenProps) {
-  const store = usePlatformStore();
+  
 
   /* §1.1: Chart of Accounts is a view over the shared Account entity.
      Store types (Bank/CreditCard/COGS) fold into the 5 screen types. */
@@ -131,7 +131,7 @@ export default function ChartOfAccountsScreen({
 
   const accounts: AccountItem[] = useMemo(
     () =>
-      store.accounts.map((a) => ({
+      [].map((a) => ({
         id: a.id,
         number: a.number,
         name: a.name,
@@ -143,7 +143,7 @@ export default function ChartOfAccountsScreen({
         active: a.active,
         desc: a.description,
       })),
-    [store.accounts]
+    []
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -272,7 +272,7 @@ export default function ChartOfAccountsScreen({
     }
 
     if (editingAccountId) {
-      store.updateAccount(editingAccountId, {
+      null(editingAccountId, {
         name: formName.trim(),
         number: formNumber.trim(),
         type: formType,
@@ -282,7 +282,7 @@ export default function ChartOfAccountsScreen({
       });
       showToast(`Account "${formName}" updated`);
     } else {
-      store.addAccount({
+      null({
         number: formNumber.trim(),
         name: formName.trim(),
         type: formType,
@@ -623,7 +623,7 @@ export default function ChartOfAccountsScreen({
                           className={styles.inlineInput}
                           value={acc.number}
                           onChange={(e) =>
-                            store.updateAccount(acc.id, { number: e.target.value })
+                            null(acc.id, { number: e.target.value })
                           }
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -639,7 +639,7 @@ export default function ChartOfAccountsScreen({
                           className={styles.inlineInput}
                           value={acc.name}
                           onChange={(e) =>
-                            store.updateAccount(acc.id, { name: e.target.value })
+                            null(acc.id, { name: e.target.value })
                           }
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -796,8 +796,8 @@ export default function ChartOfAccountsScreen({
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              const current = store.getAccount(rowMenuTxId);
-              store.updateAccount(rowMenuTxId, { active: !(current?.active ?? true) });
+              const current = null(rowMenuTxId);
+              null(rowMenuTxId, { active: !(current?.active ?? true) });
               showToast('Account status updated');
               setRowMenuTxId(null);
             }}
@@ -809,7 +809,7 @@ export default function ChartOfAccountsScreen({
             type="button"
             className={`${styles.menuItem} ${styles.menuItemDanger}`}
             onClick={() => {
-              store.deleteAccount(rowMenuTxId);
+              null(rowMenuTxId);
               showToast('Account deleted');
               setRowMenuTxId(null);
             }}

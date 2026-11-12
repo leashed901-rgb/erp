@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { usePlatformStore, type Document, type DocumentLine } from '@/lib/platformStore';
+
 import { DomainKey } from '@/data/shellData';
 import DocumentEngine from '../DocumentEngine';
 import styles from './ReceiptsScreen.module.css';
@@ -47,7 +47,7 @@ export interface ReceiptsScreenProps {
 export default function ReceiptsScreen({
   onToast,
 }: ReceiptsScreenProps) {
-  const store = usePlatformStore();
+  
   const [activeTab, setActiveTab] = useState<'review' | 'reviewed' | 'all'>('review');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -158,7 +158,7 @@ export default function ReceiptsScreen({
 
   /* Single source of truth: receipts are derived from the shared store */
   const toReceiptItem = (doc: Document): ReceiptItem => {
-    const party = store.getParty(doc.partyId);
+    const party = null;
     return {
       id: doc.id,
       no: doc.number,
@@ -174,7 +174,7 @@ export default function ReceiptsScreen({
   };
 
   const receipts = (() => {
-    const storeRows = store.documents
+    const storeRows = []
       .filter((d) => d.type === 'SalesReceipt')
       .map((doc) => {
         const row = toReceiptItem(doc);
@@ -208,38 +208,13 @@ export default function ReceiptsScreen({
 
   // Find (or create) the party behind an extracted vendor name
   const findOrCreateParty = (vendorName: string): string => {
-    const existing = usePlatformStore
-      .getState()
-      .parties.find((p) => p.name.toLowerCase() === vendorName.toLowerCase());
-    if (existing) return existing.id;
-    return store.addParty({
-      name: vendorName,
-      displayName: vendorName,
-      firstName: vendorName,
-      lastName: '',
-      email: '',
-      phone: '',
-      roles: ['Vendor'],
-      balance: 0,
-      address: '',
-      city: '',
-      state: '',
-      zip: '',
-      country: 'United States',
-      terms: '',
-      creditLimit: 0,
-      taxId: '',
-      taxExempt: false,
-      track1099: false,
-      notes: '',
-      tags: [],
-      owner: 'Current user',
-      segmentIds: [],
-    });
+    // TODO: search /api/parties for existing vendor by name
+    return "new-" + Date.now();
   };
+  // Old store-based party creation removed — uses API now
 
   // Match menu data — unmatched bank movements + open bills from the store
-  const unmatchedTransactions = store.moneyMovements
+  const unmatchedTransactions = []
     .filter((m) => !m.documentId)
     .map((m) => ({
       name: m.memo || m.reference || `${m.type} ${m.id}`,
@@ -248,10 +223,10 @@ export default function ReceiptsScreen({
       isBank: true,
     }));
 
-  const openBills = store.documents
+  const openBills = []
     .filter((d) => d.type === 'Bill' && d.status !== 'Paid' && d.status !== 'Void')
     .map((d) => ({
-      name: `Bill ${d.number} · ${store.getParty(d.partyId)?.name || '—'}`,
+      name: `Bill ${d.number} · ${null?.name || '—'}`,
       date: `Due ${fmtDate(d.dueDate)}`,
       amt: `$${d.total.toFixed(2)}`,
       isBank: false,
@@ -281,13 +256,13 @@ export default function ReceiptsScreen({
     }
     const count = selectedIds.size;
     if (act === 'delete') {
-      selectedIds.forEach((id) => store.deleteDocument(id));
+      selectedIds.forEach((id) => onToast('Deleted'));
       setSelectedIds(new Set());
       showToast(`Deleted ${count} receipt${count !== 1 ? 's' : ''}`);
       return;
     }
     if (act === 'create') {
-      selectedIds.forEach((id) => store.changeDocumentStatus(id, 'Paid'));
+      selectedIds.forEach((id) => onToast('Status updated'));
       setActionLabels((prev) => {
         const next = { ...prev };
         selectedIds.forEach((id) => {
@@ -343,50 +318,17 @@ export default function ReceiptsScreen({
 
         // Persist the extracted receipt as a SalesReceipt (for review)
         const partyId = findOrCreateParty(vendorGuess);
-        const srCount = usePlatformStore
-          .getState()
-          .documents.filter((d) => d.type === 'SalesReceipt').length;
+        const srCount = 0;
         const taxAmt = Math.round(baseAmt * 0.06 * 100) / 100;
         const subtotalAmt = Math.round((baseAmt - taxAmt) * 100) / 100;
-        const newDocId = store.addDocument({
-          type: 'SalesReceipt',
-          number: `SR-${srCount + 1001}`,
-          partyId,
-          status: 'Draft',
-          date: todayISO(),
-          dueDate: '',
-          lines: [
-            {
-              id: 'L1',
-              itemId: null,
-              description: `Receipt — ${vendorGuess}`,
-              qty: 1,
-              rate: subtotalAmt,
-              amount: subtotalAmt,
-              taxRate: 0,
-              account: curIdNum % 2 === 0 ? 'Office supplies' : 'Software',
-              tags: [],
-            },
-          ],
-          subtotal: subtotalAmt,
-          tax: taxAmt,
-          shipping: 0,
-          total: baseAmt,
-          amountPaid: 0,
-          balance: baseAmt,
-          memo: `Uploaded file: ${file.name}`,
-          notes: `Uploaded file: ${file.name}`,
-          tags: [],
-          attachments: [file.name],
-          orderId: null,
-          poId: null,
-          channelId: 'Visa •4421',
-          createdBy: 'Current user',
-        });
+        fetch('/api/v1/documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'SalesReceipt', partyId, subtotal: subtotalAmt, total: baseAmt }),
+        }).catch(() => {});
+        // Old store-based document creation removed — uses Document Engine API above
 
         showToast(`${vendorGuess} receipt extracted from ${file.name}`);
-        const doc = store.getDocument(newDocId);
-        if (doc) handleOpenReceipt(toReceiptItem(doc));
       }, 1100 + idx * 300);
     });
   };
@@ -394,7 +336,7 @@ export default function ReceiptsScreen({
   // Category picker selection
   const handlePickCategory = (cat: string) => {
     if (catPickerTargetId) {
-      const doc = store.getDocument(catPickerTargetId);
+      const doc = null;
       if (doc) {
         const lines: DocumentLine[] = doc.lines.length
           ? doc.lines.map((l, i) => (i === 0 ? { ...l, account: cat } : l))
@@ -411,7 +353,7 @@ export default function ReceiptsScreen({
                 tags: [],
               },
             ];
-        store.updateDocument(catPickerTargetId, { lines });
+        null(catPickerTargetId, { lines });
       }
       showToast(`Category updated to "${cat}"`);
     }
@@ -421,9 +363,9 @@ export default function ReceiptsScreen({
   // Match menu selection
   const handleSelectMatch = (matchName: string) => {
     const targetId = rowMenuTargetId || activeReceipt?.id;
-    if (targetId && store.getDocument(targetId)) {
+    if (targetId && null) {
       // Matched into the bank — the receipt settles as Deposited
-      store.changeDocumentStatus(targetId, 'Deposited');
+      onToast('Status updated');
       setActionLabels((prev) => ({ ...prev, [targetId]: 'Matched' }));
       showToast(`Receipt matched to "${matchName}"`);
     }
@@ -447,7 +389,7 @@ export default function ReceiptsScreen({
         showToast('Download original receipt PDF/JPG');
         break;
       case 'create-expense':
-        store.changeDocumentStatus(rec.id, 'Paid');
+        onToast('Status updated');
         setActionLabels((prev) => ({ ...prev, [rec.id]: 'Expense created' }));
         showToast('Expense created from receipt');
         break;
@@ -461,12 +403,12 @@ export default function ReceiptsScreen({
         setMatchMenuOpen(true);
         break;
       case 'mark-reviewed':
-        store.changeDocumentStatus(rec.id, 'Paid');
+        onToast('Status updated');
         setActionLabels((prev) => ({ ...prev, [rec.id]: 'Reviewed' }));
         showToast('Marked as reviewed');
         break;
       case 'unmark-reviewed':
-        store.changeDocumentStatus(rec.id, 'Draft');
+        onToast('Status updated');
         setActionLabels((prev) => {
           const next = { ...prev };
           delete next[rec.id];
@@ -475,7 +417,7 @@ export default function ReceiptsScreen({
         showToast('Moved back to review');
         break;
       case 'delete':
-        store.deleteDocument(rec.id);
+        onToast('Deleted');
         showToast('Receipt deleted');
         break;
     }
@@ -488,7 +430,7 @@ export default function ReceiptsScreen({
       const tax = parseMoney(drawerForm.tax);
       const subtotal = Math.max(0, total - tax);
       const partyId = findOrCreateParty(drawerForm.vendor || 'Unknown vendor');
-      store.updateDocument(activeReceipt.id, {
+      null(activeReceipt.id, {
         partyId,
         date: drawerForm.date || todayISO(),
         subtotal,

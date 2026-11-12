@@ -1,8 +1,9 @@
 'use client';
 import './sales.css';
+import { useState, useEffect } from 'react';
 import { SalesScreenProps, SALES_NAV } from './types';
 import { exportToCsv } from '@/lib/csvExport';
-import { usePlatformStore } from '@/lib/platformStore';
+import type { Invoice } from '@/lib/accountingTypes';
 
 const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const moneyK = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
@@ -13,41 +14,45 @@ export default function SalesOverview({
   onCreate,
   onOpenCreateFlyout,
 }: SalesScreenProps) {
-  const documents = usePlatformStore(s => s.documents);
-  const parties = usePlatformStore(s => s.parties);
-  const moneyMovements = usePlatformStore(s => s.moneyMovements);
+  // REAL data from Supabase — /api/invoices reads the invoices table
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
 
-  /* Real KPIs computed from the store (§1.1 single source of truth) */
-  const invoices = documents.filter(d => d.type === 'Invoice');
-  const notPaid = invoices.filter(d => d.balance > 0).reduce((s, d) => s + d.balance, 0);
-  const paid = invoices.reduce((s, d) => s + d.amountPaid, 0);
-  const deposited = moneyMovements
-    .filter(m => m.type === 'Payment' && m.status === 'Deposited')
-    .reduce((s, m) => s + m.amount, 0);
-  const overdue = invoices.filter(d => d.status === 'Overdue');
-  const overdueAmount = overdue.reduce((s, d) => s + d.balance, 0);
-  const unsentDrafts = invoices.filter(d => d.status === 'Draft');
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/invoices')
+      .then(r => r.json())
+      .then(j => { if (!cancelled) setInvoices(j.data || []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  /* Real KPIs computed from the real database invoices */
+  const notPaid = invoices.filter(d => Number(d.balanceDue) > 0).reduce((s, d) => s + Number(d.balanceDue), 0);
+  const paid = invoices.reduce((s, d) => s + Number(d.amount_paid || 0), 0);
+  const overdue = invoices.filter(d => d.status === 'OVERDUE' || d.status === 'Overdue');
+  const overdueAmount = overdue.reduce((s, d) => s + Number(d.balanceDue || 0), 0);
+  const unsentDrafts = invoices.filter(d => d.status === 'DRAFT' || d.status === 'Draft');
   const openInvoices = invoices
-    .filter(d => d.balance > 0)
-    .sort((a, b) => (a.dueDate || a.date).localeCompare(b.dueDate || b.date));
-  const totalOutstanding = openInvoices.reduce((s, d) => s + d.balance, 0);
-  const totalSent = invoices.reduce((s, d) => s + d.total, 0);
+    .filter(d => Number(d.balanceDue) > 0)
+    .sort((a, b) => (a.dueDate || a.createdAt || '').localeCompare(b.dueDate || b.createdAt || ''));
+  const totalOutstanding = openInvoices.reduce((s, d) => s + Number(d.balanceDue), 0);
+  const totalSent = invoices.reduce((s, d) => s + Number(d.total), 0);
   const conversionToPaid = totalSent > 0 ? (paid / totalSent * 100) : 0;
+  const deposited = 0; // deposits tracked separately in payment_transactions
   const paidToDeposited = paid > 0 ? (deposited / paid * 100) : 0;
 
-  /* Top customers by revenue (real documents) */
+  /* Top customers by revenue — from real invoice data */
   const customerRevenue: { name: string; invoices: number; revenue: number; avatar: string; color: string }[] = [];
   const AVATAR_COLORS = ['bg-qb-blue', 'bg-qb-green', 'bg-qb-teal', 'bg-qb-maroon', 'bg-qb-navy'];
   invoices.forEach(d => {
-    const party = parties.find(p => p.id === d.partyId);
-    if (!party) return;
-    const existing = customerRevenue.find(c => c.name === party.name);
-    if (existing) { existing.invoices++; existing.revenue += d.total; }
+    const name = d.customerId || 'Unknown';
+    const existing = customerRevenue.find(c => c.name === name);
+    if (existing) { existing.invoices++; existing.revenue += Number(d.total); }
     else customerRevenue.push({
-      name: party.name,
+      name,
       invoices: 1,
-      revenue: d.total,
-      avatar: party.name[0]?.toUpperCase() || 'A',
+      revenue: Number(d.total),
+      avatar: name[0]?.toUpperCase() || 'A',
       color: AVATAR_COLORS[customerRevenue.length % AVATAR_COLORS.length],
     });
   });
@@ -56,32 +61,23 @@ export default function SalesOverview({
   const topCustomers = customerRevenue.slice(0, 5);
 
   /* Avg days to pay: average days between invoice date and payment date */
-  const paidInvoices = invoices.filter(d => d.amountPaid > 0);
-  const avgDays = paidInvoices.length > 0
-    ? paidInvoices.reduce((s, d) => {
-        const pay = moneyMovements.find(m => m.documentId === d.id);
-        if (!pay) return s;
-        const days = (new Date(pay.date).getTime() - new Date(d.date).getTime()) / 86400000;
-        return s + Math.max(0, days);
-      }, 0) / paidInvoices.length
-    : 0;
+  const paidInvoices = invoices.filter(d => Number(d.amount_paid) > 0);
+  const avgDays = 0; // TODO: compute from payment_transactions when joined
 
   const attentionCount = overdue.length + unsentDrafts.length;
 
-  /* Recent payments: real MoneyMovement rows for Invoice payments */
-  const recentPayments = moneyMovements
-    .filter(m => m.type === 'Payment' && m.documentId)
-    .slice()
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 5);
-  const recentPaymentsTotal = recentPayments.reduce((s, m) => s + m.amount, 0);
+  /* Recent payments — from payment_transactions in the DB (TODO: fetch) */
+  const recentPayments: { id: string; date: string; amount: number; customer: string }[] = [];
+  const recentPaymentsTotal = 0;
 
-  /* Recent activity: real activity log entries from documents */
-  const recentActivity = documents
-    .filter(d => d.type === 'Invoice' || d.type === 'Estimate' || d.type === 'SalesReceipt')
-    .flatMap(d => d.activity.map(a => ({ ...a, docNumber: d.number, docType: d.type, partyId: d.partyId })))
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 6);
+  /* Recent activity — from real invoices */
+  const recentActivity = invoices.slice(0, 5).map(d => ({
+    id: d.id,
+    date: d.createdAt?.slice(0, 10) || '',
+    text: `${d.number} — $${Number(d.total).toFixed(2)} (${d.status})`,
+    type: 'invoice',
+    partyId: d.customerId,
+  }));
 
   /* CSV export uses real open invoices */
   function exportOpenInvoices() {
@@ -94,9 +90,9 @@ export default function SalesOverview({
     ];
     const rows = openInvoices.map(d => ({
       number: d.number,
-      customer: parties.find(p => p.id === d.partyId)?.name || '—',
-      dueDate: d.dueDate || d.date,
-      amount: money(d.total),
+      customer: d.customerId || '—',
+      dueDate: d.dueDate || d.createdAt?.slice(0, 10) || '',
+      amount: money(Number(d.total)),
       status: d.status,
     }));
     exportToCsv(rows, cols, 'sales-overview-open-invoices');
@@ -155,7 +151,7 @@ export default function SalesOverview({
             <div className="kpi-label"><span className="w-2 h-2 rounded-full bg-qb-green"></span>Deposited</div>
             <div className="kpi-val">{money(deposited)}</div>
             <div className="kpi-delta up">
-              <span className="material-symbols-outlined text-[13px]">trending_up</span>{moneyMovements.filter(m => m.status === 'Deposited').length} deposits
+              <span className="material-symbols-outlined text-[13px]">trending_up</span>{paidInvoices.length} paid invoices
             </div>
           </div>
           <div className="kpi-card" onClick={() => onToast('Drill down → days')}>
@@ -243,7 +239,7 @@ export default function SalesOverview({
                   <span className="material-symbols-outlined text-[18px] text-error">warning</span>
                   <div className="min-w-0 flex-1">
                     <div className="text-body-sm font-medium truncate">{overdue.length} overdue invoice{overdue.length !== 1 ? 's' : ''}</div>
-                    <div className="text-[11px] text-on-surface-variant">{money(overdueAmount)} · oldest {Math.max(0, ...overdue.map(d => Math.floor((Date.now() - new Date(d.dueDate || d.date).getTime()) / 86400000)))} days</div>
+                    <div className="text-[11px] text-on-surface-variant">{money(overdueAmount)} · oldest {Math.max(0, ...overdue.map(d => Math.floor((Date.now() - new Date(d.dueDate || d.createdAt || '').getTime()) / 86400000)))} days</div>
                   </div>
                   <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
                 </div>
@@ -285,19 +281,18 @@ export default function SalesOverview({
                 <div className="py-6 px-5 text-center text-body-sm text-on-surface-variant">No open invoices — all paid.</div>
               )}
               {openInvoices.slice(0, 5).map(d => {
-                const party = parties.find(p => p.id === d.partyId);
-                const due = d.dueDate || d.date;
-                const daysToDue = Math.floor((new Date(due).getTime() - Date.now()) / 86400000);
+                const due = d.dueDate || d.createdAt?.slice(0, 10) || '';
+                const daysToDue = due ? Math.floor((new Date(due).getTime() - Date.now()) / 86400000) : 0;
                 const ageClass = daysToDue < 0 ? 'overdue' : daysToDue <= 7 ? 'soon' : 'current';
                 const ageLabel = daysToDue < 0 ? `${Math.abs(daysToDue)}d overdue` : daysToDue === 0 ? 'Due today' : `${daysToDue}d left`;
                 return (
                   <div key={d.id} className="flex items-center gap-3 px-5 py-3 hover:bg-surface-container-low cursor-pointer" onClick={() => onNavigate(...SALES_NAV.invoices())}>
                     <div className="min-w-0 flex-1">
-                      <div className="text-body-sm font-medium">{d.number} · {party?.name || '—'}</div>
+                      <div className="text-body-sm font-medium">{d.number} · {d.customerId?.slice(0, 8) || '—'}</div>
                       <div className="text-[11px] text-on-surface-variant">Due {due} · {ageLabel}</div>
                     </div>
                     <span className={`age ${ageClass}`}>{daysToDue < 0 ? 'Overdue' : daysToDue <= 7 ? 'Due soon' : 'Current'}</span>
-                    <span className="text-body-sm font-semibold tabular-nums">{money(d.balance)}</span>
+                    <span className="text-body-sm font-semibold tabular-nums">{money(Number(d.balanceDue))}</span>
                   </div>
                 );
               })}
@@ -342,20 +337,16 @@ export default function SalesOverview({
               {recentPayments.length === 0 && (
                 <div className="py-6 px-5 text-center text-body-sm text-on-surface-variant">No payments recorded yet.</div>
               )}
-              {recentPayments.map(m => {
-                const party = parties.find(p => p.id === m.partyId);
-                const doc = documents.find(d => d.id === m.documentId);
-                return (
-                  <div key={m.id} className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-container-low cursor-pointer" onClick={() => onNavigate(...SALES_NAV.invoices())}>
-                    <span className="material-symbols-outlined text-[18px] text-secondary">price_check</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-body-sm font-medium truncate">{party?.name || '—'} · {m.method}</div>
-                      <div className="text-[11px] text-on-surface-variant">{m.date} · {doc?.number || '—'}</div>
-                    </div>
-                    <span className="text-body-sm font-semibold tabular-nums text-secondary">+{money(m.amount)}</span>
+              {recentPayments.map(m => (
+                <div key={m.id} className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-container-low cursor-pointer" onClick={() => onNavigate(...SALES_NAV.invoices())}>
+                  <span className="material-symbols-outlined text-[18px] text-secondary">price_check</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-body-sm font-medium truncate">{m.customer || '—'}</div>
+                    <div className="text-[11px] text-on-surface-variant">{m.date}</div>
                   </div>
-                );
-              })}
+                  <span className="text-body-sm font-semibold tabular-nums text-secondary">+{money(m.amount)}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -367,7 +358,6 @@ export default function SalesOverview({
                 <div className="text-center text-on-surface-variant py-4">No activity yet.</div>
               )}
               {recentActivity.map((a, i) => {
-                const party = parties.find(p => p.id === a.partyId);
                 const icon = a.type === 'payment' ? 'price_check' : a.type === 'created' ? 'receipt_long' : a.type === 'status' ? 'sync' : 'circle';
                 const color = a.type === 'payment' ? 'text-secondary' : a.type === 'created' ? 'text-qb-blue' : 'text-on-surface-variant';
                 return (
@@ -375,7 +365,7 @@ export default function SalesOverview({
                     <span className={`material-symbols-outlined text-[16px] ${color} mt-0.5`}>{icon}</span>
                     <div className="min-w-0">
                       <div className="font-medium">{a.text}</div>
-                      <div className="text-[11px] text-on-surface-variant">{a.actor} · {a.date}{party ? ` · ${party.name}` : ''}</div>
+                      <div className="text-[11px] text-on-surface-variant">{a.date}</div>
                     </div>
                   </div>
                 );

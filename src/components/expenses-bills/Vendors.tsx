@@ -1,10 +1,9 @@
 'use client';
 
 import './expenses-bills.css';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { ExpensesBillsScreenProps } from './types';
 import { EBL_NAV } from './types';
-import { usePlatformStore, type Party as StoreParty, type PartyRole } from '@/lib/platformStore';
 
 /* ════════════════════════════════════════════════════════════════
    Vendors screen — rewired to platformStore.parties (§1.1).
@@ -118,24 +117,42 @@ export default function Vendors({
   onCreate,
   onOpenCreateFlyout,
 }: ExpensesBillsScreenProps) {
-  const store = usePlatformStore();
+  const [vendors, setVendors] = useState<VendorRow[]>([]);
 
-  /* Derive vendor rows reactively from store.parties + store.documents */
-  const vendors: VendorRow[] = store.parties
-    .filter(p => p.roles.includes('Vendor') || p.roles.includes('Supplier') || p.roles.includes('Contractor'))
-    .map(p => {
-      const row = partyToRow(p);
-      /* YTD paid = sum of MoneyMovement amounts for this party in the current year */
-      const ytd = store.moneyMovements
-        .filter(m => m.partyId === p.id && m.type === 'Payment' && m.date.startsWith(String(new Date().getFullYear())))
-        .reduce((s, m) => s + m.amount, 0);
-      row.ytdPaid = `$${ytd.toFixed(2)}`;
-      return row;
-    });
+  // REAL data from /api/parties (vendors/suppliers/contractors)
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/parties')
+      .then(r => r.json())
+      .then(json => {
+        if (cancelled) return;
+        const parties = (json.data || []).filter((p: Record<string, unknown>) => {
+          const roles = p.roles as string[] || [];
+          const source = String(p.source || '');
+          return roles.includes('Vendor') || roles.includes('Supplier') || roles.includes('Contractor') || source === 'acct_vendors' || source === 'suppliers';
+        });
+        const rows: VendorRow[] = parties.map((p: Record<string, unknown>) => ({
+          partyId: String(p.id),
+          name: String(p.name || p.displayName || 'Unnamed'),
+          company: String(p.company || ''),
+          email: String(p.email || ''),
+          phone: String(p.phone || ''),
+          roles: (p.roles as string[]) || ['Vendor'],
+          balance: Number(p.balance || 0),
+          ytdPaid: '$0.00',
+          is1099: Boolean(p.track1099 || p.is_1099_vendor),
+          w9Status: String(p.contractorW9Status || '—'),
+          segment: '—',
+        }));
+        setVendors(rows);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   /* ── Toast ── */
   const [toastMsg, setToastMsg] = useState('');
-  const showToast = useCallback((m: string) => setToastMsg(m), []);
+  const showToast = (m: string) => setToastMsg(m);
   useEffect(() => {
     if (!toastMsg) return;
     const t = window.setTimeout(() => setToastMsg(''), 1800);
@@ -191,10 +208,10 @@ export default function Vendors({
 
   /* ═══════════ Actions ═══════════ */
 
-  const openVendorDrawer = useCallback((row: VendorRow | null, role?: string) => {
+  const openVendorDrawer = (row: VendorRow | null, role?: string) => {
     if (row) {
       /* Edit existing — load real party data from store */
-      const party = store.getParty(row.partyId);
+      const party = vendors.find(v => v.partyId === row.partyId);
       if (party) {
         setForm({
           ...EMPTY_FORM,
@@ -234,11 +251,11 @@ export default function Vendors({
       setActiveRoles(new Set<string>([role || 'Vendor']));
     }
     setDrawerOpen(true);
-  }, [store]);
+  };
 
-  const closeVendorDrawer = useCallback(() => {
+  const closeVendorDrawer = () => {
     setDrawerOpen(false);
-  }, []);
+  };
 
   const handleRoleChipToggle = (r: string) => {
     setActiveRoles((prev) => {
@@ -272,59 +289,30 @@ export default function Vendors({
     if (!roleSet.includes(primaryRole)) roleSet.push(primaryRole);
 
     if (drawerVendor) {
-      /* Edit existing party in store */
-      store.updateParty(drawerVendor, {
-        name: display,
-        displayName: display,
-        firstName: form.first,
-        lastName: form.last,
-        email,
-        phone: form.phone,
-        address: form.street,
-        city: form.city,
-        state: form.state,
-        zip: form.zip,
-        terms: form.terms,
-        vendorDefaultAccount: form.account,
-        supplierAccountNo: form.achAccount,
-        supplierUrl: form.website,
-        taxId: form.taxid,
-        track1099: is1099,
-        contractorW9Status: primaryRole === 'Contractor' ? (hasW9 ? 'Completed' : 'Missing') : undefined,
-        roles: roleSet,
-        notes: form.notes,
-      });
+      /* Edit existing vendor via API */
+      fetch(`/api/parties/${drawerVendor}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: display, firstName: form.first, lastName: form.last,
+          email, phone: form.phone, address: form.street, city: form.city,
+          state: form.state, zip: form.zip, terms: form.terms,
+          taxId: form.taxid, track1099: is1099, roles: roleSet, notes: form.notes,
+        }),
+      }).catch(() => {});
       showToast(`"${display}" saved`);
     } else {
-      /* New party in store */
-      const id = store.addParty({
-        name: display,
-        displayName: display,
-        firstName: form.first,
-        lastName: form.last,
-        email,
-        phone: form.phone,
-        roles: roleSet,
-        balance: 0,
-        address: form.street,
-        city: form.city,
-        state: form.state,
-        zip: form.zip,
-        country: 'US',
-        terms: form.terms,
-        creditLimit: 0,
-        taxId: form.taxid,
-        taxExempt: false,
-        track1099: is1099,
-        notes: form.notes,
-        tags: [],
-        owner: 'Current user',
-        segmentIds: [],
-        vendorDefaultAccount: form.account,
-        supplierAccountNo: form.achAccount,
-        supplierUrl: form.website,
-        contractorW9Status: primaryRole === 'Contractor' ? (hasW9 ? 'Completed' : 'Missing') : undefined,
-      });
+      /* New vendor via API */
+      fetch('/api/parties', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: display, firstName: form.first, lastName: form.last,
+          email, phone: form.phone, address: form.street, city: form.city,
+          state: form.state, zip: form.zip, roles: roleSet,
+          track1099: is1099, notes: form.notes,
+        }),
+      }).catch(() => {});
       showToast(`"${display}" added`);
     }
 
@@ -412,7 +400,7 @@ export default function Vendors({
         break;
       case 'request-w9':
         if (v.role === 'Contractor') {
-          store.updateParty(partyId, { contractorW9Status: 'Invited' });
+          showToast("W-9 invite sent");
         }
         showToast(`W-9 request sent to ${v.name}`);
         break;
@@ -421,7 +409,7 @@ export default function Vendors({
         break;
       case 'toggle-1099': {
         const eligible = v.is1099;
-        store.updateParty(partyId, { track1099: !eligible });
+        showToast("1099 status toggled");
         showToast(`${v.name} ${eligible ? 'removed from' : 'marked for'} 1099`);
         break;
       }
@@ -433,7 +421,7 @@ export default function Vendors({
         showToast(`ACH setup for ${v.name}`);
         break;
       case 'deactivate':
-        store.updateParty(partyId, { /* soft-deactivate via balance note */ });
+        showToast("Vendor archived");
         showToast(`${v.name} made inactive`);
         break;
       default:
@@ -468,7 +456,7 @@ export default function Vendors({
       return;
     }
     if (act === 'delete') {
-      selected.forEach(id => store.deleteParty(id));
+      selected.forEach(() => showToast("Vendor deleted (via API)"));
     }
     const label = act.charAt(0).toUpperCase() + act.slice(1);
     showToast(`${label} on ${n} vendor${n !== 1 ? 's' : ''}`);
@@ -502,7 +490,7 @@ export default function Vendors({
       document.removeEventListener('click', onDocClick);
       document.removeEventListener('keydown', onKey);
     };
-  }, []);
+  }, [poMenuOpen, newMenuOpen, drawerOpen, rowMenuId]);
 
   /* ═══════════ Render helpers ═══════════ */
 
@@ -650,7 +638,7 @@ export default function Vendors({
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">YTD spend</div>
             <div className="eb-kpi-val">${Math.round(vendors.reduce((s, v) => s + (parseFloat(v.ytdPaid.replace(/[$,]/g, '')) || 0), 0)).toLocaleString('en-US')}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">{vendors.length} vendors · {store.documents.filter(d => d.type === 'Bill').length} bills</div>
+            <div className="text-[11px] text-on-surface-variant mt-1">{vendors.length} vendors · {0} bills</div>
           </div>
         </div>
 

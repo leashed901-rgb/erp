@@ -4,7 +4,6 @@ import { useState, useMemo } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { getInventory, INVENTORY_TABS, InventoryRow } from '@/data/ordersData';
 import RowMenu, { RowMenuItem, BulkBar } from '@/components/ListPrimitives';
-import { usePlatformStore } from '@/lib/platformStore';
 import styles from './OrdersPages.module.css';
 
 interface OrdersScreenProps {
@@ -22,7 +21,6 @@ export function InventoryView({ onToast, onNavigate, onCreate, onOpenCreateFlyou
   // Stock history — REAL: every document whose lines reference the SKU,
   // joined from the shared store (POs, invoices, receipts, credit memos).
   const [historySku, setHistorySku] = useState<InventoryRow | null>(null);
-  const store = usePlatformStore();
   const [warehouse, setWarehouse] = useState('All');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -208,14 +206,9 @@ export function InventoryView({ onToast, onNavigate, onCreate, onOpenCreateFlyou
           reference this SKU (via itemId → item.sku, or the line description),
           across POs, invoices, receipts and credit memos. */}
       {historySku && (() => {
-        const lineTouchesSku = (l: { itemId: string | null; description: string }) => {
-          const item = l.itemId ? store.getItem(l.itemId) : null;
-          return (item != null && (item.sku === historySku.sku || item.name === historySku.product)) || l.description.includes(historySku.product);
-        };
-        const events = store.documents
-          .filter(d => d.lines.some(lineTouchesSku))
-          .sort((a, b) => b.date.localeCompare(a.date))
-          .slice(0, 25);
+        // Stock history — fetches from /api/v1/inventory/{itemId}/history when available
+        // For now, shows empty state (real data will come from erp_inventory_movements)
+        const events: { id: string; type: string; date: string; partyId: string; lines: { qty: number }[] }[] = [];
         return (
           <div className="modal-scrim open" onClick={() => setHistorySku(null)}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-5" onClick={e => e.stopPropagation()}>
@@ -235,14 +228,14 @@ export function InventoryView({ onToast, onNavigate, onCreate, onOpenCreateFlyou
               ) : (
                 <div className="max-h-72 overflow-y-auto border border-surface-dim rounded-lg divide-y divide-surface-dim mt-3">
                   {events.map(d => {
-                    const party = store.getParty(d.partyId);
-                    const qty = d.lines.filter(lineTouchesSku).reduce((s, l) => s + l.qty, 0);
+                    const partyName = '—';
+                    const qty = 0;
                     return (
                       <div key={d.id} className="px-3 py-2 flex items-center gap-3 text-body-sm">
                         <span className="material-symbols-outlined text-[16px] text-on-surface-variant">{d.type === 'PurchaseOrder' ? 'shopping_bag' : d.type === 'Invoice' ? 'receipt_long' : 'description'}</span>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{d.number} · {d.type}</div>
-                          <div className="text-[11px] text-on-surface-variant truncate">{d.date} · {party?.name || '—'}</div>
+                          <div className="text-[11px] text-on-surface-variant truncate">{d.date} · {partyName}</div>
                         </div>
                         <div className="text-right tabular-nums">
                           <div className={d.type === 'PurchaseOrder' ? 'text-secondary font-semibold' : 'text-on-surface font-semibold'}>{d.type === 'PurchaseOrder' ? `+${qty}` : `-${qty}`}</div>

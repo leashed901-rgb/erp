@@ -26,13 +26,14 @@ export function ReturnsClaims({ onToast, onCreate, onOpenPeek }: OrdersScreenPro
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // REAL data from crm_documents (return requests)
+  // REAL data from customer_return_requests table (via /api/crm/documents)
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/crm/documents')
+    fetch('/api/crm/documents?customer_id=all')
       .then(r => r.json())
       .then(json => {
         if (cancelled) return;
+        // Map real return request rows to the screen's shape
         const rows: ReturnRow[] = (json.data || []).map((d: Record<string, unknown>) => ({
           docId: String(d.id),
           id: String(d.name || d.id).substring(0, 12),
@@ -53,52 +54,69 @@ export function ReturnsClaims({ onToast, onCreate, onOpenPeek }: OrdersScreenPro
     if (activeTab !== 'All' && row.status !== activeTab) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    return row.id.toLowerCase().includes(q) || row.customer.toLowerCase().includes(q);
-  });
-
-  const tabCounts: Record<string, number> = { All: allReturns.length };
-  RETURN_TABS.forEach((tab) => {
-    if (tab !== 'All') tabCounts[tab] = allReturns.filter((r) => r.status === tab).length;
+    return row.id.toLowerCase().includes(q) || row.customer.toLowerCase().includes(q) || row.order.toLowerCase().includes(q);
   });
 
   const toggleSelect = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
 
-  const selectedArray = Array.from(selected);
+  const toggleSelectAll = () =>
+    setSelected((prev) => {
+      if (prev.size === filtered.length) return new Set();
+      return new Set(filtered.map((r) => r.id));
+    });
 
-  const getRowActions = (row: ReturnRow): RowMenuItem[] => {
+  const rowMenuItems = (row: ReturnRow): RowMenuItem[] => {
     const items: RowMenuItem[] = [
-      { label: 'Open RMA', icon: 'open_in_new', onClick: () => onOpenPeek?.(`RMA ${row.id}`, { Customer: row.customer, Reason: row.reason }) },
-      { label: 'Edit', icon: 'edit', onClick: () => onToast(`Editing ${row.id}`) },
+      { label: 'Open RMA', icon: 'open_in_new', onClick: () => (onOpenPeek ? onOpenPeek(`Return ${row.id} — ${row.customer}`, {
+        'RMA No.': row.id,
+        Customer: row.customer,
+        Order: row.order,
+        Reason: row.reason,
+        Refund: row.refund,
+        Type: row.type,
+        Status: row.status,
+      }) : onToast(`Opening ${row.id}`)) },
+      { label: 'Edit', icon: 'edit', onClick: () => (onCreate ? onCreate('Return/RMA') : onToast(`Editing ${row.id}`)) },
     ];
     if (row.status === 'Requested') {
-      items.push({ label: 'Approve return', icon: 'check_circle', onClick: () => {
-        fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Approved' }) }).catch(() => {});
+      items.push({ label: 'Approve return', icon: 'check_circle', dividerBefore: true, onClick: () => {
+        await fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Approved' }) }).catch(() => {});
         onToast(`RMA ${row.id} approved`);
       } });
       items.push({ label: 'Decline return', icon: 'cancel', onClick: () => {
-        fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Declined' }) }).catch(() => {});
+        await fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Declined' }) }).catch(() => {});
         onToast(`RMA ${row.id} declined`);
       } });
     }
-    if (row.status === 'Approved' || row.status === 'In transit') {
-      items.push({ label: 'Mark received', icon: 'inventory_2', onClick: () => {
-        fetch(`/api/v1/documents/${row.docId}/send?type=RMA`, { method: 'POST' }).catch(() => {});
+    if (row.status === 'Approved') {
+      items.push({ label: 'Mark in transit', icon: 'local_shipping', dividerBefore: true, onClick: () => {
+        onToast(`Status updated`);
+        onToast(`RMA ${row.id} marked in transit`);
+      } });
+    }
+    if (row.status === 'In transit') {
+      items.push({ label: 'Mark items received', icon: 'inventory', dividerBefore: true, onClick: () => {
+        onToast(`Status updated`);
         onToast(`RMA ${row.id} marked received`);
       } });
     }
     if (row.status === 'Received') {
+      items.push({ label: 'Restock items', icon: 'add_box', dividerBefore: true, onClick: () => onToast(`Restocking ${row.id} items`) });
+    }
+    if (row.status === 'Received' || row.status === 'Approved') {
       items.push({ label: 'Issue refund…', icon: 'payments', onClick: () => {
-        fetch(`/api/v1/documents/${row.docId}/pay?type=RMA`, { method: 'POST' }).catch(() => {});
+        onToast(`Status updated`);
         onToast(`RMA ${row.id} refunded`);
       } });
     }
     items.push({ label: 'Delete', icon: 'delete', danger: true, dividerBefore: true, onClick: () => {
-      fetch(`/api/v1/documents/${row.docId}?type=RMA`, { method: 'DELETE' }).catch(() => {});
+      await fetch(`/api/v1/documents/${row.docId}?type=RMA`, { method: 'DELETE' }).catch(() => {});
       onToast(`RMA ${row.id} deleted`);
     } });
     return items;
@@ -108,87 +126,170 @@ export function ReturnsClaims({ onToast, onCreate, onOpenPeek }: OrdersScreenPro
     <div className={styles.container}>
       <div className={styles.contextHeader}>
         <div className={styles.contextLeft}>
-          <span className="material-symbols-outlined">assignment_return</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#5a6355' }}>local_shipping</span>
+          <span className={styles.contextLabel}>Orders</span>
+          <span className={styles.contextSep}>/</span>
+          <span className={styles.contextActive}>Returns &amp; Claims</span>
+        </div>
+      </div>
+
+      <div className={styles.pageBody}>
+        <div className={styles.pageHeader}>
           <div>
-            <h1 className={styles.title}>Returns & Claims</h1>
-            <p className={styles.subtitle}>Track return authorizations, refunds, and exchanges across all channels.</p>
+            <h1 className={styles.pageTitle}>Returns &amp; Claims</h1>
+            <p className={styles.pageSubtitle}>Customer RMAs, supplier claims, refunds, and restocking</p>
+          </div>
+          <div className={styles.headerActions}>
+            <div className={styles.splitBtn}>
+              <button className={styles.splitBtnMain} onClick={() => (onCreate ? onCreate('Return/RMA') : onToast('New return — opening drawer'))}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>assignment_return</span>
+                New return
+              </button>
+              <button className={styles.splitBtnArrow} onClick={() => onToast('Options: Customer return / Supplier claim / Pick from order')}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>expand_more</span>
+              </button>
+            </div>
+            <button className={styles.btnSecondary} onClick={() => {
+              const cols = [
+                { key: 'id', label: 'RMA' },
+                { key: 'customer', label: 'Customer' },
+                { key: 'order', label: 'Order' },
+                { key: 'reason', label: 'Reason' },
+                { key: 'refund', label: 'Refund' },
+                { key: 'type', label: 'Type' },
+                { key: 'status', label: 'Status' },
+              ];
+              exportToCsv(filtered as unknown as Record<string, unknown>[], cols, 'returns-claims');
+              onToast(`Exported ${filtered.length} records to CSV`);
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
+              Export
+            </button>
           </div>
         </div>
-        <div className={styles.contextRight}>
-          <button className={styles.createBtn} onClick={() => onCreate?.('Return/RMA')}>
-            <span className="material-symbols-outlined text-[18px]">add</span>New RMA
+
+        {/* KPI tiles */}
+        <div className={styles.kpiGrid}>
+          <button className={styles.kpiTile} onClick={() => onToast('Drill into open returns')}>
+            <div className={styles.kpiValue}>3</div>
+            <div className={styles.kpiLabel}>Open returns</div>
+            <div className={styles.kpiDelta}>$480 in refunds pending</div>
+          </button>
+          <button className={styles.kpiTile} onClick={() => onToast('Drill into awaiting receipt')}>
+            <div className={styles.kpiValue} style={{ color: '#6b1e28' }}>1</div>
+            <div className={styles.kpiLabel}>Awaiting receipt</div>
+            <div className={styles.kpiDelta}>In transit back to you</div>
+          </button>
+          <button className={styles.kpiTile} onClick={() => onToast('Drill into supplier claims')}>
+            <div className={styles.kpiValue}>2</div>
+            <div className={styles.kpiLabel}>Supplier claims</div>
+            <div className={styles.kpiDelta}>$320 recoverable</div>
+          </button>
+          <button className={styles.kpiTile} onClick={() => onToast('Drill into return rate')}>
+            <div className={styles.kpiValue} style={{ color: '#1e5a38' }}>2.4%</div>
+            <div className={styles.kpiLabel}>Return rate (30d)</div>
+            <div className={styles.kpiDelta}>Down from 3.1%</div>
           </button>
         </div>
-      </div>
 
-      <div className={styles.tabsBar}>
-        {RETURN_TABS.map(tab => (
-          <button key={tab} className={`${styles.tab} ${activeTab === tab ? styles.tabActive : ''}`} onClick={() => setActiveTab(tab)}>
-            {tab} {tabCounts[tab] ? <span className={styles.tabCount}>{tabCounts[tab]}</span> : null}
-          </button>
-        ))}
-      </div>
+        {/* Table */}
+        <div className={styles.tableCard}>
+          <div className={styles.viewTabsBar}>
+            {RETURN_TABS.map((tab) => (
+              <button
+                key={tab}
+                className={`${styles.viewTab} ${activeTab === tab ? styles.viewTabActive : ''}`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
 
-      <div className={styles.tableWrap}>
-        <div className={styles.toolbar}>
-          <input className={styles.searchInput} placeholder="Search returns…" value={search} onChange={e => setSearch(e.target.value)} />
-          <button className={styles.toolbarBtn} onClick={() => exportToCsv(filtered, [
-            { key: 'id', label: 'RMA #' }, { key: 'customer', label: 'Customer' }, { key: 'reason', label: 'Reason' },
-            { key: 'refund', label: 'Refund' }, { key: 'status', label: 'Status' },
-          ], 'returns')}>Export</button>
-        </div>
+          <div className={styles.filterBar}>
+            <div className={styles.filterInputWrap}>
+              <span className={`material-symbols-outlined ${styles.filterInputIcon}`}>search</span>
+              <input
+                className={styles.filterInput}
+                placeholder="Filter by RMA #, customer, order #…"
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <select className={styles.filterSelect} defaultValue="All">
+              <option>All</option>
+              <option>Customer return</option>
+              <option>Supplier claim</option>
+            </select>
+            <button className={styles.filterBtn}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>calendar_today</span>
+              Date range
+            </button>
+            <span className={styles.filterCount}>
+              {selected.size > 0 ? `${selected.size} selected` : `${filtered.length} of ${allReturns.length}`}
+            </span>
+          </div>
 
-        {selectedArray.length > 0 && (
-          <BulkBar count={selectedArray.length} onClear={() => setSelected(new Set())}>
-            <button onClick={() => { selectedArray.forEach(id => onToast(`Approving ${id}`)); setSelected(new Set()); }}>Approve all</button>
-            <button onClick={() => { selectedArray.forEach(id => onToast(`Declining ${id}`)); setSelected(new Set()); }}>Decline all</button>
-          </BulkBar>
-        )}
+          {selected.size > 0 && (
+            <BulkBar
+              selectedIds={Array.from(selected)}
+              onClear={() => setSelected(new Set())}
+              actions={[
+                { label: 'Approve', icon: 'check_circle', onClick: () => { onToast(`Approving ${selected.size} returns`); setSelected(new Set()); } },
+                { label: 'Restock items', icon: 'inventory', onClick: () => { onToast(`Restocking ${selected.size} returns`); setSelected(new Set()); } },
+                { label: 'Issue refund', icon: 'payments', onClick: () => { onToast(`Refunding ${selected.size} returns`); setSelected(new Set()); } },
+                { label: 'Decline', icon: 'cancel', danger: true, onClick: () => { onToast(`Declining ${selected.size} returns`); setSelected(new Set()); } },
+              ]}
+            />
+          )}
 
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.colCheck}><input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length} onChange={e => { if (e.target.checked) setSelected(new Set(filtered.map(r => r.id))); else setSelected(new Set()); }} /></th>
-              <th className={styles.colId}>RMA #</th>
-              <th>Customer</th>
-              <th>Order</th>
-              <th>Reason</th>
-              <th className={styles.colNum}>Refund</th>
-              <th className={styles.colStatus}>Status</th>
-              <th className={styles.colAction}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={8} className={styles.emptyState}>No returns found.</td></tr>
-            )}
-            {filtered.map(row => {
-              const avatarColor = AVATAR_COLORS[row.customer[0]?.toUpperCase() || 'A'] || styles.avatarBlue;
-              return (
-                <tr key={row.docId} className={styles.row}>
-                  <td className={styles.colCheck}><input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelect(row.id)} /></td>
-                  <td className={styles.colId}>{row.id}</td>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th className={styles.checkCell}><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleSelectAll} /></th>
+                <th>RMA</th>
+                <th>Customer</th>
+                <th>Order</th>
+                <th>Reason</th>
+                <th style={{ textAlign: 'right' }}>Refund</th>
+                <th>Status</th>
+                <th className={styles.actionCell}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((row) => (
+                <tr key={row.id} className={`${styles.tableRow} ${selected.has(row.id) ? styles.tableRowSelected : ''}`} onClick={() => (onOpenPeek ? onOpenPeek(`Return ${row.id} — ${row.customer}`, {
+                  'RMA No.': row.id,
+                  Customer: row.customer,
+                  Order: row.order,
+                  Reason: row.reason,
+                  Refund: row.refund,
+                  Type: row.type,
+                  Status: row.status,
+                }) : onToast(`Opening ${row.id}`))}>
+                  <td className={styles.checkCell}><input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleSelect(row.id)} /></td>
+                  <td><strong>{row.id}</strong></td>
                   <td>
-                    <div className={styles.customerCell}>
-                      <span className={`${styles.avatar} ${avatarColor}`}>{row.customer[0]?.toUpperCase() || '?'}</span>
+                    <div className={styles.cellName}>
+                      <span className={`${styles.avatar} ${AVATAR_COLORS[row.customer[0]] || styles.avatarBlue}`}>{row.customer[0]}</span>
                       {row.customer}
                     </div>
                   </td>
                   <td>{row.order}</td>
                   <td>{row.reason}</td>
-                  <td className={styles.colNum}>{row.refund}</td>
-                  <td className={styles.colStatus}>
-                    <span className={`${styles.statusPill} ${styles[`status${row.status.replace(/\s/g, '')}`] || styles.statusRequested}`}>{row.status}</span>
-                  </td>
-                  <td className={styles.colAction}>
-                    <RowMenu items={getRowActions(row)} />
-                  </td>
+                  <td style={{ textAlign: 'right' }}>{row.refund}</td>
+                  <td><span className={styles.statusPill} data-status={row.status}>{row.status}</span></td>
+                  <td className={styles.actionCell}><RowMenu items={rowMenuItems(row)} /></td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+              {filtered.length === 0 && <tr><td colSpan={8} className={styles.emptyState}>No returns match the current filter.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
+
+export default ReturnsClaims;

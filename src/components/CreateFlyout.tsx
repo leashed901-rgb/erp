@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CREATE_REGISTRY, CreateDotToken } from '@/data/shellData';
+import { useTenantActions } from '@/hooks/useTenant';
 import styles from './CreateFlyout.module.css';
 
 interface CreateFlyoutProps {
@@ -25,6 +26,9 @@ export default function CreateFlyout({
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // REAL tenant actions from the database — replaces CREATE_REGISTRY
+  const { grouped: tenantActions, loaded: actionsLoaded } = useTenantActions();
+
   useEffect(() => {
     if (!open) return;
     const timer = setTimeout(() => {
@@ -34,6 +38,9 @@ export default function CreateFlyout({
   }, [open]);
 
   const query = search.toLowerCase().trim();
+
+  // If tenant actions are loaded, use them; otherwise fall back to CREATE_REGISTRY
+  const useTenant = actionsLoaded && Object.keys(tenantActions).length > 0;
 
   return (
     <div
@@ -87,7 +94,48 @@ export default function CreateFlyout({
         </div>
 
         <div id="create-grid" className={styles.grid}>
-          {CREATE_REGISTRY.map((cat) => (
+          {useTenant
+            ? Object.entries(tenantActions).map(([area, actions]) => (
+                <div key={area} className={styles.categoryCard}>
+                  <div className={styles.categoryHeader}>
+                    <div className={styles.categoryHeaderLeft}>
+                      <span className={`${styles.dot} ${styles.dotPrimary}`} />
+                      <span className={styles.categoryTitle}>
+                        {area.charAt(0).toUpperCase() + area.slice(1)}
+                      </span>
+                    </div>
+                    <span className={styles.categoryCount}>{actions.length}</span>
+                  </div>
+                  <nav className={styles.itemsNav}>
+                    {actions
+                      .filter((a) => !query || a.display_name.toLowerCase().includes(query) || a.action_code.toLowerCase().includes(query))
+                      .map((action) => (
+                        <button
+                          key={action.action_code}
+                          type="button"
+                          data-create-item={action.display_name}
+                          className={styles.createItem}
+                          onClick={() => onSelectCreate(action.display_name)}
+                        >
+                          <span className={styles.itemLabel}>
+                            <span className={`material-symbols-outlined ${styles.itemIcon}`}>
+                              {action.object_type === 'invoice' ? 'receipt_long'
+                                : action.object_type === 'estimate' ? 'request_quote'
+                                : action.object_type === 'bill' ? 'description'
+                                : action.area === 'vendors' ? 'credit_card'
+                                : action.area === 'catalog' ? 'inventory_2'
+                                : action.area === 'marketing' ? 'campaign'
+                                : 'add_circle'}
+                            </span>
+                            {action.display_name}
+                          </span>
+                          <span className={styles.itemDesc}>{action.ui_route || action.module}</span>
+                        </button>
+                      ))}
+                  </nav>
+                </div>
+              ))
+            : CREATE_REGISTRY.map((cat) => (
             <div key={cat.title} className={styles.categoryCard}>
               <div className={styles.categoryHeader}>
                 <div className={styles.categoryHeaderLeft}>

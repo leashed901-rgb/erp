@@ -287,8 +287,17 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
     setLines(prev => prev.filter((_, i) => i !== idx));
   }
 
+  const [saving, setSaving] = useState(false);
+
   async function save(andNew = false) {
+    if (saving) return;
+    // Validation — don't create empty invoices. A document needs a
+    // party AND at least one line with a description + amount > 0.
     if (!partyId && config.partyRole) { onToast(`${config.partyLabel} is required`); return; }
+    const hasValidLines = lines.some(l => l.description.trim() && l.amount > 0);
+    if (!hasValidLines) { onToast('Add at least one line item with a description and amount'); return; }
+
+    setSaving(true);
     const docData = {
       type, number, partyId, status, date, dueDate, lines, subtotal, tax: Math.round(tax * 100) / 100, shipping, total, amountPaid: existing?.amountPaid || 0, balance: total - (existing?.amountPaid || 0), memo, notes, tags: existing?.tags || [], attachments: existing?.attachments || [],
       orderId: existing?.orderId || (isNew ? initialEnv.orderId : null),
@@ -296,40 +305,49 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
       channelId: existing?.channelId || (isNew ? initialEnv.channelId : null),
       createdBy: 'Current user',
     };
-    if (existing) {
-      store.updateDocument(existing.id, docData);
-      store.recalcDocument(existing.id);
-      // Persist the update to the real database (Supabase invoices table).
-      // The store is the UI cache; the DB is the source of truth.
-      persistToDb(false);
-      onToast(`${config.label} saved`);
-      if (!andNew) onClose?.();
-    } else {
-      const id = store.addDocument(docData as Omit<Document, 'id' | 'createdAt' | 'updatedAt' | 'activity'>);
-      // Persist the new invoice to Supabase — without this, the invoice
-      // exists only in browser memory and disappears on refresh.
-      persistToDb(true);
-      onToast(`${config.label} ${number} created`);
-      if (andNew) {
-        setNumber(`${config.numberPrefix}${String(store.documents.filter(d => d.type === type).length + 1002)}`);
-        setPartyId(initialEnv.partyId || '');
-        setLines([{ id: 'L1', itemId: null, description: '', qty: 1, rate: 0, amount: 0, taxRate: 0, account: '', tags: [] }]);
-        setShipping(0); setMemo(''); setNotes('');
+    try {
+      if (existing) {
+        store.updateDocument(existing.id, docData);
+        store.recalcDocument(existing.id);
+        await persistToDb(false);
+        onToast(`${config.label} saved`);
+        if (!andNew) { onClose?.(); }
       } else {
-        onClose?.();
+        // Persist to the database FIRST. Only add to the store if the
+        // DB write succeeds — otherwise the invoice lives only in
+        // browser memory and disappears on refresh.
+        const result = await persistToDb(true);
+        if (!result.ok) {
+          onToast(result.error || 'Failed to save — check required fields');
+          return;
+        }
+        const id = store.addDocument(docData as Omit<Document, 'id' | 'createdAt' | 'updatedAt' | 'activity'>);
+        onToast(`${config.label} ${number} created`);
+        if (andNew) {
+          setNumber(`${config.numberPrefix}${String(store.documents.filter(d => d.type === type).length + 1002)}`);
+          setPartyId(initialEnv.partyId || '');
+          setLines([{ id: 'L1', itemId: null, description: '', qty: 1, rate: 0, amount: 0, taxRate: 0, account: '', tags: [] }]);
+          setShipping(0); setMemo(''); setNotes('');
+        } else {
+          onClose?.();
+        }
       }
+    } catch (e: unknown) {
+      onToast(`Error: ${e instanceof Error ? e.message : 'Save failed'}`);
+    } finally {
+      setSaving(false);
     }
   }
 
-  /** Persist the current document to the real Supabase table.
-   *  Invoices → POST /api/invoices, Estimates → POST /api/estimates,
-   *  SalesReceipts → POST /api/receipts. This is the bridge between
-   *  the client-side store (instant UI) and the database (truth). */
-  async function persistToDb(isNewDoc: boolean) {
-    if (!partyId) return;
+  /** Persist to the real Supabase table. Returns { ok, error } so the
+   *  caller can decide whether to update the store / show a toast.
+   *  This is NOT fire-and-forget — the caller awaits it. */
+  async function persistToDb(_isNewDoc: boolean): Promise<{ ok: boolean; error?: string }> {
+    if (!partyId) return { ok: false, error: 'Customer is required' };
     try {
+      let res: Response;
       if (type === 'Invoice') {
-        await fetch('/api/invoices', {
+        res = await fetch('/api/invoices', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -342,7 +360,7 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
             amount_paid: existing?.amountPaid || 0,
             dueDate: dueDate || null,
             notes: notes || memo || null,
-            items: lines.map(l => ({
+            items: lines.filter(l => l.description.trim()).map(l => ({
               description: l.description,
               quantity: l.qty,
               unitPrice: String(l.rate),
@@ -351,7 +369,7 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
           }),
         });
       } else if (type === 'Estimate') {
-        await fetch('/api/estimates', {
+        res = await fetch('/api/estimates', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -367,7 +385,7 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
           }),
         });
       } else if (type === 'SalesReceipt') {
-        await fetch('/api/receipts', {
+        res = await fetch('/api/receipts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -379,15 +397,20 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
             notes: notes || memo || null,
           }),
         });
+      } else {
+        // Document types without a dedicated API route — store only.
+        return { ok: true };
       }
-    } catch {
-      // Store update already happened — UI is correct. DB persist
-      // failure is non-blocking (the user can retry). The toast
-      // already said "created"; we don't want to lie about that.
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        return { ok: false, error: json?.error?.message || `HTTP ${res.status}` };
+      }
+      // Notify the customer profile that a document was saved.
+      window.dispatchEvent(new CustomEvent('document-saved', { detail: { type, partyId } }));
+      return { ok: true };
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
     }
-    // Notify the customer profile (and any other surface) that a
-    // document was saved — so the Transaction List can refresh.
-    window.dispatchEvent(new CustomEvent('document-saved', { detail: { type, partyId } }));
   }
 
   /* §1.7 Duplicate — "Edit · Duplicate" on every document */
@@ -792,8 +815,8 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
         </div>
         <div className="w-1/4 flex justify-end gap-2">
           {onClose && <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={onClose}>Cancel</button>}
-          {isNew && <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => save(true)}>Save &amp; new</button>}
-          <button className="h-8 px-4 bg-primary text-white text-body-md font-semibold rounded hover:bg-primary-container" onClick={() => save(false)}>{existing ? 'Save' : config.primaryAction}</button>
+          {isNew && <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low disabled:opacity-50" disabled={saving} onClick={() => save(true)}>{saving ? 'Saving…' : 'Save & new'}</button>}
+          <button className="h-8 px-4 bg-primary text-white text-body-md font-semibold rounded hover:bg-primary-container disabled:opacity-50" disabled={saving} onClick={() => save(false)}>{saving ? 'Saving…' : (existing ? 'Save' : config.primaryAction)}</button>
         </div>
       </footer>
 

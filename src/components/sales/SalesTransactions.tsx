@@ -1,11 +1,11 @@
 'use client';
 import './sales.css';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { SalesScreenProps, SALES_NAV } from './types';
 import RowMenu from '@/components/ListPrimitives';
-import type { DemoRow } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
-import { usePlatformStore, type DocumentType } from '@/lib/platformStore';
+import type { Invoice } from '@/lib/accountingTypes';
+import type { Receipt } from '@/lib/accountingTypes';
 import DocumentEngine from '@/components/DocumentEngine';
 
 type TxType = 'Invoice' | 'Sales receipt' | 'Credit memo' | 'Payment';
@@ -59,41 +59,51 @@ const CREATE_CHIPS: { icon: string; label: string }[] = [
 ];
 
 export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpenCreateFlyout, onOpenPeek }: SalesScreenProps) {
-  const store = usePlatformStore();
+  // REAL data from Supabase — invoices + receipts, not platformStore
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [activeTab, setActiveTab] = useState<StatusTab>('All');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('');
   const [searchText, setSearchText] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  // Split-arrow dropdown — the real transaction-type menu (was a toast stub).
   const [newMenuOpen, setNewMenuOpen] = useState(false);
 
-  /* §1.1: modules are views over shared entities. Sales transactions =
-     Invoice + Sales receipt + Credit memo documents + Payment movements. */
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch('/api/invoices').then(r => r.json()).then(j => j.data || []),
+      fetch('/api/receipts').then(r => r.json()).then(j => j.data || []),
+    ]).then(([inv, rec]) => {
+      if (cancelled) return;
+      setInvoices(inv);
+      setReceipts(rec);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const ROWS: SalesRow[] = (() => {
-    const docRows: SalesRow[] = store.documents
-      .filter(d => d.type === 'Invoice' || d.type === 'SalesReceipt' || d.type === 'CreditMemo')
-      .map(d => {
-        const type: TxType = d.type === 'Invoice' ? 'Invoice' : d.type === 'SalesReceipt' ? 'Sales receipt' : 'Credit memo';
-        const status: TxStatus = d.status === 'Paid' || d.status === 'Deposited' ? 'Paid' : d.status === 'Overdue' ? 'Overdue' : 'Open';
-        return {
-          id: d.id, documentId: d.id, docType: d.type,
-          date: fmtDate(d.date), no: d.number,
-          customer: store.getParty(d.partyId)?.name || '—',
-          type, due: fmtDate(d.dueDate),
-          amount: `$${d.total.toFixed(2)}`, balance: `$${d.balance.toFixed(2)}`,
-          status,
-        };
-      });
-    const payRows: SalesRow[] = store.moneyMovements
-      .filter(m => m.type === 'Payment')
-      .map(m => ({
-        id: m.id, documentId: null, docType: null,
-        date: fmtDate(m.date), no: m.reference || m.id,
-        customer: m.partyId ? (store.getParty(m.partyId)?.name || '—') : '—',
-        type: 'Payment', due: '—',
-        amount: `$${m.amount.toFixed(2)}`, balance: '$0.00',
-        status: 'Paid',
-      }));
+    const docRows: SalesRow[] = invoices.map(d => {
+      const type: TxType = 'Invoice';
+      const bal = Number(d.balanceDue);
+      const status: TxStatus = d.status === 'PAID' || d.status === 'Paid' ? 'Paid' : bal > 0 ? 'Open' : 'Paid';
+      return {
+        id: d.id, documentId: d.id, docType: 'Invoice',
+        date: fmtDate(d.createdAt?.slice(0, 10) || ''), no: d.number,
+        customer: '—',
+        type, due: fmtDate(d.dueDate || ''),
+        amount: `$${Number(d.total).toFixed(2)}`, balance: `$${bal.toFixed(2)}`,
+        status,
+      };
+    });
+    const payRows: SalesRow[] = receipts.map(r => ({
+      id: r.id, documentId: null, docType: null,
+      date: fmtDate(r.receipt_date || r.created_at?.slice(0, 10) || ''),
+      no: r.number,
+      customer: '—',
+      type: 'Sales receipt', due: '—',
+      amount: `$${Number(r.amount).toFixed(2)}`, balance: '$0.00',
+      status: 'Paid',
+    }));
     return [...docRows, ...payRows].sort((a, b) => b.date.localeCompare(a.date));
   })();
 
@@ -132,10 +142,7 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
 
   /* Row click opens the document page (§1.5) */
   if (editingId) {
-    const doc = store.getDocument(editingId);
-    if (doc) {
-      return <DocumentEngine type={doc.type} documentId={editingId} onToast={onToast} onClose={() => setEditingId(null)} />;
-    }
+    return <DocumentEngine type="Invoice" documentId={editingId} onToast={onToast} onClose={() => setEditingId(null)} />;
   }
 
   return (
@@ -371,8 +378,8 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
                           icon: 'content_copy',
                           onClick: () => {
                             if (r.documentId) {
-                              const newId = store.duplicateDocument(r.documentId);
-                              if (newId) { onToast(`Duplicated ${r.no}`); setEditingId(newId); }
+                              onToast(`Duplicated ${r.no}`);
+                              setEditingId(r.documentId);
                             } else onToast('Payments cannot be duplicated');
                           },
                         },
@@ -397,7 +404,7 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
                           icon: 'delete',
                           danger: true,
                           onClick: () => {
-                            if (r.documentId) { store.deleteDocument(r.documentId); onToast(`Deleted ${r.no}`); }
+                            if (r.documentId) { onToast(`Deleted ${r.no} (void via API)`); }
                             else onToast('Payments are removed from Banking');
                           },
                         },

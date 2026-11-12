@@ -9,16 +9,16 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
   invoices: {
     id: 'invoices', entity: 'document', documentType: 'Invoice', title: 'Invoices',
     columns: [
-      { id: 'number', label: 'Invoice #', kind: 'text', sortable: true, defaultVisible: true },
-      { id: 'customer', label: 'Customer', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Customer' },
-      { id: 'date', label: 'Invoice date', kind: 'date', sortable: true, defaultVisible: true },
-      { id: 'dueDate', label: 'Due date', kind: 'date', sortable: true, defaultVisible: true },
+      { id: 'invoice_number', label: 'Invoice #', kind: 'text', sortable: true, defaultVisible: true },
+      { id: 'customer_id', label: 'Customer', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Customer' },
+      { id: 'invoice_date', label: 'Invoice date', kind: 'date', sortable: true, defaultVisible: true },
+      { id: 'due_date', label: 'Due date', kind: 'date', sortable: true, defaultVisible: true },
       { id: 'total', label: 'Amount', kind: 'money', sortable: true, defaultVisible: true, align: 'right' },
-      { id: 'balance', label: 'Balance due', kind: 'money', sortable: true, defaultVisible: true, align: 'right' },
+      { id: 'open_balance', label: 'Balance due', kind: 'money', sortable: true, defaultVisible: true, align: 'right' },
       { id: 'status', label: 'Status', kind: 'status', sortable: true, defaultVisible: true },
-      { id: 'source', label: 'Source', kind: 'pill', defaultVisible: false },
+      { id: 'source_system', label: 'Source', kind: 'pill', defaultVisible: false },
     ],
-    defaultSort: 'date',
+    defaultSort: 'invoice_date',
     statusTabs: [
       { id: 'all', label: 'All', filter: {} },
       { id: 'draft', label: 'Draft', filter: { status: 'DRAFT' } },
@@ -35,23 +35,23 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
     bulkActions: ['send', 'remind', 'print', 'tag', 'export', 'record_payment'],
     supportsImport: false, supportsExport: true,
     totalsFooter: ['sum:total', 'sum:balance'],
-    apiPath: '/api/invoices',
+    apiPath: '/api/v1/documents?type=Invoice',
   },
 
   // ── Expenses & Bills ────────────────────────────────────────
   bills: {
     id: 'bills', entity: 'document', documentType: 'Bill', title: 'Bills',
     columns: [
-      { id: 'vendor', label: 'Vendor', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Vendor' },
-      { id: 'number', label: 'Bill no', kind: 'text', sortable: true, defaultVisible: true },
-      { id: 'issueDate', label: 'Bill date', kind: 'date', sortable: true, defaultVisible: true },
-      { id: 'dueDate', label: 'Due date', kind: 'date', sortable: true, defaultVisible: true },
+      { id: 'vendor_id', label: 'Vendor', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Vendor' },
+      { id: 'bill_number', label: 'Bill no', kind: 'text', sortable: true, defaultVisible: true },
+      { id: 'bill_date', label: 'Bill date', kind: 'date', sortable: true, defaultVisible: true },
+      { id: 'due_date', label: 'Due date', kind: 'date', sortable: true, defaultVisible: true },
       { id: 'total', label: 'Bill amount', kind: 'money', sortable: true, defaultVisible: true, align: 'right' },
-      { id: 'balance', label: 'Open balance', kind: 'money', sortable: true, defaultVisible: true, align: 'right' },
+      { id: 'open_balance', label: 'Open balance', kind: 'money', sortable: true, defaultVisible: true, align: 'right' },
       { id: 'status', label: 'Status', kind: 'status', sortable: true, defaultVisible: true },
-      { id: 'approval', label: 'Approval', kind: 'status', defaultVisible: true },
+      { id: 'approval_status', label: 'Approval', kind: 'status', defaultVisible: true },
     ],
-    defaultSort: 'dueDate',
+    defaultSort: 'due_date',
     statusTabs: [
       { id: 'review', label: 'For review', filter: { status: 'ForReview' } },
       { id: 'unpaid', label: 'Unpaid', filter: { status: 'unpaid' } },
@@ -66,7 +66,7 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
     bulkActions: ['approve', 'pay', 'categorize', 'tag', 'print_checks'],
     supportsImport: true, supportsExport: true,
     totalsFooter: ['sum:total', 'sum:balance'],
-    apiPath: '/api/crm/bills',
+    apiPath: '/api/v1/documents?type=Bill',
   },
 
   // ── CRM: Parties ────────────────────────────────────────────

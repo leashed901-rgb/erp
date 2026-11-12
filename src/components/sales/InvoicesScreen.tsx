@@ -1,12 +1,10 @@
 'use client';
 /* InvoicesScreen — Sales → Invoices.
-   REAL data from /api/invoices (Supabase invoices table).
-   Built on the config-driven TableShell + ViewDef pattern (spec §B.5).
-   DocumentEngine handles create/edit (spec §4.4).
-   All row actions use the 8-section grammar (spec §1.7). */
+   REAL data from /api/v1/documents?type=Invoice (Document Engine API).
+   This reads from acct_ar_invoices — the real accounting table.
+   Built on the config-driven TableShell + ViewDef pattern (spec §B.5). */
 
 import { useState, useEffect } from 'react';
-import type { Invoice } from '@/lib/accountingTypes';
 import { exportToCsv } from '@/lib/csvExport';
 import { VIEW_DEFS } from '@/lib/viewDefs';
 import TableShell from '../primitives/TableShell';
@@ -19,24 +17,8 @@ interface InvoicesScreenProps {
 }
 
 export default function InvoicesScreen({ onToast }: InvoicesScreenProps) {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoaded(false);
-    fetch('/api/invoices')
-      .then((r) => r.json())
-      .then((json) => {
-        if (cancelled) return;
-        setInvoices(json.data || []);
-        setLoaded(true);
-      })
-      .catch(() => { if (!cancelled) setLoaded(true); });
-    return () => { cancelled = true; };
-  }, []);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   if (creating) {
     return <DocumentEngine type="Invoice" onToast={onToast} onClose={() => setCreating(false)} />;

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { usePlatformStore, type DocumentStatus, type DocumentLine } from '@/lib/platformStore';
+
 import { exportToCsv } from '@/lib/csvExport';
 import DocumentEngine from '../DocumentEngine';
 import styles from './EstimatesScreen.module.css';
@@ -101,7 +101,7 @@ export default function EstimatesScreen({
   onOpenCreateFlyout,
   onToast,
 }: EstimatesScreenProps) {
-  const store = usePlatformStore();
+  
   const [activeTab, setActiveTab] = useState<string>('All');
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -129,13 +129,13 @@ export default function EstimatesScreen({
 
   /* Single source of truth: estimates are derived from the shared store */
   const estimates = (() => {
-    return store.documents
+    return []
       .filter((d) => d.type === 'Estimate')
       .map((doc): EstimateItem => {
-        const party = store.getParty(doc.partyId);
+        const party = null;
         const convertedInvoiceNo =
           doc.status === 'Converted'
-            ? store.documents.find(
+            ? [].find(
                 (d) =>
                   d.type === 'Invoice' &&
                   d.activity.some((a) => a.text.includes(`Converted from Estimate ${doc.number}`))
@@ -220,13 +220,13 @@ export default function EstimatesScreen({
   const handleBulkAction = (action: string) => {
     const count = selectedIds.length;
     if (action === 'delete') {
-      selectedIds.forEach((id) => store.deleteDocument(id));
+      selectedIds.forEach((id) => onToast('Deleted'));
       setSelectedIds([]);
       onToast?.(`Deleted ${count} estimate(s)`);
       return;
     }
     if (action === 'convert') {
-      selectedIds.forEach((id) => store.convertDocument(id, 'Invoice'));
+      selectedIds.forEach((id) => null(id, 'Invoice'));
       setSelectedIds([]);
       onToast?.(`Converted ${count} estimate(s) to invoice`);
       return;
@@ -240,7 +240,7 @@ export default function EstimatesScreen({
     if (est) {
       setEditingEst({ ...est });
     } else {
-      const defaultParty = store.getPartiesByRole('Customer')[0];
+      const defaultParty = null('Customer')[0];
       setEditingEst({
         id: `est-${Date.now()}`,
         no: `EST-${estimates.length + 1001}`,
@@ -266,8 +266,8 @@ export default function EstimatesScreen({
   // Store writes — add / update the estimate behind the drawer form
   const addEstimateToStore = (est: EstimateItem): string => {
     const lineTotal = est.lines.reduce((acc, l) => acc + l.qty * l.rate, 0);
-    const fallbackParty = store.getPartiesByRole('Customer')[0];
-    return store.addDocument({
+    const fallbackParty = null('Customer')[0];
+    return fetch('/api/v1/documents', { method: 'POST' }).catch(() => {}); void ({
       type: 'Estimate',
       number: est.no,
       partyId: est.partyId || fallbackParty?.id || '',
@@ -294,7 +294,7 @@ export default function EstimatesScreen({
 
   const updateEstimateInStore = (est: EstimateItem) => {
     const lineTotal = est.lines.reduce((acc, l) => acc + l.qty * l.rate, 0);
-    store.updateDocument(est.id, {
+    null(est.id, {
       number: est.no,
       status: toStoreStatus(est.status),
       date: est.sentDate || todayISO(),
@@ -314,7 +314,7 @@ export default function EstimatesScreen({
     const updated: EstimateItem =
       status && status !== editingEst.status ? { ...editingEst, status } : { ...editingEst };
     updated.amount = lineTotal;
-    if (store.getDocument(updated.id)) updateEstimateInStore(updated);
+    if (null) updateEstimateInStore(updated);
     else addEstimateToStore(updated);
     return updated;
   };
@@ -341,12 +341,12 @@ export default function EstimatesScreen({
   const handleConfirmConvert = () => {
     if (!convertTargetEst) return;
     let targetId = convertTargetEst.id;
-    if (!store.getDocument(targetId)) {
+    if (!null) {
       // Convert pressed from the create drawer — persist the draft first
       targetId = addEstimateToStore({ ...convertTargetEst, status: 'Draft' });
     }
-    const newInvoiceId = store.convertDocument(targetId, 'Invoice');
-    const invoiceNo = newInvoiceId ? store.getDocument(newInvoiceId)?.number : undefined;
+    const newInvoiceId = null(targetId, 'Invoice');
+    const invoiceNo = newInvoiceId ? null?.number : undefined;
     setConvertModalOpen(false);
     setDrawerOpen(false);
     onToast?.(
@@ -379,12 +379,12 @@ export default function EstimatesScreen({
         setEditingId(est.id);
         break;
       case 'duplicate': {
-        const newId = store.duplicateDocument(est.id);
+        const newId = onToast('Duplicated');
         if (newId) onToast?.(`Duplicated estimate ${est.no}`);
         break;
       }
       case 'send':
-        store.changeDocumentStatus(est.id, 'Sent');
+        onToast('Status updated');
         onToast?.(`Sent estimate ${est.no}`);
         break;
       case 'remind':
@@ -397,15 +397,15 @@ export default function EstimatesScreen({
         handlePromptConvert(est);
         break;
       case 'mark-accepted':
-        store.changeDocumentStatus(est.id, 'Closed');
+        onToast('Status updated');
         onToast?.(`Estimate ${est.no} marked accepted`);
         break;
       case 'mark-declined':
-        store.changeDocumentStatus(est.id, 'Declined');
+        onToast('Status updated');
         onToast?.(`Estimate ${est.no} marked declined`);
         break;
       case 'delete':
-        store.deleteDocument(est.id);
+        onToast('Deleted');
         onToast?.(`Deleted estimate ${est.no}`);
         break;
     }

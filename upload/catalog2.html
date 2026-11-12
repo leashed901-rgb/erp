@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Catalog — Unified Workbench</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme:{ extend:{
+    colors:{
+      "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+      "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+      "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+      "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+      "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+      "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+      "on-error-container":"#93000a","background":"#faf9fc",
+      "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+    },
+    fontFamily:{ sans:["Inter"] },
+    fontSize:{
+      "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+      "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+      "body-sm":["12px",{lineHeight:"16px"}],
+      "body-md":["14px",{lineHeight:"20px"}],
+      "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+      "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+      "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+    }
+  }}
+}
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  .row-check{accent-color:#0077c5}
+  .tab-underline{border-bottom:2px solid transparent}
+  .tab-underline.active{border-bottom-color:#0077c5;color:#0077c5;font-weight:600}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px;display:inline-flex}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .bulk-bar{display:none;background:#0077c5;color:#fff;padding:8px 16px;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+  .bulk-bar.show{display:flex}
+  .bulk-bar button{color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:4px}
+  .bulk-bar button:hover{background:rgba(255,255,255,.15)}
+
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+  .stat.published,.stat.active,.stat.connected,.stat.live,.stat.in-stock{background:#8af5be;color:#00714b}
+  .stat.draft,.stat.inactive,.stat.local{background:#f4f3f7;color:#5a6355}
+  .stat.needs-design,.stat.low-stock,.stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.error,.stat.out-of-stock{background:#ffdad6;color:#93000a}
+  .stat.syncing,.stat.pushed{background:#e8f0fb;color:#0055a5}
+
+  .role-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .role-chip.supplier{background:#f4e8f8;color:#6b1e8a}
+  .role-chip.vendor{background:#e8f5e8;color:#1e5a38}
+  .role-chip.customer{background:#e8f0fb;color:#0055a5}
+
+  .ch-badge{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;font-weight:700;font-size:10px;color:#fff;flex-shrink:0}
+  .ch-badge.shopify{background:#1e5a38}
+  .ch-badge.tiktok{background:#6b1e8a}
+  .ch-badge.etsy{background:#8a5a00}
+  .ch-badge.amazon{background:#6b1e28}
+  .ch-badge.custom{background:#0055a5}
+
+  /* Facet rail */
+  .facet-group{border-bottom:1px solid #eeedf1;padding:10px 0}
+  .facet-group:last-child{border-bottom:0}
+  .facet-head{display:flex;align-items:center;justify-content:space-between;padding:0 4px 6px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .facet-item{display:flex;align-items:center;gap:6px;width:100%;padding:5px 8px;border-radius:6px;font-size:12px;color:#1a1c1e;cursor:pointer;text-align:left}
+  .facet-item:hover{background:#f4f3f7}
+  .facet-item.on{background:#e8f0fb;color:#0077c5;font-weight:600}
+  .facet-item .n{margin-left:auto;font-size:10px;color:#5a6355;font-variant-numeric:tabular-nums}
+  .facet-item.on .n{color:#0055a5}
+  .facet-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+  .facet-avatar{width:16px;height:16px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#fff;flex-shrink:0}
+
+  /* Active filter chips */
+  .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 6px 2px 8px;border-radius:6px;background:#e8f0fb;color:#0055a5;font-size:11px;font-weight:600}
+  .chip button{display:flex;align-items:center;color:#0055a5}
+  .chip .material-symbols-outlined{font-size:13px}
+
+  /* Drawer */
+  .drawer-scrim{position:fixed;inset:0;background:rgba(26,28,30,.35);z-index:80;display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:600px;max-width:96vw;background:#fff;z-index:81;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .field-label{display:block;font:600 11px Inter;letter-spacing:.04em;text-transform:uppercase;color:#5a6355;margin-bottom:6px}
+  .field-input{width:100%;height:36px;padding:0 10px;border:1px solid #dad9dd;border-radius:6px;font-size:13px;background:#fff}
+  .field-input:focus{outline:none;border-color:#0077c5}
+  .section-h{font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;color:#1a1c1e;padding-bottom:6px;border-bottom:1px solid #dad9dd;margin-bottom:10px}
+
+  /* Row menu */
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:250px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu button.danger:hover{background:#ffdad6}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+
+  /* Expandable SKU subtable */
+  .subtable{background:#faf9fc;border-top:1px solid #dad9dd}
+  .subtable table{width:100%;font-size:12px;border-collapse:collapse}
+  .subtable th{font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#5a6355;padding:6px 12px;text-align:left;border-bottom:1px solid #eeedf1;font-size:10px;background:#f4f3f7}
+  .subtable td{padding:6px 12px;border-bottom:1px solid #eeedf1}
+  .subtable td.right{text-align:right;font-variant-numeric:tabular-nums}
+  .subtable tr:last-child td{border-bottom:0}
+
+  /* Saved view KPI cards */
+  .saved-view{background:#fff;border:1px solid #dad9dd;border-radius:10px;padding:10px 12px;cursor:pointer;transition:all .12s;text-align:left}
+  .saved-view:hover{border-color:#0077c5;box-shadow:0 2px 8px rgba(0,119,197,.1)}
+  .saved-view.on{border-color:#0077c5;background:#e8f0fb}
+  .saved-view .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;color:#5a6355}
+  .saved-view .val{font-size:20px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+  .saved-view .sub{font-size:11px;color:#5a6355;margin-top:1px}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Top bar -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">inventory_2</span>
+    <span class="text-label-md font-semibold">Catalog</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold" id="breadcrumb">Workspace</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-import>
+      <span class="material-symbols-outlined text-[16px]">upload</span>Import
+    </button>
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-export>
+      <span class="material-symbols-outlined text-[16px]">download</span>Export
+    </button>
+    <div class="flex split-btn">
+      <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" id="btnCreate">
+        <span class="material-symbols-outlined text-[16px]">add</span>Create
+      </button>
+      <button class="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" id="btnCreateSplit">
+        <span class="material-symbols-outlined text-[16px]">expand_more</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Saved views (facet combinations, not pages) -->
+  <div class="py-4">
+    <div class="flex items-center justify-between mb-2">
+      <div>
+        <h1 class="text-headline-lg">Catalog</h1>
+        <p class="text-body-sm text-on-surface-variant">One workbench — every facet of the catalog, in place.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[11px] text-on-surface-variant">Saved views</span>
+        <button class="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1" id="saveViewBtn">
+          <span class="material-symbols-outlined text-[14px]">bookmark_add</span>Save current
+        </button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2" id="savedViews">
+      <button class="saved-view on" data-saved="all">
+        <div class="lbl">Everything</div>
+        <div class="val" id="kpiAll">—</div>
+        <div class="sub">All catalog records</div>
+      </button>
+      <button class="saved-view" data-saved="needs-review">
+        <div class="lbl">Needs review</div>
+        <div class="val text-qb-maroon" id="kpiReview">—</div>
+        <div class="sub">Image · price · category</div>
+      </button>
+      <button class="saved-view" data-saved="needs-design">
+        <div class="lbl">Needs design</div>
+        <div class="val text-qb-maroon" id="kpiDesign">—</div>
+        <div class="sub">Blank supplier items</div>
+      </button>
+      <button class="saved-view" data-saved="live">
+        <div class="lbl">Live on storefront</div>
+        <div class="val text-secondary" id="kpiLive">—</div>
+        <div class="sub">Published &amp; synced</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Entity tab strip -->
+  <div class="flex items-center gap-1 border-b border-surface-dim mb-0">
+    <button class="tab-underline active px-4 py-2.5 text-label-md" data-entity="products">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">inventory</span>Products
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="skus">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">qr_code</span>Variants &amp; SKUs
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="bundles">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">redeem</span>Bundles
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="suppliers">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">factory</span>Suppliers
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="brands">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">branding_watermark</span>Brands
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="channels">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">local_mall</span>Channels
+    </button>
+  </div>
+
+  <!-- Workbench: facets + table -->
+  <div class="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 pt-4">
+
+    <!-- FACET RAIL (filters on the same table) -->
+    <aside class="bg-white rounded-xl border border-surface-dim p-2 h-fit sticky top-[68px]">
+      <div class="flex items-center justify-between px-2 py-1">
+        <span class="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Facets</span>
+        <button class="text-[11px] text-primary font-semibold hover:underline" id="clearFacets">Clear</button>
+      </div>
+
+      <div class="facet-group">
+        <div class="facet-head">Categories</div>
+        <div id="facetCategories"></div>
+      </div>
+
+      <div class="facet-group">
+        <div class="facet-head">Collections</div>
+        <div id="facetCollections"></div>
+      </div>
+
+      <div class="facet-group">
+        <div class="facet-head">Suppliers</div>
+        <div id="facetSuppliers"></div>
+      </div>
+
+      <div class="facet-group">
+        <div class="facet-head">Brands</div>
+        <div id="facetBrands"></div>
+      </div>
+
+      <div class="facet-group">
+        <div class="facet-head">Channels</div>
+        <div id="facetChannels"></div>
+      </div>
+
+      <div class="facet-group">
+        <div class="facet-head">Status</div>
+        <div id="facetStatus"></div>
+      </div>
+    </aside>
+
+    <!-- MAIN TABLE -->
+    <div>
+      <div class="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
+        <!-- Toolbar: search + active filter chips -->
+        <div class="px-4 py-2 border-b border-surface-dim flex flex-wrap items-center gap-2">
+          <div class="relative flex items-center flex-1 max-w-sm min-w-[180px]">
+            <span class="material-symbols-outlined absolute left-2 text-[15px] text-outline">search</span>
+            <input id="search" class="w-full h-7 pl-7 pr-2 bg-surface-container-low border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search the catalog…">
+          </div>
+          <div id="activeChips" class="flex items-center gap-1 flex-wrap"></div>
+          <span class="ml-auto text-[11px] text-on-surface-variant" id="rowCount">—</span>
+        </div>
+
+        <!-- Bulk bar -->
+        <div class="bulk-bar" id="bulkBar">
+          <span class="text-[12px] font-semibold" id="bulkCount">0 selected</span>
+          <span class="w-px h-4 bg-white/30"></span>
+          <button data-bulk-action="publish"><span class="material-symbols-outlined text-[14px] align-middle mr-1">publish</span>Publish</button>
+          <button data-bulk-action="archive"><span class="material-symbols-outlined text-[14px] align-middle mr-1">archive</span>Archive</button>
+          <button data-bulk-action="reprice"><span class="material-symbols-outlined text-[14px] align-middle mr-1">sell</span>Reprice</button>
+          <span class="w-px h-4 bg-white/30"></span>
+          <button data-bulk-action="delete"><span class="material-symbols-outlined text-[14px] align-middle mr-1">delete</span>Delete</button>
+          <button class="ml-auto" data-bulk-action="close"><span class="material-symbols-outlined text-[16px]">close</span></button>
+        </div>
+
+        <!-- Table host -->
+        <div id="tableHost"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ===== UNIVERSAL DETAIL DRAWER ===== -->
+<div class="drawer-scrim" id="scrim"></div>
+<div class="drawer" id="drawer">
+  <div class="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="material-symbols-outlined text-[20px] text-primary" id="drawerIcon">inventory_2</span>
+      <div class="min-w-0">
+        <div class="text-headline-sm truncate" id="drawerTitle">Detail</div>
+        <div class="text-[11px] text-on-surface-variant" id="drawerSub">—</div>
+      </div>
+    </div>
+    <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" id="closeDrawer">
+      <span class="material-symbols-outlined text-[18px]">close</span>
+    </button>
+  </div>
+  <div class="flex-1 overflow-y-auto p-5 space-y-4" id="drawerBody"></div>
+  <div class="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" id="drawerCancel">Cancel</button>
+    <button class="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" id="drawerSave">Save</button>
+  </div>
+</div>
+
+<!-- Create split menu -->
+<div class="row-menu" id="createMenu">
+  <div class="menu-header">Create</div>
+  <button data-create="Product"><span class="material-symbols-outlined">checkroom</span>Product</button>
+  <button data-create="Variant"><span class="material-symbols-outlined">palette</span>Variant / SKU</button>
+  <button data-create="Bundle"><span class="material-symbols-outlined">redeem</span>Bundle</button>
+  <div class="sep"></div>
+  <button data-create="Category"><span class="material-symbols-outlined">category</span>Category</button>
+  <button data-create="Collection"><span class="material-symbols-outlined">collections_bookmark</span>Collection</button>
+  <div class="sep"></div>
+  <button data-create="Supplier"><span class="material-symbols-outlined">factory</span>Supplier</button>
+  <button data-create="Brand"><span class="material-symbols-outlined">branding_watermark</span>Brand</button>
+  <button data-create="Channel"><span class="material-symbols-outlined">link</span>Channel</button>
+</div>
+
+<!-- Row menu -->
+<div class="row-menu" id="rowMenu">
+  <div class="menu-header">This record</div>
+  <button data-action="open"><span class="material-symbols-outlined">edit</span>Open detail</button>
+  <button data-action="publish"><span class="material-symbols-outlined">publish</span>Publish</button>
+  <button data-action="duplicate"><span class="material-symbols-outlined">content_copy</span>Duplicate</button>
+  <div class="sep"></div>
+  <button data-action="filter"><span class="material-symbols-outlined">filter_alt</span>Filter to this</button>
+  <div class="sep"></div>
+  <button class="danger" data-action="delete"><span class="material-symbols-outlined">delete</span>Delete</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============ HELPERS ============
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const usd = c => c == null ? '—' : (c/100).toLocaleString('en-US',{style:'currency',currency:'USD'});
+function toast(m){ const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('show'), 1800); }
+
+// ============ UNIFIED DATA MODEL ============
+// Every record has facets: category, collections[], supplier, brand, channels[], status, type
+const DATA = {
+  products: [
+    { id:'p1', type:'product', name:'Speckled Wayland Ceramic Mug', sku:'MUG-003', icon:'coffee',
+      category:'Drinkware', collections:['New Arrivals'], supplier:'Printify', brand:'ManageKube',
+      channels:['Shopify','TikTok'], status:'Published', price:1800, variants:4, margin:62 },
+    { id:'p2', type:'product', name:'Classic Tee — Black', sku:'TEE-001-BLK', icon:'checkroom',
+      category:'Apparel', collections:['Bestsellers','Summer 2026'], supplier:'Printful', brand:'ManageKube',
+      channels:['Shopify','Etsy','TikTok'], status:'Published', price:2400, variants:91, margin:58 },
+    { id:'p3', type:'product', name:'Lightweight Sweatshirt (AOP)', sku:'HD-211', icon:'checkroom',
+      category:'Apparel', collections:['Summer 2026'], supplier:'Printify', brand:'Unsaid Goods',
+      channels:['Shopify'], status:'Needs Design', price:null, variants:7, margin:null },
+    { id:'p4', type:'product', name:'Women\'s Heather Polo', sku:'POLO-W-01', icon:'checkroom',
+      category:'Apparel', collections:[], supplier:'Printify', brand:'ManageKube',
+      channels:[], status:'Needs Design', price:null, variants:49, margin:null },
+    { id:'p5', type:'product', name:'Soy Candle — Lavender', sku:'CND-SOY-LAV', icon:'local_fire_department',
+      category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods',
+      channels:['Shopify','Etsy'], status:'Published', price:2200, variants:3, margin:59 },
+    { id:'p6', type:'product', name:'Framed Poster 12×18', sku:'PRD-FP-12', icon:'image',
+      category:'Wall Art', collections:['Best Sellers'], supplier:'Gelato', brand:'ManageKube',
+      channels:['Shopify'], status:'Published', price:3400, variants:9, margin:53 },
+    { id:'p7', type:'product', name:'Custom Portrait Service', sku:'SVC-PORT', icon:'portrait',
+      category:'Services', collections:[], supplier:'', brand:'ManageKube',
+      channels:[], status:'Draft', price:7500, variants:1, margin:null },
+    { id:'p8', type:'product', name:'Dad Cap', sku:'CAP-DAD', icon:'sports_baseball',
+      category:'Headwear', collections:['Bestsellers'], supplier:'Cotton Source Co.', brand:'Unsaid Goods',
+      channels:['Etsy'], status:'Needs review', price:2400, variants:6, margin:46 }
+  ],
+  skus: [
+    { id:'s1', type:'sku', name:'Soy Candle — Lavender', sku:'CND-SOY-LAV', icon:'local_fire_department',
+      variant:'Lavender', category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.',
+      brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'In stock', onhand:42, reserved:3, price:2200, cost:900, parentId:'p5' },
+    { id:'s2', type:'sku', name:'Soy Candle — Cedar', sku:'CND-SOY-CED', icon:'local_fire_department',
+      variant:'Cedar', category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.',
+      brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'Low stock', onhand:4, reserved:2, price:2200, cost:900, parentId:'p5' },
+    { id:'s3', type:'sku', name:'Soy Candle — Vanilla', sku:'CND-SOY-VAN', icon:'local_fire_department',
+      variant:'Vanilla', category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.',
+      brand:'Unsaid Goods', channels:['Shopify'], status:'Out of stock', onhand:0, reserved:0, price:2200, cost:900, parentId:'p5' },
+    { id:'s4', type:'sku', name:'Classic Tee — M / Black', sku:'TEE-WAVE-M-BLK', icon:'checkroom',
+      variant:'M / Black', category:'Apparel', collections:['Bestsellers','Summer 2026'], supplier:'Printful',
+      brand:'ManageKube', channels:['Shopify','Etsy','TikTok'], status:'In stock', onhand:null, reserved:null, price:2800, cost:1050, parentId:'p2' },
+    { id:'s5', type:'sku', name:'Classic Tee — L / White', sku:'TEE-WAVE-L-WHT', icon:'checkroom',
+      variant:'L / White', category:'Apparel', collections:['Bestsellers','Summer 2026'], supplier:'Printful',
+      brand:'ManageKube', channels:['Shopify','Etsy','TikTok'], status:'In stock', onhand:null, reserved:null, price:2800, cost:1050, parentId:'p2' }
+  ],
+  bundles: [
+    { id:'b1', type:'bundle', name:'Starter Kit', sku:'BND-STARTER', icon:'redeem',
+      category:'Bundles', collections:['Bestsellers'], supplier:'', brand:'ManageKube', channels:['Shopify'],
+      status:'Active', contains:'Tee + Tote + Stickers', price:4500, itemsTotal:5400 },
+    { id:'b2', type:'bundle', name:'Morning Coffee Set', sku:'BND-COFFEE', icon:'coffee',
+      category:'Bundles', collections:['New Arrivals'], supplier:'', brand:'Unsaid Goods', channels:['Etsy'],
+      status:'Draft', contains:'Mug + Coaster + Beans', price:3200, itemsTotal:3800 },
+    { id:'b3', type:'bundle', name:'Holiday Gift Box', sku:'BND-HOL', icon:'card_giftcard',
+      category:'Bundles', collections:['Holiday 2026'], supplier:'', brand:'ManageKube', channels:[],
+      status:'Draft', contains:'5 items', price:8900, itemsTotal:10400 }
+  ],
+  suppliers: [
+    { id:'sup1', type:'supplier', name:'Printful', company:'Printful, Inc.', icon:'factory',
+      category:'Print-on-demand', collections:[], supplier:'', brand:'', channels:['Printful API'],
+      status:'Active', account:'PF-88421', lead:'2–3 days', sla:'99.1%', openBills:288000, ytd:1241000 },
+    { id:'sup2', type:'supplier', name:'Gelato', company:'Gelato', icon:'factory',
+      category:'Print-on-demand', collections:[], supplier:'', brand:'', channels:['Gelato API'],
+      status:'Active', account:'GL-31208', lead:'3–5 days', sla:'98.4%', openBills:120000, ytd:624000 },
+    { id:'sup3', type:'supplier', name:'Printify', company:'Printify, Inc.', icon:'factory',
+      category:'Print-on-demand', collections:[], supplier:'', brand:'', channels:['Printify API'],
+      status:'Active', account:'PR-55901', lead:'1–2 days', sla:'99.6%', openBills:64000, ytd:418000 },
+    { id:'sup4', type:'supplier', name:'Cotton Source Co.', company:'Cotton Source Co.', icon:'factory',
+      category:'Materials', collections:[], supplier:'', brand:'', channels:[],
+      status:'Active', account:'CS-00912', lead:'7–10 days', sla:'97.2%', openBills:0, ytd:824000 },
+    { id:'sup5', type:'supplier', name:'Toner & Ink Depot', company:'Toner & Ink Depot', icon:'factory',
+      category:'Materials', collections:[], supplier:'', brand:'', channels:[],
+      status:'Inactive', account:'TI-12048', lead:'4–6 days', sla:'94.1%', openBills:0, ytd:184000 }
+  ],
+  brands: [
+    { id:'br1', type:'brand', name:'ManageKube', domain:'managekube.io', icon:'branding_watermark',
+      category:'Brands', collections:[], supplier:'', brand:'', channels:['Shopify','TikTok'],
+      status:'Active', colors:['#0a6400','#faf9fc','#1a1c1e'], font:'Inter', products:5079 },
+    { id:'br2', type:'brand', name:'Unsaid Goods', domain:'unsaidgoods.com', icon:'branding_watermark',
+      category:'Brands', collections:[], supplier:'', brand:'', channels:['Shopify','Etsy'],
+      status:'Active', colors:['#1f2937','#e8f0fb','#faf9fc'], font:'Geist', products:2140 },
+    { id:'br3', type:'brand', name:'Lakeside Studio', domain:'', icon:'branding_watermark',
+      category:'Brands', collections:[], supplier:'', brand:'', channels:[],
+      status:'Draft', colors:['#6b1e28','#f4e8f8'], font:'Inter', products:0 }
+  ],
+  channels: [
+    { id:'ch1', type:'channel', name:'Shopify', domain:'managekube.myshopify.com', icon:'storefront',
+      category:'Storefronts', collections:[], supplier:'', brand:'ManageKube', channels:['Shopify'],
+      status:'Connected', listings:1842, needsSync:0, last:'2 min ago', badge:'shopify', letter:'S' },
+    { id:'ch2', type:'channel', name:'TikTok Shop', domain:'ManageKube US', icon:'music_note',
+      category:'Marketplaces', collections:[], supplier:'', brand:'ManageKube', channels:['TikTok'],
+      status:'Connected', listings:842, needsSync:45, last:'45 min ago', badge:'tiktok', letter:'T' },
+    { id:'ch3', type:'channel', name:'Etsy', domain:'UnsaidGoods', icon:'shopping_bag',
+      category:'Marketplaces', collections:[], supplier:'', brand:'Unsaid Goods', channels:['Etsy'],
+      status:'Error', listings:156, needsSync:2, last:'2 hours ago', badge:'etsy', letter:'E' },
+    { id:'ch4', type:'channel', name:'Headless Storefront', domain:'unsaidgoods.com', icon:'api',
+      category:'Storefronts', collections:[], supplier:'', brand:'Unsaid Goods', channels:['Custom API'],
+      status:'Connected', listings:842, needsSync:0, last:'1 min ago', badge:'custom', letter:'H' }
+  ]
+};
+
+// ============ FACET STATE ============
+const state = {
+  entity: 'products',
+  saved: 'all',
+  search: '',
+  facets: { category: null, collection: null, supplier: null, brand: null, channel: null, status: null },
+  sel: new Set(),
+  expanded: new Set()
+};
+
+// Facet values with counts — derived from current entity's data
+function facetValues(entity, facetKey) {
+  const rows = DATA[entity] || [];
+  const map = new Map();
+  rows.forEach(r => {
+    let vals = [];
+    if (facetKey === 'category') vals = r.category ? [r.category] : [];
+    else if (facetKey === 'collection') vals = r.collections || [];
+    else if (facetKey === 'supplier') vals = r.supplier ? [r.supplier] : [];
+    else if (facetKey === 'brand') vals = r.brand ? [r.brand] : [];
+    else if (facetKey === 'channel') vals = r.channels || [];
+    else if (facetKey === 'status') vals = r.status ? [r.status] : [];
+    vals.forEach(v => map.set(v, (map.get(v)||0)+1));
+  });
+  return [...map.entries()].sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0]));
+}
+
+function renderFacets() {
+  const groups = [
+    ['category', 'facetCategories'],
+    ['collection', 'facetCollections'],
+    ['supplier', 'facetSuppliers'],
+    ['brand', 'facetBrands'],
+    ['channel', 'facetChannels'],
+    ['status', 'facetStatus']
+  ];
+  groups.forEach(([key, elId]) => {
+    const host = $(elId);
+    const vals = facetValues(state.entity, key);
+    if (!vals.length) {
+      host.innerHTML = '<div class="px-2 py-1 text-[11px] text-on-surface-variant">—</div>';
+      return;
+    }
+    const active = state.facets[key];
+    host.innerHTML = vals.map(([v, n]) => {
+      const on = active === v;
+      // dot/avatar for specific facets
+      let lead = '';
+      if (key === 'brand') {
+        const initial = v.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+        const colors = { 'ManageKube':'#1e5a38','Unsaid Goods':'#1f2937','Lakeside Studio':'#6b1e28' };
+        lead = `<span class="facet-avatar" style="background:${colors[v]||'#5a6355'}">${initial}</span>`;
+      } else if (key === 'channel') {
+        const b = { 'Shopify':'shopify','TikTok':'tiktok','Etsy':'etsy','Custom API':'custom','Printful API':'custom','Gelato API':'custom','Printify API':'custom' }[v] || 'custom';
+        lead = `<span class="facet-dot" style="background:${{shopify:'#1e5a38',tiktok:'#6b1e8a',etsy:'#8a5a00',custom:'#0055a5'}[b]}"></span>`;
+      } else {
+        lead = `<span class="facet-dot" style="background:#becab6"></span>`;
+      }
+      return `<button class="facet-item ${on?'on':''}" data-facet="${key}" data-value="${esc(v)}">
+        ${lead}<span class="truncate">${esc(v)}</span><span class="n">${n}</span>
+      </button>`;
+    }).join('');
+  });
+}
+
+// ============ FILTER LOGIC ============
+function filteredRows() {
+  const rows = DATA[state.entity] || [];
+  const q = state.search.toLowerCase();
+  return rows.filter(r => {
+    if (q) {
+      const hay = [r.name, r.sku, r.variant, r.category, r.supplier, r.brand, ...(r.collections||[]), ...(r.channels||[])].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    const f = state.facets;
+    if (f.category && r.category !== f.category) return false;
+    if (f.collection && !(r.collections||[]).includes(f.collection)) return false;
+    if (f.supplier && r.supplier !== f.supplier) return false;
+    if (f.brand && r.brand !== f.brand) return false;
+    if (f.channel && !(r.channels||[]).includes(f.channel)) return false;
+    if (f.status && r.status !== f.status) return false;
+    // Saved views
+    if (state.saved === 'needs-review') {
+      const bad = r.status === 'Needs review' || r.status === 'Needs Design' || (r.margin != null && r.margin < 50);
+      if (!bad) return false;
+    } else if (state.saved === 'needs-design') {
+      if (r.status !== 'Needs Design') return false;
+    } else if (state.saved === 'live') {
+      if (!['Published','Active','Connected','Live','In stock'].includes(r.status)) return false;
+    }
+    return true;
+  });
+}
+
+// ============ TABLE RENDERERS (entity-specific) ============
+function statusPill(status) {
+  const map = {
+    'Published':'published','Draft':'draft','Archived':'inactive','Active':'active','Inactive':'inactive',
+    'Connected':'connected','Error':'error','Live':'live','In stock':'in-stock','Low stock':'low-stock',
+    'Out of stock':'out-of-stock','Needs review':'needs-design','Needs Design':'needs-design',
+    'Local only':'local','Pushed':'pushed','Syncing':'syncing','Needs sync':'warn'
+  };
+  return `<span class="stat ${map[status]||'draft'}">${esc(status)}</span>`;
+}
+
+function renderProductsTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="w-8 px-2 py-2"></th>
+        <th class="px-3 py-2">Product</th>
+        <th class="px-3 py-2">Category</th>
+        <th class="px-3 py-2">Collections</th>
+        <th class="px-3 py-2">Supplier</th>
+        <th class="px-3 py-2">Channels</th>
+        <th class="px-3 py-2 text-right">Price</th>
+        <th class="px-3 py-2 text-right">Variants</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => {
+        const exp = state.expanded.has(r.id);
+        const skus = DATA.skus.filter(s => s.parentId === r.id);
+        const mainRow = `<tr class="data-row cursor-pointer ${exp?'bg-surface-container-low':''}" data-id="${r.id}">
+          <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+          <td class="px-2 py-2">
+            <button class="w-5 h-5 rounded hover:bg-surface-container flex items-center justify-center text-on-surface-variant" data-toggle="${r.id}">
+              <span class="material-symbols-outlined text-[16px]">${exp?'expand_more':'chevron_right'}</span>
+            </button>
+          </td>
+          <td class="px-3 py-2">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span>
+              <div class="min-w-0">
+                <div class="font-medium truncate">${esc(r.name)}</div>
+                <div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div>
+              </div>
+            </div>
+          </td>
+          <td class="px-3 py-2 text-on-surface-variant">${esc(r.category||'—')}</td>
+          <td class="px-3 py-2 text-on-surface-variant">${(r.collections||[]).length ? esc(r.collections.join(', ')) : '—'}</td>
+          <td class="px-3 py-2 text-on-surface-variant">${esc(r.supplier||'—')}</td>
+          <td class="px-3 py-2 text-on-surface-variant">${(r.channels||[]).length ? esc(r.channels.join(', ')) : '—'}</td>
+          <td class="px-3 py-2 text-right tabular-nums">${r.price!=null?usd(r.price):'—'}</td>
+          <td class="px-3 py-2 text-right tabular-nums">${r.variants}</td>
+          <td class="px-3 py-2">${statusPill(r.status)}</td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+        </tr>`;
+        let subRows = '';
+        if (exp && skus.length) {
+          subRows = `<tr class="subtable"><td colspan="11">
+            <table>
+              <thead><tr>
+                <th>SKU</th><th>Variant</th><th>Channels</th><th class="right">On hand</th><th class="right">Reserved</th><th class="right">Price</th><th class="right">Cost</th><th>Stock</th><th class="right"></th>
+              </tr></thead>
+              <tbody>
+                ${skus.map(s => `<tr class="cursor-pointer" data-sku="${s.id}">
+                  <td class="font-mono text-[11px] text-on-surface-variant">${esc(s.sku)}</td>
+                  <td>${esc(s.variant)}</td>
+                  <td class="text-on-surface-variant text-[11px]">${esc((s.channels||[]).join(', ')||'—')}</td>
+                  <td class="right">${s.onhand==null?'—':s.onhand}</td>
+                  <td class="right">${s.reserved==null?'—':s.reserved}</td>
+                  <td class="right">${usd(s.price)}</td>
+                  <td class="right">${usd(s.cost)}</td>
+                  <td>${statusPill(s.status)}</td>
+                  <td class="right"><button class="text-[11px] text-primary font-semibold hover:underline" data-sku-open="${s.id}">Open</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </td></tr>`;
+        } else if (exp) {
+          subRows = `<tr class="subtable"><td colspan="11" class="text-center text-on-surface-variant text-[12px] py-3">No individual SKUs tracked for this product.</td></tr>`;
+        }
+        return mainRow + subRows;
+      }).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function renderSkusTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Item</th>
+        <th class="px-3 py-2">SKU</th>
+        <th class="px-3 py-2">Variant</th>
+        <th class="px-3 py-2">Supplier</th>
+        <th class="px-3 py-2">Channels</th>
+        <th class="px-3 py-2 text-right">On hand</th>
+        <th class="px-3 py-2 text-right">Price</th>
+        <th class="px-3 py-2 text-right">Cost</th>
+        <th class="px-3 py-2">Stock</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="data-row cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div class="font-medium truncate">${esc(r.name)}</div></div></td>
+        <td class="px-3 py-2 font-mono text-[11px] text-on-surface-variant">${esc(r.sku)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.variant)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.supplier||'—')}</td>
+        <td class="px-3 py-2 text-on-surface-variant text-[11px]">${esc((r.channels||[]).join(', ')||'—')}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${r.onhand==null?'—':r.onhand}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.price)}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.cost)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function renderBundlesTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Bundle</th>
+        <th class="px-3 py-2">Contains</th>
+        <th class="px-3 py-2">Collections</th>
+        <th class="px-3 py-2">Channels</th>
+        <th class="px-3 py-2 text-right">Bundle price</th>
+        <th class="px-3 py-2 text-right">Items total</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="data-row cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div><div class="font-medium">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div></div></div></td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.contains)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${(r.collections||[]).join(', ')||'—'}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${(r.channels||[]).join(', ')||'—'}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.price)}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-on-surface-variant">${usd(r.itemsTotal)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function renderSuppliersTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Supplier</th>
+        <th class="px-3 py-2">Account</th>
+        <th class="px-3 py-2 text-right">Open bills</th>
+        <th class="px-3 py-2 text-right">YTD paid</th>
+        <th class="px-3 py-2">Lead time</th>
+        <th class="px-3 py-2 text-right">SLA</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="data-row cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><div class="w-7 h-7 rounded-full bg-qb-blue flex items-center justify-center text-[10px] font-bold text-white">${esc(r.name[0])}</div><div><div class="font-medium">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant">${esc(r.company)}</div></div></div></td>
+        <td class="px-3 py-2 font-mono text-[11px] text-on-surface-variant">${esc(r.account)}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.openBills)}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.ytd)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.lead)}</td>
+        <td class="px-3 py-2 text-right tabular-nums text-secondary font-medium">${esc(r.sla)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function renderBrandsTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Brand</th>
+        <th class="px-3 py-2">Colors</th>
+        <th class="px-3 py-2">Typography</th>
+        <th class="px-3 py-2 text-right">Products</th>
+        <th class="px-3 py-2">Channels</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="data-row cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><div class="w-8 h-8 rounded bg-qb-green flex items-center justify-center text-[11px] font-bold text-white">${esc(r.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase())}</div><div><div class="font-medium">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant">${esc(r.domain||'No domain')}</div></div></div></td>
+        <td class="px-3 py-2"><div class="flex gap-1">${r.colors.map(c=>`<div class="w-4 h-4 rounded border border-black/10" style="background:${c}"></div>`).join('')}</div></td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.font)}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${r.products.toLocaleString()}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${(r.channels||[]).join(', ')||'—'}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function renderChannelsTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Channel</th>
+        <th class="px-3 py-2">Type</th>
+        <th class="px-3 py-2">Brand</th>
+        <th class="px-3 py-2 text-right">Listings</th>
+        <th class="px-3 py-2 text-right">Needs sync</th>
+        <th class="px-3 py-2">Last sync</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="data-row cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><div class="ch-badge ${r.badge}">${r.letter}</div><div><div class="font-medium">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant">${esc(r.domain)}</div></div></div></td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.category)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.brand||'—')}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${r.listings.toLocaleString()}</td>
+        <td class="px-3 py-2 text-right tabular-nums ${r.needsSync>0?'text-qb-maroon font-semibold':''}">${r.needsSync}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.last)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function emptyState() {
+  return `<div class="p-10 text-center text-on-surface-variant">
+    <span class="material-symbols-outlined text-[32px] mb-2 block">search_off</span>
+    <div class="font-medium mb-1">No records match the current facets</div>
+    <div class="text-[12px]">Try removing a facet or clearing the search.</div>
+  </div>`;
+}
+
+function renderTable() {
+  const rows = filteredRows();
+  let html = '';
+  if (state.entity === 'products') html = renderProductsTable(rows);
+  else if (state.entity === 'skus') html = renderSkusTable(rows);
+  else if (state.entity === 'bundles') html = renderBundlesTable(rows);
+  else if (state.entity === 'suppliers') html = renderSuppliersTable(rows);
+  else if (state.entity === 'brands') html = renderBrandsTable(rows);
+  else if (state.entity === 'channels') html = renderChannelsTable(rows);
+  $('tableHost').innerHTML = html;
+  $('rowCount').textContent = `${rows.length} of ${(DATA[state.entity]||[]).length}`;
+  $('breadcrumb').textContent = {
+    products:'Products', skus:'Variants & SKUs', bundles:'Bundles',
+    suppliers:'Suppliers', brands:'Brands', channels:'Channels'
+  }[state.entity] || 'Workspace';
+
+  // Re-render active filter chips
+  const chips = [];
+  Object.entries(state.facets).forEach(([k, v]) => {
+    if (v) chips.push(`<span class="chip">${esc(v)}<button data-clear-facet="${k}"><span class="material-symbols-outlined">close</span></button></span>`);
+  });
+  if (state.search) chips.push(`<span class="chip">"${esc(state.search)}"<button data-clear-search><span class="material-symbols-outlined">close</span></button></span>`);
+  $('activeChips').innerHTML = chips.join('');
+}
+
+// ============ KPI COUNTS (saved views) ============
+function updateKpis() {
+  const all = (DATA.products||[]).length + (DATA.skus||[]).length + (DATA.bundles||[]).length + (DATA.suppliers||[]).length + (DATA.brands||[]).length + (DATA.channels||[]).length;
+  $('kpiAll').textContent = all.toLocaleString();
+  const review = (DATA.products||[]).filter(r => r.status === 'Needs review' || (r.margin!=null && r.margin<50)).length;
+  $('kpiReview').textContent = review;
+  const design = (DATA.products||[]).filter(r => r.status === 'Needs Design').length;
+  $('kpiDesign').textContent = design;
+  const live = [...(DATA.products||[]), ...(DATA.skus||[]), ...(DATA.bundles||[])].filter(r => ['Published','Active','Live','In stock'].includes(r.status)).length;
+  $('kpiLive').textContent = live;
+}
+
+// ============ BULK BAR ============
+function updateBulkBar() {
+  const bar = $('bulkBar');
+  const n = state.sel.size;
+  if (n > 0) { bar.classList.add('show'); $('bulkCount').textContent = `${n} selected`; }
+  else bar.classList.remove('show');
+}
+
+// ============ DETAIL DRAWER (adapts to record type) ============
+const DRAWER_META = {
+  product: { icon:'inventory', title:'Product', sub:'Catalog product' },
+  sku: { icon:'qr_code', title:'Variant / SKU', sub:'SKU-level record' },
+  bundle: { icon:'redeem', title:'Bundle', sub:'Grouped items' },
+  supplier: { icon:'factory', title:'Supplier', sub:'Party · role = Supplier' },
+  brand: { icon:'branding_watermark', title:'Brand', sub:'Identity & theme' },
+  channel: { icon:'local_mall', title:'Channel', sub:'Storefront or marketplace' }
+};
+
+function openDrawer(record) {
+  if (!record) return;
+  const meta = DRAWER_META[record.type] || { icon:'inventory', title:'Record', sub:'' };
+  $('drawerIcon').textContent = meta.icon;
+  $('drawerTitle').textContent = record.name;
+  $('drawerSub').textContent = meta.sub;
+  $('drawerBody').innerHTML = renderDrawerBody(record);
+  $('scrim').classList.add('open');
+  $('drawer').classList.add('open');
+}
+function closeDrawer() {
+  $('scrim').classList.remove('open');
+  $('drawer').classList.remove('open');
+}
+function renderDrawerBody(r) {
+  const facetBlock = (label, value) => `<div><div class="field-label">${label}</div><div class="text-body-md">${esc(value||'—')}</div></div>`;
+  const channelsBlock = (channels) => `<div><div class="field-label">Channels</div><div class="flex flex-wrap gap-1">${(channels||[]).length?channels.map(c=>`<span class="role-chip customer">${esc(c)}</span>`).join(''):'<span class="text-on-surface-variant text-[12px]">—</span>'}</div></div>`;
+  const collectionsBlock = (cols) => `<div><div class="field-label">Collections</div><div class="flex flex-wrap gap-1">${(cols||[]).length?cols.map(c=>`<span class="chip">${esc(c)}</span>`).join(''):'<span class="text-on-surface-variant text-[12px]">—</span>'}</div></div>`;
+
+  if (r.type === 'product') {
+    return `
+      <div><label class="field-label">Product name</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">SKU</label><input class="field-input font-mono" value="${esc(r.sku)}"/></div>
+        <div><label class="field-label">Status</label><div>${statusPill(r.status)}</div></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${facetBlock('Category', r.category)}
+        ${facetBlock('Supplier', r.supplier)}
+      </div>
+      ${collectionsBlock(r.collections)}
+      ${channelsBlock(r.channels)}
+      <div class="grid grid-cols-3 gap-3">
+        <div><label class="field-label">Price</label><input class="field-input tabular-nums" value="${r.price!=null?usd(r.price):''}"/></div>
+        <div><label class="field-label">Variants</label><input class="field-input tabular-nums" value="${r.variants}"/></div>
+        <div><label class="field-label">Margin</label><input class="field-input tabular-nums" value="${r.margin!=null?r.margin+'%':''}"/></div>
+      </div>
+      <div class="pt-2">
+        <div class="section-h">SKUs in this product</div>
+        <div class="text-[12px] text-on-surface-variant">${DATA.skus.filter(s=>s.parentId===r.id).length} SKUs tracked</div>
+      </div>`;
+  }
+  if (r.type === 'sku') {
+    return `
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">SKU</label><input class="field-input font-mono" value="${esc(r.sku)}"/></div>
+        <div><label class="field-label">Variant</label><input class="field-input" value="${esc(r.variant)}"/></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${facetBlock('Supplier', r.supplier)}
+        ${facetBlock('Status', r.status)}
+      </div>
+      ${channelsBlock(r.channels)}
+      <div class="grid grid-cols-4 gap-3">
+        <div><label class="field-label">On hand</label><input class="field-input tabular-nums" value="${r.onhand==null?'':r.onhand}"/></div>
+        <div><label class="field-label">Reserved</label><input class="field-input tabular-nums" value="${r.reserved==null?'':r.reserved}"/></div>
+        <div><label class="field-label">Price</label><input class="field-input tabular-nums" value="${usd(r.price)}"/></div>
+        <div><label class="field-label">Cost</label><input class="field-input tabular-nums" value="${usd(r.cost)}"/></div>
+      </div>`;
+  }
+  if (r.type === 'bundle') {
+    return `
+      <div><label class="field-label">Bundle name</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div><label class="field-label">SKU</label><input class="field-input font-mono" value="${esc(r.sku)}"/></div>
+      <div>${facetBlock('Contains', r.contains)}</div>
+      ${collectionsBlock(r.collections)}
+      ${channelsBlock(r.channels)}
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Bundle price</label><input class="field-input tabular-nums" value="${usd(r.price)}"/></div>
+        <div><label class="field-label">Items total</label><input class="field-input tabular-nums" value="${usd(r.itemsTotal)}"/></div>
+      </div>`;
+  }
+  if (r.type === 'supplier') {
+    return `
+      <div><label class="field-label">Supplier name</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div><label class="field-label">Company</label><input class="field-input" value="${esc(r.company)}"/></div>
+      <div class="flex flex-wrap gap-1">
+        <span class="role-chip supplier">Supplier</span>
+        <span class="role-chip vendor">Vendor</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Account #</label><input class="field-input font-mono" value="${esc(r.account)}"/></div>
+        <div><label class="field-label">Lead time</label><input class="field-input" value="${esc(r.lead)}"/></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Open bills</label><input class="field-input tabular-nums" value="${usd(r.openBills)}"/></div>
+        <div><label class="field-label">YTD paid</label><input class="field-input tabular-nums" value="${usd(r.ytd)}"/></div>
+      </div>
+      ${channelsBlock(r.channels)}`;
+  }
+  if (r.type === 'brand') {
+    return `
+      <div><label class="field-label">Brand name</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div><label class="field-label">Domain</label><input class="field-input font-mono" value="${esc(r.domain)}"/></div>
+      <div><label class="field-label">Brand colors</label><div class="flex gap-2">${r.colors.map(c=>`<div class="w-8 h-8 rounded border border-black/10" style="background:${c}"></div>`).join('')}</div></div>
+      <div><label class="field-label">Typography</label><input class="field-input" value="${esc(r.font)}"/></div>
+      ${channelsBlock(r.channels)}`;
+  }
+  if (r.type === 'channel') {
+    return `
+      <div class="bg-surface-container-low rounded-lg p-3 flex items-center gap-3 mb-2">
+        <div class="ch-badge ${r.badge}">${r.letter}</div>
+        <div><div class="font-semibold">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant">${esc(r.domain)}</div></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Listings</label><input class="field-input tabular-nums" value="${r.listings.toLocaleString()}"/></div>
+        <div><label class="field-label">Needs sync</label><input class="field-input tabular-nums" value="${r.needsSync}"/></div>
+      </div>
+      <div><label class="field-label">Last sync</label><input class="field-input" value="${esc(r.last)}"/></div>
+      <div>${facetBlock('Type', r.category)}</div>
+      ${facetBlock('Brand', r.brand)}`;
+  }
+  return '';
+}
+
+// ============ EVENT WIRING ============
+// Entity tabs
+document.querySelectorAll("[data-entity]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-entity]").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.entity = btn.dataset.entity;
+    state.sel.clear();
+    state.expanded.clear();
+    updateBulkBar();
+    renderFacets();
+    renderTable();
+  });
+});
+
+// Saved views
+document.querySelectorAll("[data-saved]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-saved]").forEach(b => b.classList.remove("on"));
+    btn.classList.add("on");
+    state.saved = btn.dataset.saved;
+    state.sel.clear();
+    updateBulkBar();
+    renderTable();
+  });
+});
+
+// Search
+$('search').addEventListener('input', e => {
+  state.search = e.target.value;
+  renderTable();
+});
+
+// Facet clicks (delegated)
+document.addEventListener('click', e => {
+  const facet = e.target.closest('[data-facet]');
+  if (facet) {
+    const key = facet.dataset.facet;
+    const val = facet.dataset.value;
+    state.facets[key] = state.facets[key] === val ? null : val;
+    renderFacets();
+    renderTable();
+    return;
+  }
+  const clearFacet = e.target.closest('[data-clear-facet]');
+  if (clearFacet) {
+    state.facets[clearFacet.dataset.clearFacet] = null;
+    renderFacets();
+    renderTable();
+    return;
+  }
+  const clearSearch = e.target.closest('[data-clear-search]');
+  if (clearSearch) {
+    state.search = '';
+    $('search').value = '';
+    renderTable();
+    return;
+  }
+  if (e.target.closest('#clearFacets')) {
+    Object.keys(state.facets).forEach(k => state.facets[k] = null);
+    state.search = '';
+    $('search').value = '';
+    renderFacets();
+    renderTable();
+    return;
+  }
+
+  // Toggle expansion
+  const toggle = e.target.closest('[data-toggle]');
+  if (toggle) {
+    e.stopPropagation();
+    const id = toggle.dataset.toggle;
+    if (state.expanded.has(id)) state.expanded.delete(id);
+    else state.expanded.add(id);
+    renderTable();
+    return;
+  }
+
+  // Row click → drawer
+  const row = e.target.closest('tr[data-id]');
+  if (row && !e.target.closest('[data-row-check], [data-row-menu], [data-toggle]')) {
+    const id = row.dataset.id;
+    const record = (DATA[state.entity]||[]).find(r => r.id === id);
+    if (record) openDrawer(record);
+    return;
+  }
+
+  // SKU drill from expanded subtable
+  const skuLink = e.target.closest('[data-sku-open]');
+  if (skuLink) {
+    e.stopPropagation();
+    const sku = DATA.skus.find(s => s.id === skuLink.dataset.skuOpen);
+    if (sku) openDrawer(sku);
+    return;
+  }
+
+  // Row menu
+  const rm = e.target.closest('[data-row-menu]');
+  if (rm) {
+    e.stopPropagation();
+    const menu = $('rowMenu');
+    menu.classList.remove('open');
+    const rect = rm.getBoundingClientRect();
+    menu.style.top = (rect.bottom + 4) + 'px';
+    menu.style.left = Math.min(rect.right - 250, window.innerWidth - 270) + 'px';
+    menu.classList.add('open');
+    menu._id = rm.dataset.id;
+    return;
+  }
+
+  // Bulk action
+  const bulk = e.target.closest('[data-bulk-action]');
+  if (bulk) {
+    const action = bulk.dataset.bulkAction;
+    if (action === 'close') {
+      state.sel.clear();
+      document.querySelectorAll('[data-row-check]').forEach(c => c.checked = false);
+      updateBulkBar();
+      renderTable();
+    } else {
+      toast(`${action.charAt(0).toUpperCase()+action.slice(1)} on ${state.sel.size} record${state.sel.size!==1?'s':''}`);
+      state.sel.clear();
+      document.querySelectorAll('[data-row-check]').forEach(c => c.checked = false);
+      updateBulkBar();
+      renderTable();
+    }
+    return;
+  }
+
+  // Row check
+  const rc = e.target.closest('[data-row-check]');
+  if (rc) {
+    const rowEl = rc.closest('tr[data-id]');
+    if (rowEl) {
+      if (rc.checked) state.sel.add(rowEl.dataset.id);
+      else state.sel.delete(rowEl.dataset.id);
+      updateBulkBar();
+    }
+    return;
+  }
+
+  // Check all
+  if (e.target.matches('[data-check-all]')) {
+    const checked = e.target.checked;
+    document.querySelectorAll('tr[data-id]').forEach(tr => {
+      const cb = tr.querySelector('[data-row-check]');
+      if (cb) cb.checked = checked;
+      if (checked) state.sel.add(tr.dataset.id);
+      else state.sel.delete(tr.dataset.id);
+    });
+    updateBulkBar();
+    return;
+  }
+
+  // Close menus
+  if (!e.target.closest('#rowMenu')) $('rowMenu').classList.remove('open');
+  if (!e.target.closest('#createMenu') && !e.target.closest('#btnCreateSplit')) $('createMenu').classList.remove('open');
+});
+
+// Row menu actions
+document.querySelectorAll('#rowMenu [data-action]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const menu = $('rowMenu');
+    const action = btn.dataset.action;
+    const id = menu._id;
+    menu.classList.remove('open');
+    if (!id) return;
+    const record = (DATA[state.entity]||[]).find(r => r.id === id);
+    if (action === 'open' && record) openDrawer(record);
+    else if (action === 'filter' && record) {
+      if (record.category) state.facets.category = record.category;
+      if (record.supplier) state.facets.supplier = record.supplier;
+      if (record.brand) state.facets.brand = record.brand;
+      renderFacets(); renderTable();
+    } else if (action === 'delete') {
+      const idx = (DATA[state.entity]||[]).findIndex(r => r.id === id);
+      if (idx >= 0) { DATA[state.entity].splice(idx, 1); renderTable(); updateKpis(); }
+      toast('Deleted');
+    } else {
+      toast(`${action.charAt(0).toUpperCase()+action.slice(1)}`);
+    }
+  });
+});
+
+// Create split
+$('btnCreateSplit').addEventListener('click', e => {
+  e.stopPropagation();
+  const menu = $('createMenu');
+  const rect = e.currentTarget.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.style.left = Math.min(rect.right - 240, window.innerWidth - 260) + 'px';
+  menu.classList.toggle('open');
+});
+document.querySelectorAll('#createMenu [data-create]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $('createMenu').classList.remove('open');
+    toast(`Create → ${btn.dataset.create}`);
+  });
+});
+$('btnCreate').addEventListener('click', () => toast('Create menu opens here: Product, Variant, Bundle, Category, Collection…'));
+
+// Save current view
+$('saveViewBtn').addEventListener('click', () => toast('Saved view created from current facets'));
+
+// Drawer controls
+$('closeDrawer').addEventListener('click', closeDrawer);
+$('drawerCancel').addEventListener('click', closeDrawer);
+$('scrim').addEventListener('click', closeDrawer);
+$('drawerSave').addEventListener('click', () => { toast('Saved'); closeDrawer(); });
+
+// Global buttons
+document.querySelector('[data-import]')?.addEventListener('click', () => toast('Import wizard'));
+document.querySelector('[data-export]')?.addEventListener('click', () => toast('Export catalog'));
+
+// ============ INITIAL RENDER ============
+updateKpis();
+renderFacets();
+renderTable();
+</script>
+</body>
+</html>

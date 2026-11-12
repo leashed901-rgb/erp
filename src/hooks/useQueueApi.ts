@@ -213,10 +213,17 @@ export function useLiveQueueBadges(): QueueBadgeCounts | null {
   useEffect(() => {
     let mounted = true;
     async function load() {
-      const res = await fetchJson<{ data: QueueBadgeCounts }>('/api/queue/counts');
-      if (res.ok && mounted) {
-        badgeCache.counts = res.data.data;
-        setCounts(res.data.data);
+      // Fetch queue counts + nav-counts in parallel
+      const [queueRes, navRes] = await Promise.all([
+        fetchJson<{ data: QueueBadgeCounts }>('/api/queue/counts'),
+        fetchJson<{ counts: Record<string, number> }>('/api/v1/nav-counts'),
+      ]);
+      if (mounted) {
+        const merged: Record<string, number> = {};
+        if (queueRes.ok && queueRes.data?.data) Object.assign(merged, queueRes.data.data);
+        if (navRes.ok && navRes.data?.counts) Object.assign(merged, navRes.data.counts);
+        badgeCache.counts = merged;
+        setCounts(merged);
       }
     }
     load();

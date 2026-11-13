@@ -398,6 +398,13 @@ export default function GlobalShell() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view');
+    const screenParam = params.get('screen');
+    // Support ?screen=studio-men and ?screen=new-design for direct URLs
+    if (screenParam && !view) {
+      const isStudio = screenParam === 'new-design' || screenParam.startsWith('studio-');
+      const d: DomainKey = isStudio ? 'design' : 'dashboard';
+      openOrActivateTab(d, screenParam);
+    }
     if (view) {
       const sep = view.indexOf(':');
       if (sep > 0) {
@@ -989,15 +996,8 @@ export default function GlobalShell() {
 
   const activeTabKey = `${activeDomain}:${activeScreen}`;
 
-  // Design Studio screens (new-design, studio-*) have their own top bar
-  // (Studio logo + 6 category tabs + Design Queue). They should render
-  // full-screen — no ERP Header, no SideRail, no global search. The
-  // studio's own chrome IS the chrome.
-  const isStudioScreen = activeScreen === 'new-design' || activeScreen.startsWith('studio-');
-
   return (
     <>
-      {!isStudioScreen && (
       <Header
         openTabs={openTabs}
         activeTabKey={activeTabKey}
@@ -1014,9 +1014,8 @@ export default function GlobalShell() {
         onToast={showToast}
         hideTabs={focusMode}
       />
-      )}
 
-      {!focusMode && !isStudioScreen && (
+      {!focusMode && (
         <MainRail
           activeDomain={activeDomain}
           onSelectDomain={handleSelectDomain}
@@ -1031,7 +1030,7 @@ export default function GlobalShell() {
         />
       )}
 
-      {!focusMode && !isStudioScreen && activeDomain !== 'dashboard' && (
+      {!focusMode && activeDomain !== 'dashboard' && (
         <SideRail
           activeDomain={activeDomain}
           activeScreen={activeScreen}
@@ -1063,8 +1062,8 @@ export default function GlobalShell() {
           setPeekOpen(true);
         }}
         onToast={showToast}
-        sideRailCollapsed={activeDomain === 'dashboard' || isStudioScreen ? true : sideRailCollapsed}
-        focusMode={focusMode || isStudioScreen}
+        sideRailCollapsed={activeDomain === 'dashboard' ? true : sideRailCollapsed}
+        focusMode={focusMode}
         onToggleFocus={handleToggleFocus}
         onOpenStandalone={handleOpenStandalone}
         wizardPrefill={wizardPrefill}

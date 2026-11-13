@@ -52,6 +52,8 @@ import styles from './DesignCanvas.module.css';
 interface DesignCanvasScreenProps {
   onToast: (msg: string) => void;
   onNavigate: (domain: DomainKey, screenId: string) => void;
+  /** When set, the canvas opens the flyout for this category on mount. */
+  initialCategory?: string;
 }
 
 // Create-action toolbar tools (tldraw-style floating toolbar). `route`
@@ -184,7 +186,7 @@ function shapeRender(id: string): StudioShape['render'] {
   return STUDIO_SHAPES.find((s) => s.id === id)?.render ?? 'rect';
 }
 
-export default function DesignCanvasScreen({ onToast, onNavigate }: DesignCanvasScreenProps) {
+export default function DesignCanvasScreen({ onToast, onNavigate, initialCategory }: DesignCanvasScreenProps) {
   const product = useDesignCanvas((s) => s.product);
   const printArea = useDesignCanvas((s) => s.printArea);
   const setPrintArea = useDesignCanvas((s) => s.setPrintArea);
@@ -258,6 +260,16 @@ export default function DesignCanvasScreen({ onToast, onNavigate }: DesignCanvas
   useEffect(() => {
     setDockPrimary(null);
   }, [dockKind]);
+
+  // When initialCategory is passed (from studio-* screen navigation),
+  // set the category and open the flyout on mount. This is how the
+  // sidebar items and category tabs open the product picker.
+  useEffect(() => {
+    if (initialCategory) {
+      setCategory(initialCategory, navMap[initialCategory]?.[0] || '');
+      setFlyoutOpen(true);
+    }
+  }, [initialCategory]);
 
   // Working layers + undo/redo history.
   const [layers, setLayers] = useState<WorkLayer[]>([]);

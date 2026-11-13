@@ -85,6 +85,15 @@ import ErpProductCatalogScreen from './design/ErpProductCatalogScreen';
 import MyProductsTable from './design/MyProductsTable';
 import CreateWizard from './design/CreateWizard';
 import { TOP_NAV, STOREFRONT_NAV } from '@/lib/designCanvasStore';
+
+/** Slugify matching shellData.ts so screen ids line up. */
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
 import ProductPageModal from './design/ProductPageModal';
 import TasksProjectsScreen from './tasks/TasksProjectsScreen';
 import PublishingOverviewScreen from './marketing/PublishingOverviewScreen';
@@ -2825,6 +2834,32 @@ function TabScreenRenderer({
   // ── Design Studio: New design canvas (spec: upload/canvas.html) ──
   if (screenId === 'new-design') {
     return <DesignCanvasScreen onToast={onToast} onNavigate={onNavigate} />;
+  }
+
+  // ── Design Studio: catalog screens (studio-*) ──
+  // ALL studio-* screens that aren't dock panels or settings render the
+  // DesignCanvasScreen. The canvas has its own top bar with 6 category
+  // tabs that open the flyout overlay. Catalog browsing happens through
+  // the flyout — NOT as separate standalone pages. When a studio-* screen
+  // is active, the canvas reads the category/subcategory from the screen
+  // id and opens the flyout automatically.
+  if (screenId.startsWith('studio-') && !screenId.includes('--') &&
+      !['studio-upload', 'studio-images', 'studio-graphics', 'studio-add-text',
+        'studio-ai', 'studio-shapes', 'studio-themes', 'studio-templates',
+        'studio-product-details', 'studio-layers', 'studio-layouts',
+        'studio-files', 'studio-shutterstock', 'studio-settings',
+        'studio-show-grid', 'studio-show-guides', 'studio-show-bleeds',
+        'studio-show-rulers', 'studio-units', 'studio-background-color',
+        'studio-bg-none', 'studio-bg-palette', 'studio-bg-custom',
+        'studio-reset-settings', 'studio-my-library', 'studio-my-collections',
+        'studio-my-stores', 'studio-my-templates', 'studio-my-orders',
+        'studio-published', 'studio-hidden', 'studio-wizard', 'studio-design'
+      ].includes(screenId)) {
+    // Parse the category from the screen id (studio-men → Men)
+    const catSlug = screenId.replace('studio-', '');
+    const nav = STOREFRONT_NAV.find(d => slugify(d.name) === catSlug);
+    const catName = nav?.name || catSlug.charAt(0).toUpperCase() + catSlug.slice(1);
+    return <DesignCanvasScreen key={screenId} onToast={onToast} onNavigate={onNavigate} initialCategory={catName} />;
   }
 
   // ── Design Studio: dock tool screens (Upload, AI, Shapes, etc.) ──

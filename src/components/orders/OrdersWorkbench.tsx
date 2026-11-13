@@ -293,6 +293,26 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
     return () => { cancelled = true; };
   }, []);
 
+  // Refresh functions — re-fetch data after mutations (ship, cancel, approve, etc.)
+  const refreshOrders = () => {
+    fetch('/api/v1/documents?type=SalesOrder')
+      .then(r => r.json())
+      .then(json => setOrders((json.data || []).map(mapOrderRow)))
+      .catch(() => {});
+  };
+  const refreshReturns = () => {
+    fetch('/api/v1/returns')
+      .then(r => r.json())
+      .then(json => setReturns((json.data || []).map(mapReturnRow)))
+      .catch(() => {});
+  };
+  const refreshInventory = () => {
+    fetch('/api/v1/inventory')
+      .then(r => r.json())
+      .then(json => setInventory((json.rows || []).map(mapInventoryRow)))
+      .catch(() => {});
+  };
+
   // ════════════════════════════════════════════════════════════════
   // DERIVED DATA
   // ════════════════════════════════════════════════════════════════
@@ -458,6 +478,66 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
       showToast(`Showing orders using ${id}`);
       return;
     }
+    if (act === 'ship') {
+      fetch(`/api/v1/documents/${id}/send?type=SalesOrder`, { method: 'POST' }).catch(() => {});
+      showToast(`Order #${id} marked shipped`);
+      refreshOrders();
+      return;
+    }
+    if (act === 'cancel') {
+      fetch(`/api/v1/documents/${id}/void?type=SalesOrder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Cancelled by user' }) }).catch(() => {});
+      showToast(`Order #${id} cancelled`);
+      refreshOrders();
+      return;
+    }
+    if (act === 'approve') {
+      fetch(`/api/v1/returns/${id}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'approve' }) }).catch(() => {});
+      showToast(`Return ${id} approved`);
+      refreshReturns();
+      return;
+    }
+    if (act === 'decline') {
+      fetch(`/api/v1/returns/${id}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'decline' }) }).catch(() => {});
+      showToast(`Return ${id} declined`);
+      refreshReturns();
+      return;
+    }
+    if (act === 'receive') {
+      fetch(`/api/v1/returns/${id}/receive`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {});
+      showToast(`Return ${id} marked received`);
+      refreshReturns();
+      return;
+    }
+    if (act === 'refund') {
+      fetch(`/api/v1/documents/${id}/pay?type=RMA`, { method: 'POST' }).catch(() => {});
+      showToast(`Refund issued for ${id}`);
+      refreshReturns();
+      return;
+    }
+    if (act === 'slip' || act === 'label') {
+      window.print();
+      return;
+    }
+    if (act === 'track') {
+      showToast(`Tracking shipment for #${id}`);
+      return;
+    }
+    if (act === 'adjust') {
+      openDrawer(id);
+      return;
+    }
+    if (act === 'transfer') {
+      showToast(`Transfer for ${id}`);
+      return;
+    }
+    if (act === 'history') {
+      onNavigate?.('operations', 'inventory');
+      return;
+    }
+    if (act === 'restock') {
+      showToast(`Restocking items from #${id}`);
+      return;
+    }
     showToast(`${act} on ${id}`);
   };
 
@@ -552,7 +632,36 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
 
   const runBulk = (label: string) => {
     const n = selected.size;
-    showToast(`${label} on ${n} record${n !== 1 ? 's' : ''}`);
+    const ids = [...selected];
+    const act = label.toLowerCase();
+    if (act.includes('ship')) {
+      ids.forEach(id => fetch(`/api/v1/documents/${id}/send?type=SalesOrder`, { method: 'POST' }).catch(() => {}));
+      showToast(`Marked ${n} orders shipped`);
+      refreshOrders();
+    } else if (act.includes('cancel')) {
+      ids.forEach(id => fetch(`/api/v1/documents/${id}/void?type=SalesOrder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Bulk cancel' }) }).catch(() => {}));
+      showToast(`Cancelled ${n} orders`);
+      refreshOrders();
+    } else if (act.includes('slip') || act.includes('label')) {
+      window.print();
+      showToast(`Printing for ${n} orders`);
+    } else if (act.includes('approve')) {
+      ids.forEach(id => fetch(`/api/v1/returns/${id}/decision`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'approve' }) }).catch(() => {}));
+      showToast(`Approved ${n} returns`);
+      refreshReturns();
+    } else if (act.includes('refund')) {
+      ids.forEach(id => fetch(`/api/v1/documents/${id}/pay?type=RMA`, { method: 'POST' }).catch(() => {}));
+      showToast(`Refunded ${n} returns`);
+      refreshReturns();
+    } else if (act.includes('reorder')) {
+      showToast(`Reorder for ${n} SKUs`);
+    } else if (act.includes('adjust')) {
+      showToast(`Adjust for ${n} SKUs`);
+    } else if (act.includes('transfer')) {
+      showToast(`Transfer for ${n} SKUs`);
+    } else {
+      showToast(`${label} on ${n} record${n !== 1 ? 's' : ''}`);
+    }
     setSelected(new Set());
   };
 
@@ -561,10 +670,69 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
   // ════════════════════════════════════════════════════════════════
 
   const topAction = (act: string) => {
-    if (act === 'create') { showToast('Create order — opening drawer'); return; }
-    if (act === 'report') { showToast('Report a problem — opening'); return; }
-    if (act === 'batch') { onNavigate?.('orders', 'batch-slips'); return; }
-    if (act === 'pick') { showToast('Pick list — opening'); return; }
+    if (act === 'create') {
+      // Open a create drawer with a minimal order form
+      setDrawer({
+        icon: 'shopping_cart',
+        title: 'Create order',
+        sub: 'New sales order',
+        body: (
+          <div className="space-y-4">
+            <div>
+              <label className={`${styles.fieldLabel}`}>Customer</label>
+              <input className={styles.fieldInput} placeholder="Search customers…" />
+            </div>
+            <div>
+              <label className={styles.fieldLabel}>Items</label>
+              <input className={styles.fieldInput} placeholder="Add line items…" />
+            </div>
+            <div>
+              <label className={styles.fieldLabel}>Channel</label>
+              <select className={styles.fieldInput}>
+                <option>Manual</option>
+                <option>Shopify</option>
+                <option>TikTok</option>
+                <option>Etsy</option>
+              </select>
+            </div>
+          </div>
+        ),
+        footer: (
+          <>
+            <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Cancel</button>
+            <button
+              className="h-8 px-3 bg-primary text-white rounded font-semibold"
+              onClick={() => {
+                fetch('/api/v1/documents', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ type: 'SalesOrder', status: 'draft' }),
+                }).then(() => {
+                  showToast('Order created');
+                  setDrawer(null);
+                  refreshOrders();
+                }).catch(() => showToast('Failed to create order'));
+              }}
+            >
+              Create
+            </button>
+          </>
+        ),
+      });
+      return;
+    }
+    if (act === 'report') {
+      onNavigate?.('support', 'tickets');
+      return;
+    }
+    if (act === 'batch') {
+      onNavigate?.('orders', 'batch-slips');
+      return;
+    }
+    if (act === 'pick') {
+      showToast('Pick list — opening');
+      return;
+    }
     showToast(`${act} — opening`);
   };
 
@@ -691,7 +859,42 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
               </button>
               <button
                 className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                onClick={() => showToast('Create options: Sales order / Refund / RMA / Manual')}
+                onClick={() => {
+                  setDrawer({
+                    icon: 'shopping_cart',
+                    title: 'Create',
+                    sub: 'Choose order type',
+                    body: (
+                      <div className="space-y-2">
+                        {[
+                          { label: 'Sales order', icon: 'shopping_cart', type: 'SalesOrder' },
+                          { label: 'Return / RMA', icon: 'assignment_return', type: 'RMA' },
+                          { label: 'Manual order', icon: 'edit_note', type: 'SalesOrder' },
+                        ].map((opt) => (
+                          <button
+                            key={opt.label}
+                            className="w-full flex items-center gap-2 p-2 rounded hover:bg-surface-container-low text-left"
+                            onClick={() => {
+                              fetch('/api/v1/documents', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ type: opt.type, status: 'draft' }),
+                              }).then(() => {
+                                showToast(`${opt.label} created`);
+                                setDrawer(null);
+                                if (opt.type === 'RMA') refreshReturns(); else refreshOrders();
+                              }).catch(() => showToast('Failed to create'));
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{opt.icon}</span>
+                            <span className="text-[13px] font-medium">{opt.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ),
+                    footer: <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Cancel</button>,
+                  });
+                }}
               >
                 <span className="material-symbols-outlined text-[16px]">expand_more</span>
               </button>

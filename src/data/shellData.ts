@@ -214,34 +214,6 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-green',
         screens: [
           { id: 'products', label: 'Products', type: 'list' },
-          { id: 'listings', label: 'Listings', type: 'list' },
-          { id: 'blanks', label: 'Blanks', type: 'list' },
-          { id: 'catalog-review', label: 'Catalog review', type: 'list' },
-          { id: 'catalog-items', label: 'Catalog items', type: 'list' },
-          { id: 'published-skus', label: 'Published Items & SKUs', type: 'list' },
-          { id: 'bundles', label: 'Bundles', type: 'list' },
-          { id: 'categories', label: 'Categories', type: 'list' },
-          { id: 'catalog-parties', label: 'Suppliers / Vendors / Sellers', type: 'list' },
-        ],
-      },
-      {
-        name: 'Channels',
-        icon: 'hub',
-        bg: 'bg-qb-teal',
-        screens: [
-          {
-            id: 'ecommerce',
-            label: 'Ecommerce',
-            type: 'list',
-            children: [
-              { id: 'tiktok', label: 'TikTok', type: 'list' },
-              { id: 'amazon', label: 'Amazon', type: 'list' },
-              { id: 'facebook-marketplace', label: 'Facebook Marketplace', type: 'list' },
-              { id: 'whatnot', label: 'What Not', type: 'list' },
-              { id: 'etsy', label: 'Etsy', type: 'list' },
-              { id: 'ebay', label: 'Ebay', type: 'list' },
-            ],
-          },
         ],
       },
     ],
@@ -400,10 +372,6 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-teal',
         screens: [
           { id: 'orders', label: 'Orders', type: 'list' },
-          { id: 'order-detail', label: 'Order detail', type: 'list' },
-          { id: 'packing-slip', label: 'Packing slip', type: 'list' },
-          { id: 'order-issues', label: 'Order Issues (Manual Push / Needs Attention)', type: 'list' },
-          { id: 'shipping-settings', label: 'Shipping settings', type: 'list' },
         ],
       },
       {
@@ -544,9 +512,6 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-teal',
         screens: [
           { id: 'parties', label: 'Parties', type: 'list' },
-          { id: 'customers', label: 'Customer', type: 'list' },
-          { id: 'vendors', label: 'Vendors', type: 'list' },
-          { id: 'suppliers', label: 'Suppliers', type: 'list' },
         ],
       },
       {
@@ -566,9 +531,6 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-maroon',
         screens: [
           { id: 'sellers', label: 'Sellers', type: 'list' },
-          { id: 'seller-detail', label: 'Seller detail', type: 'list' },
-          { id: 'seller-feed', label: 'Seller feed', type: 'list' },
-          { id: 'seller-onboarding', label: 'Onboarding Queue', type: 'list' },
         ],
       },
     ],

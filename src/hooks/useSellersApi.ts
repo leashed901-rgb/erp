@@ -18,7 +18,8 @@ import { useList, fetchJson } from '@/hooks/useCrmApi';
 export interface SellerSummary {
   /** Alias of seller_id — lets the shared useList<{ id }> hook consume the list. */
   id: string;
-  seller_id: string;
+  /** May be null for enforcement-only sellers (no profile row). */
+  seller_id: string | null;
   profile_id: string | null;
   display_name: string | null;
   legal_name: string | null;
@@ -251,8 +252,8 @@ export async function resolveViolation(
    ──────────────────────────────────────────────────────────── */
 
 /** Display label for any seller row — profile name, or an honest enforcement fallback. */
-export function sellerDisplayName(s: { display_name?: string | null; legal_name?: string | null; seller_id: string }): string {
-  return s.display_name || s.legal_name || `Seller ${s.seller_id.slice(0, 8)}`;
+export function sellerDisplayName(s: { display_name?: string | null; legal_name?: string | null; seller_id?: string | null }): string {
+  return s.display_name || s.legal_name || (s.seller_id ? `Seller ${s.seller_id.slice(0, 8)}` : 'Unknown seller');
 }
 
 export function initials(name: string): string {

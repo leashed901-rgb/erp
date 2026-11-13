@@ -243,7 +243,7 @@ export function OrdersOverview({ onNavigate, onToast, onCreate, onOpenCreateFlyo
               </thead>
               <tbody>
                 {RECENT_ORDERS.map((row) => (
-                  <tr key={row.order} className={styles.tableRow} onClick={() => onNavigate('orders', 'order-detail')}>
+                  <tr key={row.order} className={styles.tableRow} onClick={() => onNavigate('orders', 'orders')}>
                     <td><strong>{row.order}</strong></td>
                     <td>{row.customer}</td>
                     <td>{row.supplier}</td>

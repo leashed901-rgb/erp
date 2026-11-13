@@ -2,6 +2,7 @@
 // Business Tax + Sales screens wired here (tax-overview / tax-summary / tax-filing)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import {
   DEMO_ROWS,
   DOMAINS,
@@ -78,7 +79,6 @@ import PurchaseOrders from './orders/PurchaseOrders';
 import ReturnsClaims from './orders/ReturnsClaims';
 import FulfillmentQueue from './orders/FulfillmentQueue';
 import BatchSlips from './orders/BatchSlips';
-import ShippingSettings from './orders/ShippingSettings';
 import InventoryView from './orders/InventoryView';
 import DesignCanvasScreen from './design/DesignCanvasScreen';
 import DesignPreviewScreen from './design/DesignPreviewScreen';
@@ -2823,8 +2823,6 @@ function TabScreenRenderer({
         return <FulfillmentQueue {...ordersProps} />;
       case 'batch-slips':
         return <BatchSlips {...ordersProps} />;
-      case 'shipping-settings':
-        return <ShippingSettings {...ordersProps} />;
       case 'inventory':
         return <InventoryView {...ordersProps} />;
       default:

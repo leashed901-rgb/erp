@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './OrdersWorkbench.module.css';
+import ShippingSettings from './ShippingSettings';
 
 /* ══════════════════════════════════════════════════════════════════ */
 /* TYPES — the four unified row shapes                                */
@@ -66,11 +67,12 @@ interface ViewConfig {
 const VIEWS: Record<Scope, ViewConfig> = {
   orders: {
     title: 'Orders',
-    statuses: ['All', 'Unfulfilled', 'Ready', 'Pickup', 'Shipped', 'Delivered'],
+    statuses: ['All', 'Unfulfilled', 'Ready', 'Pickup', 'Shipped', 'Delivered', 'Order Issues'],
     cols: ['Order', 'Customer', 'Items', 'Supplier', 'Total', 'SLA', 'Status'],
     menu: [
-      { section: 'This order' }, { a: 'view', l: 'View order', i: 'open_in_new' },
-      { section: 'Fulfill' }, { a: 'slip', l: 'Print slip', i: 'receipt' }, { a: 'label', l: 'Print label', i: 'print' }, { a: 'ship', l: 'Mark shipped', i: 'local_shipping' },
+      { section: 'This order' }, { a: 'view', l: 'Order detail', i: 'open_in_new' },
+      { section: 'Documents' }, { a: 'slip', l: 'Packing slip', i: 'receipt' }, { a: 'label', l: 'Print label', i: 'print' },
+      { section: 'Fulfill' }, { a: 'ship', l: 'Mark shipped', i: 'local_shipping' }, { a: 'track', l: 'Track shipment', i: 'local_shipping' },
       { section: 'Post-order' }, { a: 'rma', l: 'View linked RMA', i: 'assignment_return' }, { a: 'restock', l: 'Restock inventory', i: 'sync' },
       { section: '' }, { a: 'cancel', l: 'Cancel order', i: 'block', danger: true },
     ],
@@ -245,6 +247,10 @@ interface DrawerState {
   sub: string;
   body: React.ReactNode;
   footer: React.ReactNode;
+  /** Wide drawer (e.g., Shipping settings) — 960px instead of 680px */
+  wide?: boolean;
+  /** No footer chrome — for embedded full-page surfaces that have their own */
+  bare?: boolean;
 }
 
 interface RowMenuState {
@@ -330,7 +336,15 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
       // Status filter
       let statusOk = status === 'All';
       if (!statusOk) {
-        if (scope === 'fulfillment') {
+        if (scope === 'orders') {
+          const o = r as unknown as OrderRow;
+          if (status === 'Order Issues') {
+            // Saved view: Manual Push / Needs Attention — unfulfilled, past SLA, or both
+            statusOk = o.status === 'Unfulfilled' || o.slaPast;
+          } else {
+            statusOk = o.status === status;
+          }
+        } else if (scope === 'fulfillment') {
           const track = (r as unknown as OrderRow).track;
           const sla = (r as unknown as OrderRow).sla;
           statusOk =
@@ -387,6 +401,12 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
 
   const tabCount = useCallback((s: string): number => {
     if (s === 'All') return data.length;
+    if (scope === 'orders' && s === 'Order Issues') {
+      return data.filter((r) => {
+        const o = r as unknown as OrderRow;
+        return o.status === 'Unfulfilled' || o.slaPast;
+      }).length;
+    }
     if (scope === 'fulfillment') {
       return data.filter((r) => {
         const o = r as unknown as OrderRow;
@@ -515,7 +535,52 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
       return;
     }
     if (act === 'slip' || act === 'label') {
-      window.print();
+      // PACKING SLIP drawer — opens inline as a child of the order row.
+      // Replaces the old sidebar "Packing slip" screen.
+      const o = orders.find(x => x.id === id);
+      setDrawer({
+        icon: act === 'slip' ? 'receipt' : 'print',
+        title: act === 'slip' ? `Packing slip · #${id}` : `Label · #${id}`,
+        sub: o ? `${o.customer} · ${o.items}` : `Order #${id}`,
+        body: (
+          <div className="space-y-4">
+            <div className="bg-surface-container-low rounded-lg p-4 border border-surface-dim">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Ship to</div>
+                  <div className="text-body-md font-semibold mt-0.5">{o?.customer ?? 'Customer'}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Order #</div>
+                  <div className="text-body-md font-semibold mt-0.5">#{id}</div>
+                </div>
+              </div>
+              <div className="border-t border-surface-dim pt-3">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider mb-2">Line items</div>
+                <div className="text-body-sm">{o?.items ?? '—'}</div>
+              </div>
+              <div className="border-t border-surface-dim mt-3 pt-3 flex items-center justify-between">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Carrier</div>
+                <div className="text-body-sm font-semibold">{o?.carrier ?? 'USPS'}</div>
+              </div>
+            </div>
+            <div className="text-[11px] text-on-surface-variant">
+              Use your browser's print dialog to send this to a label printer or PDF.
+            </div>
+          </div>
+        ),
+        footer: (
+          <div className="flex items-center gap-2">
+            <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Close</button>
+            <button
+              className="h-8 px-3 bg-primary text-white rounded font-semibold flex items-center gap-1"
+              onClick={() => window.print()}
+            >
+              <span className="material-symbols-outlined text-[14px]">print</span>Print
+            </button>
+          </div>
+        ),
+      });
       return;
     }
     if (act === 'track') {
@@ -549,18 +614,71 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
     if (scope === 'orders') {
       const o = orders.find(x => x.id === id);
       if (!o) return;
+      // ORDER DETAIL drawer — the row action that replaced the sidebar screen.
+      // Children (items, fulfillment timeline, packing slip preview, linked RMA)
+      // live INLINE on this drawer, not as their own sidebar screens.
       setDrawer({
         icon: 'shopping_cart',
         title: `Order #${o.id}`,
-        sub: o.customer,
-        body: <div className="bg-surface-container-low p-3 rounded">{o.items}</div>,
+        sub: `${o.customer} · ${o.status} · ${money(o.total)}`,
+        body: (
+          <div className="space-y-4">
+            {/* Items */}
+            <div>
+              <div className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">Items</div>
+              <div className="bg-surface-container-low rounded-lg p-3 text-body-sm">{o.items}</div>
+            </div>
+            {/* Fulfillment snapshot */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-surface-container-low rounded-lg p-2 text-center">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Channel</div>
+                <div className="text-body-sm font-semibold capitalize mt-0.5">{o.track}</div>
+              </div>
+              <div className="bg-surface-container-low rounded-lg p-2 text-center">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Carrier</div>
+                <div className="text-body-sm font-semibold mt-0.5">{o.carrier || '—'}</div>
+              </div>
+              <div className="bg-surface-container-low rounded-lg p-2 text-center">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">SLA</div>
+                <div className={`text-body-sm font-semibold mt-0.5 ${o.slaPast ? 'text-error' : ''}`}>{o.sla}</div>
+              </div>
+            </div>
+            {/* Timeline */}
+            <div>
+              <div className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">Timeline</div>
+              <ol className="space-y-2">
+                {[
+                  { t: 'Order placed', v: o.createdAt || '—' },
+                  { t: 'Payment received', v: Number(o.total) > 0 ? 'Captured' : 'Pending' },
+                  { t: 'Fulfillment', v: o.status === 'Shipped' || o.status === 'Delivered' ? 'Shipped' : 'Awaiting' },
+                  { t: 'Delivery', v: o.status === 'Delivered' ? 'Delivered' : '—' },
+                ].map((step, i) => (
+                  <li key={i} className="flex items-center gap-2 text-body-sm">
+                    <span className={`w-2 h-2 rounded-full ${step.v === 'Awaiting' || step.v === 'Pending' || step.v === '—' ? 'bg-surface-dim' : 'bg-primary'}`} />
+                    <span className="font-medium">{step.t}</span>
+                    <span className="text-on-surface-variant ml-auto">{step.v}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        ),
         footer: (
-          <button
-            className="h-8 px-3 bg-primary text-white rounded"
-            onClick={() => setDrawer(null)}
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Close</button>
+            <button
+              className="h-8 px-3 border border-surface-dim rounded flex items-center gap-1"
+              onClick={() => { setDrawer(null); handleRowAction('slip', id); }}
+            >
+              <span className="material-symbols-outlined text-[14px]">receipt</span>Packing slip
+            </button>
+            <button
+              className="h-8 px-3 bg-primary text-white rounded font-semibold flex items-center gap-1"
+              onClick={() => { setDrawer(null); handleRowAction('ship', id); }}
+            >
+              <span className="material-symbols-outlined text-[14px]">local_shipping</span>Mark shipped
+            </button>
+          </div>
         ),
       });
     } else if (scope === 'inventory') {
@@ -731,6 +849,29 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
     }
     if (act === 'pick') {
       showToast('Pick list — opening');
+      return;
+    }
+    if (act === 'shipping') {
+      // Open Shipping settings inline as a wide drawer — this is the
+      // gear on the Orders header. No more separate sidebar screen.
+      setDrawer({
+        icon: 'local_shipping',
+        title: 'Shipping settings',
+        sub: 'Carriers, packaging, and delivery rules',
+        wide: true,
+        bare: true,
+        body: (
+          <ShippingSettings
+            onToast={showToast}
+            onNavigate={onNavigate ?? (() => {})}
+          />
+        ),
+        footer: (
+          <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>
+            Close
+          </button>
+        ),
+      });
       return;
     }
     showToast(`${act} — opening`);
@@ -908,6 +1049,14 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
             <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => topAction('pick')}>
               <span className="material-symbols-outlined text-[16px]">checklist</span>Pick list
             </button>
+            <button
+              className="h-8 w-8 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center justify-center"
+              onClick={() => topAction('shipping')}
+              title="Shipping settings"
+              aria-label="Shipping settings"
+            >
+              <span className="material-symbols-outlined text-[18px]">settings</span>
+            </button>
           </div>
         </div>
       </div>
@@ -942,17 +1091,38 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
             ))}
           </div>
 
-          {/* STATUS TABS */}
+          {/* STATUS TABS — 'Order Issues' is a saved-view chip, not a plain status */}
           <div className="flex items-center gap-1 px-4 h-11 border-b border-surface-dim overflow-x-auto">
-            {cfg.statuses.map((s) => (
-              <button
-                key={s}
-                className={`h-full px-3 text-label-md ${styles.tabUnderline} ${status === s ? `${styles.tabUnderlineActive}` : 'text-on-surface-variant'}`}
-                onClick={() => setStatus(s)}
-              >
-                {s} <span className="ml-1 text-[10px] text-outline">{tabCount(s)}</span>
-              </button>
-            ))}
+            {cfg.statuses.map((s) => {
+              const isIssueChip = s === 'Order Issues';
+              const issueCount = tabCount(s);
+              const isActive = status === s;
+              if (isIssueChip) {
+                return (
+                  <button
+                    key={s}
+                    className={`h-full px-3 ml-2 rounded-md text-label-md flex items-center gap-1.5 border transition-colors ${isActive ? 'bg-error-container text-on-error-container border-error' : 'bg-surface-container-low text-on-surface-variant border-surface-dim hover:bg-surface-container'}`}
+                    onClick={() => setStatus(s)}
+                    title="Manual Push / Needs Attention — unfulfilled or past SLA"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">priority_high</span>
+                    {s}
+                    {issueCount > 0 && (
+                      <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${isActive ? 'bg-error text-white' : 'bg-error text-white'}`}>{issueCount}</span>
+                    )}
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={s}
+                  className={`h-full px-3 text-label-md ${styles.tabUnderline} ${isActive ? `${styles.tabUnderlineActive}` : 'text-on-surface-variant'}`}
+                  onClick={() => setStatus(s)}
+                >
+                  {s} <span className="ml-1 text-[10px] text-outline">{tabCount(s)}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* FILTER BAR */}
@@ -1098,7 +1268,7 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
         className={`${styles.drawerScrim} ${drawer ? styles.drawerScrimOpen : ''}`}
         onClick={() => setDrawer(null)}
       />
-      <div className={`${styles.drawer} ${drawer ? styles.drawerOpen : ''}`}>
+      <div className={`${styles.drawer} ${drawer ? styles.drawerOpen : ''} ${drawer?.wide ? styles.drawerWide : ''} ${drawer?.bare ? styles.drawerBare : ''}`}>
         {drawer && (
           <>
             <div className="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">

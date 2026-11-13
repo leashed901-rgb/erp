@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Orders — Unified Work Surface</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={theme:{extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+    "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+    "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+    "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+    "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+    "on-error-container":"#93000a","background":"#faf9fc",
+    "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{sans:["Inter"]},
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none}
+  .row-check{accent-color:#0077c5}
+  .tab-underline{border-bottom:2px solid transparent}
+  .tab-underline.active{border-bottom-color:#0077c5;color:#0077c5;font-weight:600}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .bulk-bar{display:none;background:#0077c5;color:#fff;padding:8px 16px;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+  .bulk-bar.show{display:flex}
+  .bulk-bar button{color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:4px}
+  .bulk-bar button:hover{background:rgba(255,255,255,.15)}
+  /* Unified Status Pills */
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
+  .stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.info{background:#e8f0fb;color:#0055a5}
+  .stat.purple{background:#f4e8f8;color:#6b1e8a}
+  .stat.shipped{background:#e8e8f8;color:#4a3fc4}
+  .stat.success{background:#8af5be;color:#00714b}
+  .stat.error{background:#ffdad6;color:#93000a}
+  .stat.neutral{background:#f4f3f7;color:#5a6355}
+  /* Unified Avatars */
+  .avatar{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+  /* Unified Row Menu */
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:250px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu button.danger:hover{background:#ffdad6}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+  /* Drawers */
+  .drawer-scrim{position:fixed;inset:0;background:rgba(26,28,30,.35);z-index:80;display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:640px;max-width:96vw;background:#fff;z-index:81;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .field-label{display:block;font:600 11px Inter;letter-spacing:.04em;text-transform:uppercase;color:#5a6355;margin-bottom:6px}
+  .field-input{width:100%;height:34px;padding:0 10px;border:1px solid #dad9dd;border-radius:6px;font-size:13px;background:#fff}
+  .field-input:focus{outline:none;border-color:#0077c5}
+  .section-h{font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;color:#1a1c1e;padding-bottom:6px;border-bottom:1px solid #dad9dd;margin-bottom:10px}
+  /* Modal */
+  .modal-scrim{position:fixed;inset:0;background:rgba(26,28,30,.4);z-index:110;display:none;align-items:center;justify-content:center;padding:24px}
+  .modal-scrim.open{display:flex}
+</style>
+</head>
+<body class="bg-background font-sans text-body-md text-on-surface antialiased">
+
+<!-- PAGE HEADER -->
+<div class="px-6 pt-4">
+  <div class="flex items-start justify-between gap-4 py-4 flex-wrap">
+    <div>
+      <h1 class="text-headline-lg">Orders</h1>
+      <p class="text-body-sm text-on-surface-variant mt-0.5">All orders across channels · SLAs enforced</p>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <div class="split-btn flex">
+        <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-act="create">
+          <span class="material-symbols-outlined text-[16px]">add</span>Create order
+        </button>
+        <button class="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" id="createSplitBtn"><span class="material-symbols-outlined text-[16px]">expand_more</span></button>
+      </div>
+      <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-act="report"><span class="material-symbols-outlined text-[16px]">report_problem</span>Report a problem</button>
+      <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-act="batch"><span class="material-symbols-outlined text-[16px]">receipt</span>Batch slips</button>
+      <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-act="pick"><span class="material-symbols-outlined text-[16px]">checklist</span>Pick list</button>
+    </div>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- KPI STRIP (Updates based on active view) -->
+  <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5" id="kpiStrip"></div>
+
+  <!-- THE ONE TABLE -->
+  <div class="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
+    
+    <!-- SCOPE TOGGLES (The "Combined Views") -->
+    <div class="px-4 py-3 border-b border-surface-dim bg-surface-container-lowest flex items-center gap-2">
+      <span class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mr-2">View Scope:</span>
+      <button class="px-3 py-1.5 rounded-md text-[13px] font-semibold transition-colors view-toggle active" data-scope="orders">Orders</button>
+      <button class="px-3 py-1.5 rounded-md text-[13px] font-semibold transition-colors view-toggle text-on-surface-variant hover:bg-surface-container" data-scope="inventory">Inventory</button>
+      <button class="px-3 py-1.5 rounded-md text-[13px] font-semibold transition-colors view-toggle text-on-surface-variant hover:bg-surface-container" data-scope="fulfillment">Fulfillment Queue</button>
+      <button class="px-3 py-1.5 rounded-md text-[13px] font-semibold transition-colors view-toggle text-on-surface-variant hover:bg-surface-container" data-scope="returns">Returns & Claims</button>
+    </div>
+
+    <!-- STATUS TABS -->
+    <div class="flex items-center gap-1 px-4 h-11 border-b border-surface-dim overflow-x-auto" id="statusTabs"></div>
+
+    <!-- FILTER BAR -->
+    <div class="px-4 py-2 flex items-center gap-2 border-b border-surface-dim flex-wrap">
+      <div class="relative flex items-center flex-1 max-w-sm min-w-[180px]">
+        <span class="material-symbols-outlined absolute left-2 text-[15px] text-outline">search</span>
+        <input class="w-full h-7 pl-7 pr-2 bg-surface-container-low border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search..." data-filter/>
+      </div>
+      <button class="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">filter_list</span>Filter</button>
+      <button class="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">calendar_today</span>Date</button>
+      <span class="ml-auto text-[11px] text-on-surface-variant" id="resultCount">—</span>
+    </div>
+
+    <!-- BULK BAR -->
+    <div class="bulk-bar" id="bulkBar">
+      <span class="text-[12px] font-semibold" id="bulkCount">0 selected</span>
+      <span class="w-px h-4 bg-white/30"></span>
+      <div id="bulkActions" class="flex items-center gap-1"></div>
+      <button class="ml-auto" data-bulk-close><span class="material-symbols-outlined text-[16px]">close</span></button>
+    </div>
+
+    <!-- DYNAMIC TABLE -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-body-sm">
+        <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider" id="tableHead"></thead>
+        <tbody class="divide-y divide-surface-dim" id="tableBody"></tbody>
+      </table>
+    </div>
+
+  </div>
+</main>
+
+<!-- ROW MENU -->
+<div class="row-menu" id="rowMenu"></div>
+
+<!-- DRAWER SHELL -->
+<div class="drawer-scrim" id="drawerScrim"></div>
+<div class="drawer" id="drawer">
+  <div class="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="material-symbols-outlined text-[20px] text-primary" id="drawerIcon">shopping_cart</span>
+      <div class="min-w-0">
+        <div class="text-headline-sm truncate" id="drawerTitle">—</div>
+        <div class="text-[11px] text-on-surface-variant" id="drawerSub">—</div>
+      </div>
+    </div>
+    <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-drawer><span class="material-symbols-outlined text-[18px]">close</span></button>
+  </div>
+  <div class="flex-1 overflow-y-auto p-5 space-y-4" id="drawerBody"></div>
+  <div class="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0" id="drawerFooter"></div>
+</div>
+
+<!-- MODAL SHELL -->
+<div class="modal-scrim" id="modalScrim">
+  <div class="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden" id="modalBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════ */
+/* DATA LAYER                                                         */
+/* ══════════════════════════════════════════════════════════════════ */
+const DATA = {
+  orders: [
+    { id:"1047", customer:"Acme Corp", items:"Classic Tee ×2, Canvas Tote ×1", supplier:"Printful", total:184, status:"Unfulfilled", track:"dropship", sla:"Past SLA", carrier:"USPS", tracking:"", createdAt:"11/03/26" },
+    { id:"1046", customer:"Blue Ridge Co.", items:"Hoodie ×1", supplier:"Gelato", total:92, status:"Ready", track:"warehouse", sla:"1d left", carrier:"USPS", tracking:"", createdAt:"11/03/26" },
+    { id:"1045", customer:"Northwind Labs", items:"Mug ×4, Classic Tee ×2", supplier:"Printify", total:246, status:"Pickup", track:"warehouse", sla:"2d left", carrier:"", tracking:"", createdAt:"11/02/26" },
+    { id:"1044", customer:"Orion Apparel", items:"Canvas Tote ×4", supplier:"Printful", total:128, status:"Shipped", track:"dropship", sla:"Ships 11/01", carrier:"USPS", tracking:"9400108205496458123456", createdAt:"11/01/26" },
+    { id:"1043", customer:"Maple Supply", items:"Mug ×6, Sticker ×2", supplier:"Gelato", total:210, status:"Delivered", track:"dropship", sla:"Delivered 10/30", carrier:"UPS", tracking:"1Z999AA10123456784", createdAt:"10/30/26" },
+    { id:"1042", customer:"Lakeside Design", items:"Classic Tee ×1, Hoodie ×1", supplier:"Printful", total:156, status:"Unfulfilled", track:"warehouse", sla:"Past SLA", carrier:"", tracking:"", createdAt:"10/29/26" },
+    { id:"1041", customer:"Acme Corp", items:"Canvas Tote ×3", supplier:"Gelato", total:54, status:"Ready", track:"warehouse", sla:"1d left", carrier:"USPS", tracking:"", createdAt:"10/28/26" }
+  ],
+  inventory: [
+    { sku:"TEE-001-M-WHT", product:"Classic Tee — M / White", warehouse:"Charlotte", bin:"A3", onHand:142, committed:18, reorder:20, status:"In stock" },
+    { sku:"HD-211-L-BLK", product:"Hoodie — Heavyweight — L / Black", warehouse:"Charlotte", bin:"B1", onHand:8, committed:3, reorder:15, status:"Low stock" },
+    { sku:"MUG-003", product:"Mug 11oz", warehouse:"Charlotte", bin:"D1", onHand:0, committed:4, reorder:20, status:"Out of stock" },
+    { sku:"TOTE-014", product:"Canvas Tote", warehouse:"Nashville", bin:"C2", onHand:56, committed:10, reorder:20, status:"In stock" },
+    { sku:"TOTE-014-NVY", product:"Canvas Tote — Navy", warehouse:"Nashville", bin:"C2", onHand:18, committed:4, reorder:20, status:"Low stock" }
+  ],
+  returns: [
+    { id:"RMA-101", customer:"Acme Corp", order:"1047", reason:"Wrong size", refund:92, status:"Requested", type:"Customer", items:"Classic Tee ×1" },
+    { id:"RMA-100", customer:"Lakeside Design", order:"1042", reason:"Damaged", refund:156, status:"Approved", type:"Customer", items:"Classic Tee ×1, Hoodie ×1" },
+    { id:"RMA-099", customer:"Northwind Labs", order:"1031", reason:"Wrong item", refund:76, status:"In transit", type:"Customer", items:"Mug ×4" },
+    { id:"RMA-098", customer:"Blue Ridge Co.", order:"1028", reason:"Damaged", refund:184, status:"Received", type:"Customer", items:"Hoodie ×1" },
+    { id:"RMA-096", customer:"Maple Supply", order:"1019", reason:"Not as described", refund:320, status:"Refunded", type:"Customer", items:"Mug ×6" },
+    { id:"CLM-022", customer:"Printful", order:"1047", reason:"Late delivery", refund:320, status:"Declined", type:"Supplier", items:"PO-2195" }
+  ]
+};
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* UNIFIED CONFIGURATION (The 4 Views)                                */
+/* ══════════════════════════════════════════════════════════════════ */
+const VIEWS = {
+  orders: {
+    title: "Orders",
+    statuses: ["All","Unfulfilled","Ready","Pickup","Shipped","Delivered"],
+    cols: ["Order","Customer","Items","Supplier","Total","SLA","Status"],
+    row: (o) => `
+      <td class="px-3 py-2 font-medium">#${o.id}</td>
+      <td class="px-3 py-2"><div class="flex items-center gap-2"><div class="avatar bg-qb-blue">${o.customer[0]}</div><div class="font-medium truncate">${o.customer}</div></div></td>
+      <td class="px-3 py-2 text-on-surface-variant">${o.items}</td>
+      <td class="px-3 py-2 text-on-surface-variant">${o.supplier}</td>
+      <td class="px-3 py-2 text-right tabular-nums">$${o.total.toFixed(2)}</td>
+      <td class="px-3 py-2 ${o.sla==="Past SLA"?"text-error font-semibold":"text-on-surface-variant"}">${o.sla}</td>
+      <td class="px-3 py-2"><span class="stat ${statusClass(o.status)}">${o.status}</span></td>`,
+    menu: [
+      {section:"This order"},{a:"view",l:"View order",i:"open_in_new"},
+      {section:"Fulfill"},{a:"slip",l:"Print slip",i:"receipt"},{a:"label",l:"Print label",i:"print"},{a:"ship",l:"Mark shipped",i:"local_shipping"},
+      {section:"Post-order"},{a:"rma",l:"View linked RMA",i:"assignment_return"},{a:"restock",l:"Restock inventory",i:"sync"},
+      {section:""},{a:"cancel",l:"Cancel order",i:"block",danger:true}
+    ],
+    bulk: [{a:"slips",l:"Print slips"},{a:"labels",l:"Print labels"},{a:"ship",l:"Mark shipped"},{a:"cancel",l:"Cancel",danger:true}]
+  },
+  inventory: {
+    title: "Inventory",
+    statuses: ["All","In stock","Low stock","Out of stock"],
+    cols: ["SKU / Product","Warehouse","Bin","On hand","Committed","Available","Reorder pt","Status"],
+    row: (v) => `
+      <td class="px-3 py-2"><div class="font-medium">${v.product}</div><div class="text-[11px] text-on-surface-variant font-mono">${v.sku}</div></td>
+      <td class="px-3 py-2 text-on-surface-variant">${v.warehouse}</td>
+      <td class="px-3 py-2 font-mono text-on-surface-variant text-[11px]">${v.bin}</td>
+      <td class="px-3 py-2 text-right tabular-nums">${v.onHand}</td>
+      <td class="px-3 py-2 text-right tabular-nums text-on-surface-variant">${v.committed}</td>
+      <td class="px-3 py-2 text-right tabular-nums font-medium ${v.onHand-v.committed<0?"text-error":v.onHand-v.committed<v.reorder?"text-qb-maroon":""}">${v.onHand-v.committed}</td>
+      <td class="px-3 py-2 text-right tabular-nums text-on-surface-variant">${v.reorder}</td>
+      <td class="px-3 py-2"><span class="stat ${statusClass(v.status)}">${v.status}</span></td>`,
+    menu: [
+      {section:"This SKU"},{a:"view",l:"View in Catalog",i:"open_in_new"},{a:"adjust",l:"Adjust stock",i:"tune"},{a:"transfer",l:"Transfer",i:"swap_horiz"},
+      {section:"Orders"},{a:"orders",l:"View open orders using this SKU",i:"shopping_cart"},
+      {section:"History"},{a:"history",l:"Stock history",i:"history"}
+    ],
+    bulk: [{a:"reorder",l:"Reorder (Accounting)"},{a:"adjust",l:"Adjust"},{a:"transfer",l:"Transfer"}]
+  },
+  fulfillment: {
+    title: "Fulfillment Queue",
+    statuses: ["All","Warehouse","Drop-ship","Past SLA"],
+    cols: ["Order","Customer","Track","Supplier","Ship by / Tracking","Status"],
+    row: (o) => `
+      <td class="px-3 py-2 font-medium">#${o.id}</td>
+      <td class="px-3 py-2"><div class="flex items-center gap-2"><div class="avatar bg-qb-navy">${o.customer[0]}</div><div class="font-medium truncate">${o.customer}</div></div></td>
+      <td class="px-3 py-2 text-on-surface-variant capitalize">${o.track}</td>
+      <td class="px-3 py-2 text-on-surface-variant">${o.supplier}</td>
+      <td class="px-3 py-2">${o.tracking ? `<span class="font-mono text-[11px] bg-surface-container-low px-1.5 py-0.5 rounded border border-surface-dim">${o.tracking.slice(0,12)}...</span>` : `<span class="${o.sla==="Past SLA"?"text-error font-semibold":"text-on-surface-variant"}">${o.sla}</span>`}</td>
+      <td class="px-3 py-2"><span class="stat ${statusClass(o.status)}">${o.status}</span></td>`,
+    menu: [
+      {section:"This order"},{a:"view",l:"View order",i:"open_in_new"},
+      {section:"Fulfill"},{a:"slip",l:"Print slip",i:"receipt"},{a:"label",l:"Print label",i:"print"},
+      {section:"Update"},{a:"ship",l:"Mark shipped",i:"local_shipping"},{a:"track",l:"Track shipment",i:"local_shipping"}
+    ],
+    bulk: [{a:"slips",l:"Print slips"},{a:"ship",l:"Mark shipped"}]
+  },
+  returns: {
+    title: "Returns & Claims",
+    statuses: ["All","Requested","Approved","In transit","Received","Refunded","Declined"],
+    cols: ["RMA","Customer","Order","Reason","Refund","Status"],
+    row: (r) => `
+      <td class="px-3 py-2 font-medium">${r.id}</td>
+      <td class="px-3 py-2"><div class="flex items-center gap-2"><div class="avatar bg-qb-maroon">${r.customer[0]}</div><div class="font-medium truncate">${r.customer}</div></div></td>
+      <td class="px-3 py-2 text-on-surface-variant">#${r.order}</td>
+      <td class="px-3 py-2 text-on-surface-variant">${r.reason}</td>
+      <td class="px-3 py-2 text-right tabular-nums">$${r.refund.toFixed(2)}</td>
+      <td class="px-3 py-2"><span class="stat ${statusClass(r.status)}">${r.status}</span></td>`,
+    menu: [
+      {section:"This RMA"},{a:"view",l:"Open RMA",i:"open_in_new"},
+      {section:"Approve"},{a:"approve",l:"Approve return",i:"check_circle"},{a:"decline",l:"Decline return",i:"cancel"},
+      {section:"Complete"},{a:"receive",l:"Mark received",i:"inventory"},{a:"refund",l:"Issue refund",i:"payments"}
+    ],
+    bulk: [{a:"approve",l:"Approve"},{a:"refund",l:"Issue refund"}]
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* STATE & RENDER LOGIC                                               */
+/* ══════════════════════════════════════════════════════════════════ */
+let state = { scope: "orders", status: "All", q: "" };
+
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+
+function render() {
+  const cfg = VIEWS[state.scope];
+  const data = DATA[state.scope];
+
+  // 1. KPI Strip
+  const kpis = {
+    orders: [
+      { l:"Orders today", i:"shopping_cart", v:data.length, d:"+3 vs yesterday" },
+      { l:"Unfulfilled", i:"schedule", v:data.filter(o=>o.status==="Unfulfilled").length, d:`${data.filter(o=>o.sla==="Past SLA").length} past SLA`, c:"text-error" },
+      { l:"Shipped", i:"local_shipping", v:data.filter(o=>o.status==="Shipped").length, d:"This week", c:"text-qb-green" },
+      { l:"Revenue MTD", i:"attach_money", v:"$14,820", d:"+18% vs Oct", c:"text-qb-teal" }
+    ],
+    inventory: [
+      { l:"Total SKUs", i:"inventory_2", v:data.length, d:"Across 2 warehouses" },
+      { l:"In stock", i:"check_circle", v:data.filter(o=>o.status==="In stock").length, d:"Healthy", c:"text-secondary" },
+      { l:"Low stock", i:"warning", v:data.filter(o=>o.status==="Low stock").length, d:"Below reorder", c:"text-qb-maroon" },
+      { l:"Out of stock", i:"error", v:data.filter(o=>o.status==="Out of stock").length, d:"Blocking orders", c:"text-error" }
+    ],
+    fulfillment: [
+      { l:"Warehouse queue", i:"inventory", v:data.filter(o=>o.track==="warehouse").length, d:`${data.filter(o=>o.track==="warehouse" && o.sla==="Past SLA").length} past SLA`, c:"text-qb-maroon" },
+      { l:"Drop ship queue", i:"local_shipping", v:data.filter(o=>o.track==="dropship").length, d:"In transit", c:"text-qb-blue" },
+      { l:"Awaiting receipt", i:"schedule", v:data.filter(o=>o.status==="Delivered").length, d:"Delivered, needs confirm" },
+      { l:"Ship today", i:"schedule", v:data.filter(o=>o.status==="Ready").length, d:"By 4:00 PM cutoff", c:"text-error" }
+    ],
+    returns: [
+      { l:"Open returns", i:"assignment_return", v:data.filter(r=>["Requested","Approved","In transit"].includes(r.status)).length, d:"$480 refunds pending" },
+      { l:"Awaiting receipt", i:"schedule", v:data.filter(r=>r.status==="In transit").length, d:"In transit back", c:"text-qb-maroon" },
+      { l:"Supplier claims", i:"factory", v:data.filter(r=>r.type==="Supplier").length, d:"$320 recoverable" },
+      { l:"Return rate (30d)", i:"trending_down", v:"2.4%", d:"Down from 3.1%", c:"text-secondary" }
+    ]
+  };
+
+  $("#kpiStrip").innerHTML = kpis[state.scope].map(k=>`
+    <div class="bg-white rounded-xl border border-surface-dim p-3">
+      <div class="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold flex items-center gap-1"><span class="material-symbols-outlined text-[13px]">${k.i}</span>${k.l}</div>
+      <div class="text-headline-sm mt-1 tabular-nums ${k.c||""}">${k.v}</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">${k.d}</div>
+    </div>
+  `).join("");
+
+  // 2. Scope Toggles
+  $$(".view-toggle").forEach(b => {
+    b.classList.toggle("active", b.dataset.scope === state.scope);
+    b.classList.toggle("bg-surface-container", b.dataset.scope !== state.scope);
+    b.classList.toggle("text-on-surface-variant", b.dataset.scope !== state.scope);
+    b.classList.toggle("bg-white", b.dataset.scope === state.scope);
+    b.classList.toggle("shadow-sm", b.dataset.scope === state.scope);
+    b.classList.toggle("text-primary", b.dataset.scope === state.scope);
+  });
+
+  // 3. Status Tabs
+  $("#statusTabs").innerHTML = cfg.statuses.map(s => {
+    const count = s === "All" ? data.length : 
+      state.scope === "fulfillment" ? data.filter(o => (s==="Warehouse" ? o.track==="warehouse" : s==="Drop-ship" ? o.track==="dropship" : o.sla==="Past SLA")).length :
+      data.filter(o => o.status === s).length;
+    return `<button class="h-full px-3 text-label-md tab-underline ${state.status === s ? "active" : "text-on-surface-variant"}" data-status="${s}">${s} <span class="ml-1 text-[10px] text-outline">${count}</span></button>`;
+  }).join("");
+
+  // 4. Filter Data
+  const filtered = data.filter(r => {
+    let statusOk = state.status === "All";
+    if (!statusOk) {
+      if (state.scope === "fulfillment") {
+        statusOk = (state.status === "Warehouse" && r.track === "warehouse") ||
+                   (state.status === "Drop-ship" && r.track === "dropship") ||
+                   (state.status === "Past SLA" && r.sla === "Past SLA");
+      } else {
+        statusOk = r.status === state.status;
+      }
+    }
+    const q = state.q.toLowerCase();
+    const qOk = !q || JSON.stringify(r).toLowerCase().includes(q);
+    return statusOk && qOk;
+  });
+
+  // 5. Table Head
+  $("#tableHead").innerHTML = `<th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all/></th>` +
+    cfg.cols.map((c, i) => `<th class="px-3 py-2 ${i === cfg.cols.length - 2 ? "text-right" : ""}">${c}</th>`).join("") +
+    `<th class="w-8"></th>`;
+
+  // 6. Table Body
+  if (filtered.length === 0) {
+    $("#tableBody").innerHTML = `<tr><td colspan="${cfg.cols.length + 2}" class="px-3 py-12 text-center text-on-surface-variant">No rows match the current filters.</td></tr>`;
+  } else {
+    $("#tableBody").innerHTML = filtered.map(r => `
+      <tr class="hover:bg-surface-container-low cursor-pointer scope-row" data-id="${r.id || r.sku}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check scope-check"/></td>
+        ${cfg.row(r)}
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>
+    `).join("");
+  }
+
+  // 7. Bulk Bar
+  const bulkHtml = cfg.bulk.map(b => `<button data-bulk-act="${b.a}" class="${b.danger ? 'text-error-container' : ''}">${b.l}</button>`).join("");
+  $("#bulkActions").innerHTML = bulkHtml;
+  
+  updateBulk();
+
+  // Wire up events
+  wire();
+}
+
+function updateBulk() {
+  const n = $$(".scope-check").filter(c => c.checked).length;
+  const bar = $("#bulkBar"), cnt = $("#bulkCount");
+  if (n > 0) { bar.classList.add("show"); cnt.textContent = `${n} selected`; }
+  else bar.classList.remove("show");
+}
+
+function wire() {
+  $$("[data-status]").forEach(b => b.addEventListener("click", () => { state.status = b.dataset.status; render(); }));
+  $("[data-filter]")?.addEventListener("input", e => { state.q = e.target.value; render(); });
+  
+  $$(".scope-check").forEach(cb => cb.addEventListener("change", updateBulk));
+  $("[data-check-all]")?.addEventListener("change", e => {
+    $$(".scope-check").forEach(c => { if (c.closest("tr").style.display !== "none") c.checked = e.target.checked; });
+    updateBulk();
+  });
+
+  $$(".scope-row").forEach(tr => {
+    tr.addEventListener("click", e => {
+      if (e.target.closest("input,button,[data-row-menu]")) return;
+      openDrawer(tr.dataset.id);
+    });
+    tr.querySelector("[data-row-menu]")?.addEventListener("click", e => {
+      e.stopPropagation();
+      openRowMenu(e.currentTarget, tr);
+    });
+  });
+
+  $$("[data-bulk-act]").forEach(b => b.addEventListener("click", () => {
+    const n = $$(".scope-check:checked").length;
+    toast(`${b.textContent} on ${n} record${n !== 1 ? "s" : ""}`);
+    $$(".scope-check").forEach(c => c.checked = false);
+    updateBulk();
+  }));
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* ROW MENU & DRAWERS                                                 */
+/* ══════════════════════════════════════════════════════════════════ */
+const rowMenu = $("#rowMenu");
+function openRowMenu(btn, tr) {
+  const cfg = VIEWS[state.scope];
+  rowMenu.innerHTML = cfg.menu.map(m => {
+    if (m.section !== undefined) return `<div class="menu-header">${m.section}</div>`;
+    return `<button data-act="${m.a}" class="${m.danger ? "danger" : ""}"><span class="material-symbols-outlined">${m.i}</span>${m.l}</button>`;
+  }).join("");
+  const r = btn.getBoundingClientRect();
+  rowMenu.style.top = (r.bottom + 4) + "px";
+  rowMenu.style.left = Math.min(r.right - 250, innerWidth - 270) + "px";
+  rowMenu.classList.add("open");
+  $$("[data-act]", rowMenu).forEach(b => b.addEventListener("click", () => {
+    rowMenu.classList.remove("open");
+    handleRowAction(b.dataset.act, tr.dataset.id);
+  }));
+}
+document.addEventListener("click", e => { if (!e.target.closest("#rowMenu")) rowMenu.classList.remove("open"); });
+
+function openDrawer(id) {
+  if (state.scope === "orders") {
+    const o = DATA.orders.find(x => x.id === id);
+    openDrawerShell({ icon: "shopping_cart", title: `Order #${o.id}`, sub: o.customer, body: `<div class="bg-surface-container-low p-3 rounded">${o.items}</div>`, footer: `<button class="h-8 px-3 bg-primary text-white rounded" data-close-drawer>Close</button>` });
+  } else if (state.scope === "inventory") {
+    const v = DATA.inventory.find(x => x.sku === id);
+    openDrawerShell({ icon: "tune", title: v.product, sub: v.sku, body: `<div class="grid grid-cols-3 gap-3"><div class="bg-surface-container-low p-3 rounded text-center">On hand<br/><b>${v.onHand}</b></div><div class="bg-surface-container-low p-3 rounded text-center">Available<br/><b>${v.onHand - v.committed}</b></div></div>`, footer: `<button class="h-8 px-3 border rounded" data-close-drawer>Close</button><button class="h-8 px-3 bg-primary text-white rounded">Save</button>` });
+  } else if (state.scope === "returns") {
+    const r = DATA.returns.find(x => x.id === id);
+    openDrawerShell({ icon: "assignment_return", title: r.id, sub: r.customer, body: `<div class="bg-surface-container-low p-3 rounded">Reason: ${r.reason}<br/>Refund: $${r.refund}</div>`, footer: `<button class="h-8 px-3 border rounded" data-close-drawer>Close</button>` });
+  } else {
+    const o = DATA.orders.find(x => x.id === id);
+    openDrawerShell({ icon: "inventory", title: `Fulfill #${o.id}`, sub: o.customer, body: `<div class="bg-surface-container-low p-3 rounded">Track: ${o.track}<br/>Status: ${o.status}</div>`, footer: `<button class="h-8 px-3 border rounded" data-close-drawer>Close</button>` });
+  }
+}
+
+function openDrawerShell({ icon, title, sub, body, footer }) {
+  $("#drawerIcon").textContent = icon;
+  $("#drawerTitle").textContent = title;
+  $("#drawerSub").textContent = sub;
+  $("#drawerBody").innerHTML = body;
+  $("#drawerFooter").innerHTML = footer;
+  $("#drawerScrim").classList.add("open");
+  $("#drawer").classList.add("open");
+  $$("[data-close-drawer]", $("#drawer")).forEach(b => b.addEventListener("click", closeDrawer));
+}
+function closeDrawer() { $("#drawerScrim").classList.remove("open"); $("#drawer").classList.remove("open"); }
+$("#drawerScrim").addEventListener("click", closeDrawer);
+
+function handleRowAction(act, id) {
+  if (act === "view") openDrawer(id);
+  else if (act === "rma") { state.scope = "returns"; state.status = "All"; render(); toast(`Showing returns for order #${id}`); }
+  else if (act === "orders") { state.scope = "orders"; state.status = "All"; render(); toast(`Showing orders using ${id}`); }
+  else toast(`${act} on ${id}`);
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* UTILS & INIT                                                       */
+/* ══════════════════════════════════════════════════════════════════ */
+function statusClass(s) {
+  const m = {
+    Unfulfilled: "warn", Ready: "info", Pickup: "purple", Shipped: "shipped", Delivered: "success",
+    "In stock": "success", "Low stock": "warn", "Out of stock": "error",
+    Requested: "warn", Approved: "info", "In transit": "purple", Refunded: "success", Declined: "error"
+  };
+  return m[s] || "neutral";
+}
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove("show"), 1800); }
+
+$$(".view-toggle").forEach(b => b.addEventListener("click", () => { state.scope = b.dataset.scope; state.status = "All"; state.q = ""; $("[data-filter]").value = ""; render(); }));
+$("[data-bulk-close]").addEventListener("click", () => { $$(".scope-check").forEach(c => c.checked = false); updateBulk(); });
+
+render();
+</script>
+</body>
+</html>

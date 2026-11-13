@@ -1,5 +1,7 @@
-import GlobalShell from '@/components/GlobalShell';
+'use client';
+
+import CatalogWorkbench from '@/components/catalog/CatalogWorkbench';
 
 export default function Page() {
-  return <GlobalShell />;
+  return <CatalogWorkbench onToast={() => {}} />;
 }

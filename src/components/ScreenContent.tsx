@@ -71,6 +71,7 @@ import CustomersSupabase from './contacts/CustomersSupabase';
 import LeadsPipelineSupabase from './contacts/LeadsPipelineSupabase';
 import StatementsScreen from './contacts/StatementsScreen';
 import OrdersOverview from './orders/OrdersOverview';
+import OrdersWorkbench from './orders/OrdersWorkbench';
 import OrdersList from './orders/OrdersList';
 import PurchaseOrders from './orders/PurchaseOrders';
 import ReturnsClaims from './orders/ReturnsClaims';
@@ -2812,7 +2813,7 @@ function TabScreenRenderer({
       case 'orders-overview':
         return <OrdersOverview {...ordersProps} />;
       case 'orders':
-        return <OrdersList {...ordersProps} />;
+        return <OrdersWorkbench onToast={onToast} onNavigate={onNavigate} />;
       case 'purchase-orders':
         return <PurchaseOrders {...ordersProps} />;
       case 'returns':

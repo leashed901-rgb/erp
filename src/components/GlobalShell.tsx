@@ -398,6 +398,13 @@ export default function GlobalShell() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const view = params.get('view');
+    const screenParam = params.get('screen');
+    // Support ?screen=studio-men (used by agent-browser and direct URLs)
+    if (screenParam && !view) {
+      const isStudio = screenParam === 'new-design' || screenParam.startsWith('studio-');
+      const d: DomainKey = isStudio ? 'design' : 'dashboard';
+      openOrActivateTab(d, screenParam);
+    }
     if (view) {
       const sep = view.indexOf(':');
       if (sep > 0) {

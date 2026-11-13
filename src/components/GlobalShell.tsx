@@ -989,8 +989,15 @@ export default function GlobalShell() {
 
   const activeTabKey = `${activeDomain}:${activeScreen}`;
 
+  // Design Studio screens (new-design, studio-*) have their own top bar
+  // (Studio logo + 6 category tabs + Design Queue). They should render
+  // full-screen — no ERP Header, no SideRail, no global search. The
+  // studio's own chrome IS the chrome.
+  const isStudioScreen = activeScreen === 'new-design' || activeScreen.startsWith('studio-');
+
   return (
     <>
+      {!isStudioScreen && (
       <Header
         openTabs={openTabs}
         activeTabKey={activeTabKey}
@@ -1007,8 +1014,9 @@ export default function GlobalShell() {
         onToast={showToast}
         hideTabs={focusMode}
       />
+      )}
 
-      {!focusMode && (
+      {!focusMode && !isStudioScreen && (
         <MainRail
           activeDomain={activeDomain}
           onSelectDomain={handleSelectDomain}
@@ -1023,7 +1031,7 @@ export default function GlobalShell() {
         />
       )}
 
-      {!focusMode && activeDomain !== 'dashboard' && (
+      {!focusMode && !isStudioScreen && activeDomain !== 'dashboard' && (
         <SideRail
           activeDomain={activeDomain}
           activeScreen={activeScreen}
@@ -1055,8 +1063,8 @@ export default function GlobalShell() {
           setPeekOpen(true);
         }}
         onToast={showToast}
-        sideRailCollapsed={activeDomain === 'dashboard' ? true : sideRailCollapsed}
-        focusMode={focusMode}
+        sideRailCollapsed={activeDomain === 'dashboard' || isStudioScreen ? true : sideRailCollapsed}
+        focusMode={focusMode || isStudioScreen}
         onToggleFocus={handleToggleFocus}
         onOpenStandalone={handleOpenStandalone}
         wizardPrefill={wizardPrefill}

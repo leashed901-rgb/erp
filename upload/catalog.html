@@ -52,10 +52,10 @@ tailwind.config = {
   .bulk-bar button:hover{background:rgba(255,255,255,.15)}
 
   .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
-  .stat.published,.stat.active,.stat.connected,.stat.live,.stat.in-stock{background:#8af5be;color:#00714b}
-  .stat.draft,.stat.inactive,.stat.local{background:#f4f3f7;color:#5a6355}
-  .stat.needs-design,.stat.needs-review,.stat.low-stock,.stat.warn{background:#fff4dc;color:#8a5a00}
-  .stat.error,.stat.out-of-stock,.stat.failed{background:#ffdad6;color:#93000a}
+  .stat.published,.stat.active,.stat.connected,.stat.live,.stat.in-stock,.stat.approved{background:#8af5be;color:#00714b}
+  .stat.draft,.stat.inactive,.stat.local,.stat.pending{background:#f4f3f7;color:#5a6355}
+  .stat.needs-design,.stat.needs-review,.stat.low-stock,.stat.warn,.stat.awaiting,.stat.flagged{background:#fff4dc;color:#8a5a00}
+  .stat.error,.stat.out-of-stock,.stat.failed,.stat.rejected{background:#ffdad6;color:#93000a}
   .stat.syncing{background:#e8f0fb;color:#0055a5}
 
   .role-chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:#f4e8f8;color:#6b1e8a}
@@ -203,6 +203,21 @@ tailwind.config = {
     <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="bundles">
       <span class="material-symbols-outlined text-[15px] align-middle mr-1">redeem</span>Bundles
     </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="items">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">view_list</span>Catalog items
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="listings">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">storefront</span>Listings
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="blanks">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">layers</span>Blanks
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="review">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">fact_check</span>Catalog review
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="published">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">check_circle</span>Published items &amp; SKUs
+    </button>
     <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="suppliers">
       <span class="material-symbols-outlined text-[15px] align-middle mr-1">factory</span>Suppliers
     </button>
@@ -213,7 +228,7 @@ tailwind.config = {
       <span class="material-symbols-outlined text-[15px] align-middle mr-1">local_mall</span>Channels
     </button>
     <button class="tab-underline px-4 py-2.5 text-label-md" data-entity="categories">
-      <span class="material-symbols-outlined text-[15px] align-middle mr-1">category</span>Categories &amp; Collections
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">category</span>Categories &amp; subcategories
     </button>
   </div>
 
@@ -397,8 +412,10 @@ tailwind.config = {
   <button data-create="Product"><span class="material-symbols-outlined">checkroom</span>Product</button>
   <button data-create="Variant"><span class="material-symbols-outlined">qr_code</span>Variant / SKU</button>
   <button data-create="Bundle"><span class="material-symbols-outlined">redeem</span>Bundle</button>
+  <button data-create="Blank"><span class="material-symbols-outlined">layers</span>Blank</button>
   <div class="sep"></div>
   <button data-create="Category"><span class="material-symbols-outlined">category</span>Category</button>
+  <button data-create="Subcategory"><span class="material-symbols-outlined">account_tree</span>Sub category</button>
   <button data-create="Collection"><span class="material-symbols-outlined">collections_bookmark</span>Collection</button>
   <div class="sep"></div>
   <button data-create="Supplier"><span class="material-symbols-outlined">factory</span>Supplier</button>
@@ -418,42 +435,83 @@ function toast(m){ const t = $('toast'); t.textContent = m; t.classList.add('sho
 
 const DATA = {
   products: [
-    { id:'p1', name:'Speckled Wayland Ceramic Mug', sku:'MUG-003', icon:'coffee', category:'Drinkware', collections:['New Arrivals'], supplier:'Printify', brand:'ManageKube', channels:['Shopify','TikTok'], status:'Published', price:1800, variants:4, margin:62, engagement:{likes:248,saves:82,photos:14}, ugcPending:0 },
-    { id:'p2', name:'Classic Tee — Black', sku:'TEE-001-BLK', icon:'checkroom', category:'Apparel', collections:['Bestsellers','Summer 2026'], supplier:'Printful', brand:'ManageKube', channels:['Shopify','Etsy','TikTok'], status:'Published', price:2400, variants:91, margin:58, engagement:{likes:1204,saves:340,photos:48}, ugcPending:0 },
-    { id:'p3', name:'Lightweight Sweatshirt (AOP)', sku:'HD-211', icon:'checkroom', category:'Apparel', collections:['Summer 2026'], supplier:'Printify', brand:'Unsaid Goods', channels:['Shopify'], status:'Needs Design', price:null, variants:7, margin:null, engagement:{likes:12,saves:4,photos:0}, ugcPending:2 },
-    { id:'p4', name:'Women\'s Heather Polo', sku:'POLO-W-01', icon:'checkroom', category:'Apparel', collections:[], supplier:'Printify', brand:'ManageKube', channels:[], status:'Needs Design', price:null, variants:49, margin:null, engagement:{likes:0,saves:0,photos:0}, ugcPending:0 },
-    { id:'p5', name:'Soy Candle — Lavender', sku:'CND-SOY-LAV', icon:'local_fire_department', category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'Published', price:2200, variants:3, margin:59, engagement:{likes:180,saves:42,photos:8}, ugcPending:0 },
-    { id:'p6', name:'Framed Poster 12×18', sku:'PRD-FP-12', icon:'image', category:'Wall Art', collections:['Bestsellers'], supplier:'Gelato', brand:'ManageKube', channels:['Shopify'], status:'Published', price:3400, variants:9, margin:53, engagement:{likes:88,saves:22,photos:4}, ugcPending:0 },
-    { id:'p8', name:'Dad Cap', sku:'CAP-DAD', icon:'sports_baseball', category:'Headwear', collections:['Bestsellers'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Etsy'], status:'Needs review', price:2400, variants:6, margin:46, engagement:{likes:34,saves:8,photos:0}, ugcPending:0 }
+    { id:'p1', name:'Speckled Wayland Ceramic Mug', sku:'MUG-003', icon:'coffee', category:'Drinkware', subcategory:'Mugs', collections:['New Arrivals'], supplier:'Printify', brand:'ManageKube', channels:['Shopify','TikTok'], status:'Published', price:1800, variants:4, margin:62, engagement:{likes:248,saves:82,photos:14}, ugcPending:0, publishedAt:'2026-03-12', firstPublishedAt:'2026-01-05', publishedTo:['Shopify','TikTok'] },
+    { id:'p2', name:'Classic Tee — Black', sku:'TEE-001-BLK', icon:'checkroom', category:'Apparel', subcategory:'T-Shirts', collections:['Bestsellers','Summer 2026'], supplier:'Printful', brand:'ManageKube', channels:['Shopify','Etsy','TikTok'], status:'Published', price:2400, variants:91, margin:58, engagement:{likes:1204,saves:340,photos:48}, ugcPending:0, publishedAt:'2026-02-02', firstPublishedAt:'2025-12-14', publishedTo:['Shopify','Etsy','TikTok'] },
+    { id:'p3', name:'Lightweight Sweatshirt (AOP)', sku:'HD-211', icon:'checkroom', category:'Apparel', subcategory:'Sweatshirts', collections:['Summer 2026'], supplier:'Printify', brand:'Unsaid Goods', channels:['Shopify'], status:'Needs Design', price:null, variants:7, margin:null, engagement:{likes:12,saves:4,photos:0}, ugcPending:2, publishedAt:null, firstPublishedAt:null, publishedTo:[] },
+    { id:'p4', name:'Women\'s Heather Polo', sku:'POLO-W-01', icon:'checkroom', category:'Apparel', subcategory:'Polos', collections:[], supplier:'Printify', brand:'ManageKube', channels:[], status:'Needs Design', price:null, variants:49, margin:null, engagement:{likes:0,saves:0,photos:0}, ugcPending:0, publishedAt:null, firstPublishedAt:null, publishedTo:[] },
+    { id:'p5', name:'Soy Candle — Lavender', sku:'CND-SOY-LAV', icon:'local_fire_department', category:'Home & Living', subcategory:'Candles', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'Published', price:2200, variants:3, margin:59, engagement:{likes:180,saves:42,photos:8}, ugcPending:0, publishedAt:'2026-01-18', firstPublishedAt:'2026-01-18', publishedTo:['Shopify','Etsy'] },
+    { id:'p6', name:'Framed Poster 12×18', sku:'PRD-FP-12', icon:'image', category:'Wall Art', subcategory:'Posters', collections:['Bestsellers'], supplier:'Gelato', brand:'ManageKube', channels:['Shopify'], status:'Published', price:3400, variants:9, margin:53, engagement:{likes:88,saves:22,photos:4}, ugcPending:0, publishedAt:'2026-02-22', firstPublishedAt:'2026-01-10', publishedTo:['Shopify'] },
+    { id:'p8', name:'Dad Cap', sku:'CAP-DAD', icon:'sports_baseball', category:'Headwear', subcategory:'Caps', collections:['Bestsellers'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Etsy'], status:'Needs review', price:2400, variants:6, margin:46, engagement:{likes:34,saves:8,photos:0}, ugcPending:0, publishedAt:null, firstPublishedAt:null, publishedTo:[] }
   ],
   skus: [
-    { id:'s1', name:'Soy Candle — Lavender', sku:'CND-SOY-LAV', icon:'local_fire_department', variant:'Lavender', category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'In stock', onhand:42, reserved:3, price:2200, cost:900, parentId:'p5' },
-    { id:'s2', name:'Soy Candle — Cedar', sku:'CND-SOY-CED', icon:'local_fire_department', variant:'Cedar', category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'Low stock', onhand:4, reserved:2, price:2200, cost:900, parentId:'p5' },
-    { id:'s3', name:'Soy Candle — Vanilla', sku:'CND-SOY-VAN', icon:'local_fire_department', variant:'Vanilla', category:'Home & Living', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify'], status:'Out of stock', onhand:0, reserved:0, price:2200, cost:900, parentId:'p5' }
+    { id:'s1', name:'Soy Candle — Lavender', sku:'CND-SOY-LAV', icon:'local_fire_department', variant:'Lavender', category:'Home & Living', subcategory:'Candles', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'In stock', onhand:42, reserved:3, price:2200, cost:900, parentId:'p5' },
+    { id:'s2', name:'Soy Candle — Cedar', sku:'CND-SOY-CED', icon:'local_fire_department', variant:'Cedar', category:'Home & Living', subcategory:'Candles', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'Low stock', onhand:4, reserved:2, price:2200, cost:900, parentId:'p5' },
+    { id:'s3', name:'Soy Candle — Vanilla', sku:'CND-SOY-VAN', icon:'local_fire_department', variant:'Vanilla', category:'Home & Living', subcategory:'Candles', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify'], status:'Out of stock', onhand:0, reserved:0, price:2200, cost:900, parentId:'p5' }
   ],
   bundles: [
-    { id:'b1', name:'Starter Kit', sku:'BND-STARTER', icon:'redeem', category:'Bundles', collections:['Bestsellers'], supplier:'', brand:'ManageKube', channels:['Shopify'], status:'Active', contains:'Tee + Tote + Stickers', price:4500, itemsTotal:5400 },
-    { id:'b2', name:'Morning Coffee Set', sku:'BND-COFFEE', icon:'coffee', category:'Bundles', collections:['New Arrivals'], supplier:'', brand:'Unsaid Goods', channels:['Etsy'], status:'Draft', contains:'Mug + Coaster + Beans', price:3200, itemsTotal:3800 }
+    { id:'b1', name:'Starter Kit', sku:'BND-STARTER', icon:'redeem', category:'Bundles', subcategory:'Kits', collections:['Bestsellers'], supplier:'', brand:'ManageKube', channels:['Shopify'], status:'Active', contains:'Tee + Tote + Stickers', price:4500, itemsTotal:5400 },
+    { id:'b2', name:'Morning Coffee Set', sku:'BND-COFFEE', icon:'coffee', category:'Bundles', subcategory:'Kits', collections:['New Arrivals'], supplier:'', brand:'Unsaid Goods', channels:['Etsy'], status:'Draft', contains:'Mug + Coaster + Beans', price:3200, itemsTotal:3800 }
+  ],
+  items: [
+    { id:'i1', type:'Product', name:'Speckled Wayland Ceramic Mug', sku:'MUG-003', icon:'inventory', category:'Drinkware', subcategory:'Mugs', collections:['New Arrivals'], supplier:'Printify', brand:'ManageKube', channels:['Shopify','TikTok'], status:'Published', price:1800, sourceId:'p1', publishedAt:'2026-03-12', publishedTo:['Shopify','TikTok'] },
+    { id:'i2', type:'SKU', name:'Soy Candle — Cedar', sku:'CND-SOY-CED', icon:'qr_code', category:'Home & Living', subcategory:'Candles', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'Low stock', price:2200, sourceId:'s2', publishedAt:'2026-01-18', publishedTo:['Shopify','Etsy'] },
+    { id:'i3', type:'Bundle', name:'Starter Kit', sku:'BND-STARTER', icon:'redeem', category:'Bundles', subcategory:'Kits', collections:['Bestsellers'], supplier:'', brand:'ManageKube', channels:['Shopify'], status:'Active', price:4500, sourceId:'b1', publishedAt:'2026-02-10', publishedTo:['Shopify'] }
+  ],
+  listings: [
+    { id:'l1', name:'Speckled Wayland Ceramic Mug · Shopify', sku:'MUG-003', icon:'storefront', category:'Drinkware', subcategory:'Mugs', collections:['New Arrivals'], supplier:'Printify', brand:'ManageKube', channels:['Shopify'], status:'Published', channel:'Shopify', channelListingId:'SHP-99102', channelPrice:1800, lastSyncedAt:'2 min ago', productName:'Speckled Wayland Ceramic Mug' },
+    { id:'l2', name:'Speckled Wayland Ceramic Mug · TikTok', sku:'MUG-003', icon:'music_note', category:'Drinkware', subcategory:'Mugs', collections:['New Arrivals'], supplier:'Printify', brand:'ManageKube', channels:['TikTok'], status:'Syncing', channel:'TikTok', channelListingId:'TT-44210', channelPrice:1900, lastSyncedAt:'45 min ago', productName:'Speckled Wayland Ceramic Mug' },
+    { id:'l3', name:'Classic Tee — Black · Shopify', sku:'TEE-001-BLK', icon:'storefront', category:'Apparel', subcategory:'T-Shirts', collections:['Bestsellers'], supplier:'Printful', brand:'ManageKube', channels:['Shopify'], status:'Published', channel:'Shopify', channelListingId:'SHP-22187', channelPrice:2400, lastSyncedAt:'2 min ago', productName:'Classic Tee — Black' },
+    { id:'l4', name:'Classic Tee — Black · Etsy', sku:'TEE-001-BLK', icon:'shopping_bag', category:'Apparel', subcategory:'T-Shirts', collections:['Bestsellers'], supplier:'Printful', brand:'ManageKube', channels:['Etsy'], status:'Error', channel:'Etsy', channelListingId:'ETY-00917', channelPrice:2500, lastSyncedAt:'2 hours ago', productName:'Classic Tee — Black' },
+    { id:'l5', name:'Dad Cap · Etsy', sku:'CAP-DAD', icon:'shopping_bag', category:'Headwear', subcategory:'Caps', collections:['Bestsellers'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Etsy'], status:'Draft', channel:'Etsy', channelListingId:'ETY-00102', channelPrice:2400, lastSyncedAt:'1 day ago', productName:'Dad Cap' }
+  ],
+  blanks: [
+    { id:'bl1', name:'Heavy Cotton Tee — Blank', sku:'BLK-TEE-001', icon:'layers', category:'Apparel', subcategory:'T-Shirts', collections:[], supplier:'Printful', brand:'', channels:[], status:'Awaiting design', blankId:'PF-TEE-001', supplierBlankSku:'PF-TEE-001-BLK', blankCost:850, mockupStatus:'Pending', designStatus:'Not started', blankCategory:'Tops' },
+    { id:'bl2', name:'Ceramic Mug 11oz — Blank', sku:'BLK-MUG-011', icon:'coffee', category:'Drinkware', subcategory:'Mugs', collections:[], supplier:'Printify', brand:'', channels:[], status:'Awaiting design', blankId:'PR-MUG-011', supplierBlankSku:'PR-MUG-011-WHT', blankCost:520, mockupStatus:'In progress', designStatus:'Not started', blankCategory:'Drinkware' },
+    { id:'bl3', name:'Heather Polo — Blank', sku:'BLK-POLO-001', icon:'layers', category:'Apparel', subcategory:'Polos', collections:[], supplier:'Printify', brand:'', channels:[], status:'In design', blankId:'PR-POLO-001', supplierBlankSku:'PR-POLO-001-WMN', blankCost:1290, mockupStatus:'Complete', designStatus:'In progress', blankCategory:'Tops' },
+    { id:'bl4', name:'Trucker Cap — Blank', sku:'BLK-CAP-002', icon:'sports_baseball', category:'Headwear', subcategory:'Caps', collections:[], supplier:'Cotton Source Co.', brand:'', channels:[], status:'Design complete', blankId:'CS-CAP-002', supplierBlankSku:'CS-CAP-002-BLK', blankCost:610, mockupStatus:'Complete', designStatus:'Complete', blankCategory:'Headwear' }
+  ],
+  review: [
+    { id:'r1', name:'Dad Cap', sku:'CAP-DAD', icon:'sports_baseball', category:'Headwear', subcategory:'Caps', collections:['Bestsellers'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Etsy'], status:'Flagged', reviewStatus:'Pending', reviewFlags:['Image','Price'], issues:['Missing lifestyle image','Margin below 50%'], reviewedBy:'—', reviewedAt:'—' },
+    { id:'r2', name:'Lightweight Sweatshirt (AOP)', sku:'HD-211', icon:'checkroom', category:'Apparel', subcategory:'Sweatshirts', collections:['Summer 2026'], supplier:'Printify', brand:'Unsaid Goods', channels:['Shopify'], status:'Pending', reviewStatus:'Pending', reviewFlags:['Category'], issues:['Category mismatch'], reviewedBy:'—', reviewedAt:'—' },
+    { id:'r3', name:'Women\'s Heather Polo', sku:'POLO-W-01', icon:'checkroom', category:'Apparel', subcategory:'Polos', collections:[], supplier:'Printify', brand:'ManageKube', channels:[], status:'Pending', reviewStatus:'Pending', reviewFlags:['Title','Image'], issues:['Title too generic','No product image'], reviewedBy:'—', reviewedAt:'—' }
+  ],
+  published: [
+    { id:'pub1', type:'Product', name:'Speckled Wayland Ceramic Mug', sku:'MUG-003', icon:'inventory', category:'Drinkware', subcategory:'Mugs', collections:['New Arrivals'], supplier:'Printify', brand:'ManageKube', channels:['Shopify','TikTok'], status:'Published', price:1800, publishedAt:'2026-03-12', firstPublishedAt:'2026-01-05', publishedTo:['Shopify','TikTok'] },
+    { id:'pub2', type:'Product', name:'Classic Tee — Black', sku:'TEE-001-BLK', icon:'checkroom', category:'Apparel', subcategory:'T-Shirts', collections:['Bestsellers'], supplier:'Printful', brand:'ManageKube', channels:['Shopify','Etsy','TikTok'], status:'Published', price:2400, publishedAt:'2026-02-02', firstPublishedAt:'2025-12-14', publishedTo:['Shopify','Etsy','TikTok'] },
+    { id:'pub3', type:'SKU', name:'Soy Candle — Lavender', sku:'CND-SOY-LAV', icon:'qr_code', category:'Home & Living', subcategory:'Candles', collections:['New Arrivals'], supplier:'Cotton Source Co.', brand:'Unsaid Goods', channels:['Shopify','Etsy'], status:'In stock', price:2200, publishedAt:'2026-01-18', firstPublishedAt:'2026-01-18', publishedTo:['Shopify','Etsy'] },
+    { id:'pub4', type:'Bundle', name:'Starter Kit', sku:'BND-STARTER', icon:'redeem', category:'Bundles', subcategory:'Kits', collections:['Bestsellers'], supplier:'', brand:'ManageKube', channels:['Shopify'], status:'Active', price:4500, publishedAt:'2026-02-10', firstPublishedAt:'2026-02-10', publishedTo:['Shopify'] }
   ],
   suppliers: [
-    { id:'sup1', name:'Printful', company:'Printful, Inc.', icon:'factory', category:'Print-on-demand', supplier:'', brand:'', channels:['Printful API'], status:'Active', account:'PF-88421', lead:'2–3 days', sla:'99.1%', openBills:288000, ytd:1241000 },
-    { id:'sup2', name:'Gelato', company:'Gelato', icon:'factory', category:'Print-on-demand', supplier:'', brand:'', channels:['Gelato API'], status:'Active', account:'GL-31208', lead:'3–5 days', sla:'98.4%', openBills:120000, ytd:624000 },
-    { id:'sup3', name:'Printify', company:'Printify, Inc.', icon:'factory', category:'Print-on-demand', supplier:'', brand:'', channels:['Printify API'], status:'Active', account:'PR-55901', lead:'1–2 days', sla:'99.6%', openBills:64000, ytd:418000 },
-    { id:'sup4', name:'Cotton Source Co.', company:'Cotton Source Co.', icon:'factory', category:'Materials', supplier:'', brand:'', channels:[], status:'Active', account:'CS-00912', lead:'7–10 days', sla:'97.2%', openBills:0, ytd:824000 }
+    { id:'sup1', name:'Printful', company:'Printful, Inc.', icon:'factory', category:'Print-on-demand', subcategory:'', supplier:'', brand:'', channels:['Printful API'], status:'Active', account:'PF-88421', lead:'2–3 days', sla:'99.1%', openBills:288000, ytd:1241000 },
+    { id:'sup2', name:'Gelato', company:'Gelato', icon:'factory', category:'Print-on-demand', subcategory:'', supplier:'', brand:'', channels:['Gelato API'], status:'Active', account:'GL-31208', lead:'3–5 days', sla:'98.4%', openBills:120000, ytd:624000 },
+    { id:'sup3', name:'Printify', company:'Printify, Inc.', icon:'factory', category:'Print-on-demand', subcategory:'', supplier:'', brand:'', channels:['Printify API'], status:'Active', account:'PR-55901', lead:'1–2 days', sla:'99.6%', openBills:64000, ytd:418000 },
+    { id:'sup4', name:'Cotton Source Co.', company:'Cotton Source Co.', icon:'factory', category:'Materials', subcategory:'', supplier:'', brand:'', channels:[], status:'Active', account:'CS-00912', lead:'7–10 days', sla:'97.2%', openBills:0, ytd:824000 }
   ],
   brands: [
-    { id:'br1', name:'ManageKube', domain:'managekube.io', icon:'branding_watermark', category:'Brands', supplier:'', brand:'', channels:['Shopify','TikTok'], status:'Active', colors:['#0a6400','#faf9fc','#1a1c1e'], font:'Inter', products:5079 },
-    { id:'br2', name:'Unsaid Goods', domain:'unsaidgoods.com', icon:'branding_watermark', category:'Brands', supplier:'', brand:'', channels:['Shopify','Etsy'], status:'Active', colors:['#1f2937','#e8f0fb','#faf9fc'], font:'Geist', products:2140 }
+    { id:'br1', name:'ManageKube', domain:'managekube.io', icon:'branding_watermark', category:'Brands', subcategory:'', supplier:'', brand:'', channels:['Shopify','TikTok'], status:'Active', colors:['#0a6400','#faf9fc','#1a1c1e'], font:'Inter', products:5079 },
+    { id:'br2', name:'Unsaid Goods', domain:'unsaidgoods.com', icon:'branding_watermark', category:'Brands', subcategory:'', supplier:'', brand:'', channels:['Shopify','Etsy'], status:'Active', colors:['#1f2937','#e8f0fb','#faf9fc'], font:'Geist', products:2140 }
   ],
   channels: [
-    { id:'ch1', name:'Shopify', domain:'managekube.myshopify.com', icon:'storefront', category:'Storefronts', supplier:'', brand:'ManageKube', channels:['Shopify'], status:'Connected', listings:1842, needsSync:0, last:'2 min ago', badge:'shopify', letter:'S' },
-    { id:'ch2', name:'TikTok Shop', domain:'ManageKube US', icon:'music_note', category:'Marketplaces', supplier:'', brand:'ManageKube', channels:['TikTok'], status:'Connected', listings:842, needsSync:45, last:'45 min ago', badge:'tiktok', letter:'T' },
-    { id:'ch3', name:'Etsy', domain:'UnsaidGoods', icon:'shopping_bag', category:'Marketplaces', supplier:'', brand:'Unsaid Goods', channels:['Etsy'], status:'Error', listings:156, needsSync:2, last:'2 hours ago', badge:'etsy', letter:'E' }
+    { id:'ch1', name:'Shopify', domain:'managekube.myshopify.com', icon:'storefront', category:'Storefronts', subcategory:'', supplier:'', brand:'ManageKube', channels:['Shopify'], status:'Connected', listings:1842, needsSync:0, last:'2 min ago', badge:'shopify', letter:'S' },
+    { id:'ch2', name:'TikTok Shop', domain:'ManageKube US', icon:'music_note', category:'Marketplaces', subcategory:'', supplier:'', brand:'ManageKube', channels:['TikTok'], status:'Connected', listings:842, needsSync:45, last:'45 min ago', badge:'tiktok', letter:'T' },
+    { id:'ch3', name:'Etsy', domain:'UnsaidGoods', icon:'shopping_bag', category:'Marketplaces', subcategory:'', supplier:'', brand:'Unsaid Goods', channels:['Etsy'], status:'Error', listings:156, needsSync:2, last:'2 hours ago', badge:'etsy', letter:'E' }
   ],
   categories: [
-    { id:'cat1', name:'Summer 2026', slug:'summer-2026', category:'Apparel', status:'Published', products:24, type:'Manual', supplier:'', brand:'', channels:['Shopify'] },
-    { id:'cat2', name:'Best Sellers', slug:'best-sellers', category:'Apparel', status:'Published', products:42, type:'Automated (Sales)', supplier:'', brand:'', channels:['Shopify','Etsy'] },
-    { id:'cat3', name:'Fall Preview 2026', slug:'fall-preview', category:'Apparel', status:'Draft', products:8, type:'Manual', supplier:'', brand:'', channels:[] }
+    { id:'cat1', name:'Summer 2026', slug:'summer-2026', category:'Collections', subcategory:'', status:'Published', products:24, type:'Manual', supplier:'', brand:'', channels:['Shopify'], parentCategory:'—' },
+    { id:'cat2', name:'Best Sellers', slug:'best-sellers', category:'Collections', subcategory:'', status:'Published', products:42, type:'Automated (Sales)', supplier:'', brand:'', channels:['Shopify','Etsy'], parentCategory:'—' },
+    { id:'cat3', name:'Fall Preview 2026', slug:'fall-preview', category:'Collections', subcategory:'', status:'Draft', products:8, type:'Manual', supplier:'', brand:'', channels:[], parentCategory:'—' },
+    { id:'cat4', name:'Apparel', slug:'apparel', category:'Categories', subcategory:'', status:'Published', products:128, type:'Manual', supplier:'', brand:'', channels:['Shopify'], parentCategory:'—' },
+    { id:'cat5', name:'Home & Living', slug:'home-living', category:'Categories', subcategory:'', status:'Published', products:64, type:'Manual', supplier:'', brand:'', channels:['Shopify','Etsy'], parentCategory:'—' },
+    { id:'cat6', name:'Headwear', slug:'headwear', category:'Categories', subcategory:'', status:'Published', products:18, type:'Manual', supplier:'', brand:'', channels:['Etsy'], parentCategory:'—' }
+  ],
+  subcategories: [
+    { id:'sc1', name:'T-Shirts', slug:'t-shirts', category:'Apparel', subcategory:'T-Shirts', collections:[], supplier:'', brand:'', channels:['Shopify'], status:'Published', products:42, parentCategory:'Apparel', parentId:'cat4' },
+    { id:'sc2', name:'Sweatshirts', slug:'sweatshirts', category:'Apparel', subcategory:'Sweatshirts', collections:[], supplier:'', brand:'', channels:['Shopify'], status:'Published', products:18, parentCategory:'Apparel', parentId:'cat4' },
+    { id:'sc3', name:'Polos', slug:'polos', category:'Apparel', subcategory:'Polos', collections:[], supplier:'', brand:'', channels:['Shopify'], status:'Published', products:12, parentCategory:'Apparel', parentId:'cat4' },
+    { id:'sc4', name:'Mugs', slug:'mugs', category:'Drinkware', subcategory:'Mugs', collections:[], supplier:'', brand:'', channels:['Shopify','TikTok'], status:'Published', products:14, parentCategory:'Home & Living', parentId:'cat5' },
+    { id:'sc5', name:'Candles', slug:'candles', category:'Home & Living', subcategory:'Candles', collections:[], supplier:'', brand:'', channels:['Shopify','Etsy'], status:'Published', products:9, parentCategory:'Home & Living', parentId:'cat5' },
+    { id:'sc6', name:'Caps', slug:'caps', category:'Headwear', subcategory:'Caps', collections:[], supplier:'', brand:'', channels:['Etsy'], status:'Draft', products:6, parentCategory:'Headwear', parentId:'cat6' },
+    { id:'sc7', name:'Posters', slug:'posters', category:'Wall Art', subcategory:'Posters', collections:[], supplier:'', brand:'', channels:['Shopify'], status:'Published', products:7, parentCategory:'Home & Living', parentId:'cat5' }
   ]
 };
 
@@ -486,6 +544,15 @@ const FACET_DEFS = {
       { key: 'name', label: 'Category name', type: 'text', placeholder: 'e.g. Drinkware' },
       { key: 'parent', label: 'Parent category', type: 'select', options: ['— None —', 'Apparel', 'Home & Living', 'Wall Art', 'Headwear'] },
       { key: 'description', label: 'Description', type: 'textarea' }
+    ]
+  },
+  subcategory: {
+    label: 'Sub category', icon: 'account_tree',
+    extract: r => r.subcategory ? [r.subcategory] : [],
+    createFields: [
+      { key: 'name', label: 'Sub category name', type: 'text', placeholder: 'e.g. T-Shirts' },
+      { key: 'parent', label: 'Parent category', type: 'select', options: ['Apparel', 'Home & Living', 'Wall Art', 'Headwear', 'Drinkware'] },
+      { key: 'slug', label: 'URL handle', type: 'text', prefix: '/subcategories/', placeholder: 't-shirts' }
     ]
   },
   collection: {
@@ -528,22 +595,60 @@ const FACET_DEFS = {
       { key: 'category', label: 'Category', type: 'select', options: ['Storefronts', 'Marketplaces', 'Social'] },
       { key: 'sync', label: 'Sync settings', type: 'checks', options: ['Sync products & listings', 'Sync inventory', 'Pull orders'] }
     ]
+  },
+  listingState: {
+    label: 'Listing state', icon: 'storefront',
+    extract: r => r.channel ? [r.channel] : [],
+    createFields: [
+      { key: 'name', label: 'Listing state', type: 'text', placeholder: 'e.g. Published' },
+      { key: 'description', label: 'Description', type: 'textarea' }
+    ]
+  },
+  blankState: {
+    label: 'Blank state', icon: 'layers',
+    extract: r => r.status ? [r.status] : [],
+    createFields: [
+      { key: 'name', label: 'Blank state', type: 'text', placeholder: 'e.g. Awaiting design' },
+      { key: 'description', label: 'Description', type: 'textarea' }
+    ]
+  },
+  reviewStatus: {
+    label: 'Review status', icon: 'fact_check',
+    extract: r => r.reviewStatus ? [r.reviewStatus] : [],
+    createFields: [
+      { key: 'name', label: 'Review status', type: 'text', placeholder: 'e.g. Pending' },
+      { key: 'description', label: 'Description', type: 'textarea' }
+    ]
+  },
+  itemType: {
+    label: 'Item type', icon: 'view_list',
+    extract: r => r.type ? [r.type] : [],
+    createFields: [
+      { key: 'name', label: 'Item type', type: 'text', placeholder: 'e.g. Product' },
+      { key: 'description', label: 'Description', type: 'textarea' }
+    ]
   }
 };
 
 const ENTITY_FACETS = {
-  products:  ['status', 'category', 'collection', 'supplier', 'brand', 'channel'],
-  skus:      ['status', 'category', 'collection', 'supplier', 'brand', 'channel'],
-  bundles:   ['status', 'collection', 'brand', 'channel'],
+  products:  ['status', 'category', 'subcategory', 'collection', 'supplier', 'brand', 'channel'],
+  skus:      ['status', 'category', 'subcategory', 'collection', 'supplier', 'brand', 'channel'],
+  bundles:   ['status', 'subcategory', 'collection', 'brand', 'channel'],
+  items:     ['status', 'itemType', 'category', 'subcategory', 'brand', 'channel'],
+  listings:  ['status', 'listingState', 'category', 'subcategory', 'brand', 'channel'],
+  blanks:    ['blankState', 'category', 'subcategory', 'supplier'],
+  review:    ['reviewStatus', 'category', 'subcategory', 'brand'],
+  published: ['itemType', 'category', 'subcategory', 'brand', 'channel'],
   suppliers: ['status', 'category'],
   brands:    ['status', 'channel'],
   channels:  ['status', 'category', 'brand'],
-  categories:['status', 'category', 'channel']
+  categories:['status', 'category', 'channel', 'subcategory']
 };
 
 const ENTITY_LABELS = {
-  products:'Products', skus:'Variants & SKUs', bundles:'Bundles', suppliers:'Suppliers',
-  brands:'Brands', channels:'Channels', categories:'Categories & Collections'
+  products:'Products', skus:'Variants & SKUs', bundles:'Bundles', items:'Catalog items',
+  listings:'Listings', blanks:'Blanks', review:'Catalog review', published:'Published items & SKUs',
+  suppliers:'Suppliers', brands:'Brands', channels:'Channels', categories:'Categories & subcategories'
 };
 
 const ROW_MENU_ACTIONS = {
@@ -569,6 +674,40 @@ const ROW_MENU_ACTIONS = {
     {a:'publish', l:'Publish', icon:'publish'},
     {a:'delete', l:'Delete', icon:'delete', danger:true}
   ],
+  items: [
+    {a:'open', l:'Open', icon:'open_in_new'},
+    {a:'edit', l:'Edit', icon:'edit'},
+    {sep:true},
+    {a:'archive', l:'Archive', icon:'archive'}
+  ],
+  listings: [
+    {a:'open', l:'Open', icon:'open_in_new'},
+    {a:'repush', l:'Re-push to channel', icon:'sync'},
+    {a:'refresh', l:'Refresh from channel', icon:'refresh'},
+    {sep:true},
+    {a:'unpublish', l:'Unpublish from channel', icon:'link_off', danger:true}
+  ],
+  blanks: [
+    {a:'open', l:'Open', icon:'open_in_new'},
+    {a:'assign', l:'Assign design', icon:'palette'},
+    {a:'mockup', l:'Request mockup', icon:'image'},
+    {a:'sample', l:'Order sample', icon:'local_shipping'},
+    {sep:true},
+    {a:'archive', l:'Archive', icon:'archive', danger:true}
+  ],
+  review: [
+    {a:'open', l:'Open', icon:'open_in_new'},
+    {a:'approve', l:'Approve', icon:'check_circle'},
+    {a:'flag', l:'Flag issue', icon:'flag'},
+    {sep:true},
+    {a:'reject', l:'Reject', icon:'cancel', danger:true}
+  ],
+  published: [
+    {a:'open', l:'Open', icon:'open_in_new'},
+    {a:'view', l:'View on storefront', icon:'storefront'},
+    {sep:true},
+    {a:'unpublish', l:'Unpublish', icon:'link_off', danger:true}
+  ],
   suppliers: [
     {a:'open', l:'Open', icon:'open_in_new'},
     {a:'create-po', l:'Create PO', icon:'receipt_long'},
@@ -591,6 +730,7 @@ const ROW_MENU_ACTIONS = {
   ],
   categories: [
     {a:'open', l:'Open', icon:'open_in_new'},
+    {a:'add-sub', l:'Add sub category', icon:'add'},
     {a:'edit', l:'Edit', icon:'edit'},
     {a:'publish', l:'Publish', icon:'publish'},
     {sep:true},
@@ -625,7 +765,7 @@ function filteredRows() {
   const activeFacets = getFacetState();
   return rows.filter(r => {
     if (q) {
-      const hay = [r.name, r.sku, r.variant, r.category, r.supplier, r.brand, ...(r.collections||[]), ...(r.channels||[])].join(' ').toLowerCase();
+      const hay = [r.name, r.sku, r.variant, r.category, r.subcategory, r.supplier, r.brand, r.channel, r.type, ...(r.collections||[]), ...(r.channels||[])].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     for (const [key, val] of Object.entries(activeFacets)) {
@@ -635,10 +775,10 @@ function filteredRows() {
       if (!def.extract(r).includes(val)) return false;
     }
     if (state.saved === 'needs-review') {
-      const bad = r.status === 'Needs review' || (r.margin != null && r.margin < 50);
+      const bad = r.status === 'Needs review' || r.reviewStatus === 'Pending' || (r.margin != null && r.margin < 50);
       if (!bad) return false;
     } else if (state.saved === 'needs-design') {
-      if (r.status !== 'Needs Design') return false;
+      if (r.status !== 'Needs Design' && r.status !== 'Awaiting design') return false;
     } else if (state.saved === 'live') {
       if (!['Published','Active','Connected','Live','In stock'].includes(r.status)) return false;
     }
@@ -650,7 +790,10 @@ function statusPill(s) {
   const map = {
     'Published':'published','Draft':'draft','Archived':'inactive','Active':'active','Inactive':'inactive',
     'Connected':'connected','Error':'error','Live':'live','In stock':'in-stock','Low stock':'low-stock',
-    'Out of stock':'out-of-stock','Needs review':'needs-review','Needs Design':'needs-design'
+    'Out of stock':'out-of-stock','Needs review':'needs-review','Needs Design':'needs-design',
+    'Awaiting design':'awaiting','In design':'awaiting','Design complete':'approved',
+    'Pending':'pending','Approved':'approved','Rejected':'rejected','Flagged':'flagged',
+    'Syncing':'syncing'
   };
   return `<span class="stat ${map[s]||'draft'}">${esc(s)}</span>`;
 }
@@ -679,7 +822,7 @@ function renderProductsTable(rows) {
           <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
           <td class="px-2 py-2"><button class="w-5 h-5 rounded hover:bg-surface-container flex items-center justify-center text-on-surface-variant" data-toggle="${r.id}"><span class="material-symbols-outlined text-[16px]">${exp?'expand_more':'chevron_right'}</span></button></td>
           <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div class="min-w-0"><div class="font-medium truncate">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div></div></div></td>
-          <td class="px-3 py-2 text-on-surface-variant">${esc(r.category||'—')}</td>
+          <td class="px-3 py-2 text-on-surface-variant"><div>${esc(r.category||'—')}</div>${r.subcategory?`<div class="text-[11px]">${esc(r.subcategory)}</div>`:''}</td>
           <td class="px-3 py-2 text-on-surface-variant">${esc(r.supplier||'—')}</td>
           <td class="px-3 py-2 text-on-surface-variant text-[11px]">${(r.channels||[]).join(', ')||'—'}</td>
           <td class="px-3 py-2 text-right tabular-nums">${r.price!=null?usd(r.price):'—'}</td>
@@ -733,6 +876,117 @@ function renderBundlesTable(rows) {
         <td class="px-3 py-2 text-on-surface-variant">${esc(r.contains)}</td>
         <td class="px-3 py-2 text-right tabular-nums">${usd(r.price)}</td>
         <td class="px-3 py-2 text-right tabular-nums text-on-surface-variant">${usd(r.itemsTotal)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function renderItemsTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+      <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+      <th class="px-3 py-2">Item</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Category</th><th class="px-3 py-2">Brand</th><th class="px-3 py-2">Channels</th><th class="px-3 py-2 text-right">Price</th><th class="px-3 py-2">Status</th><th class="w-8"></th>
+    </tr></thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div class="min-w-0"><div class="font-medium truncate">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div></div></div></td>
+        <td class="px-3 py-2"><span class="role-chip">${esc(r.type)}</span></td>
+        <td class="px-3 py-2 text-on-surface-variant"><div>${esc(r.category||'—')}</div>${r.subcategory?`<div class="text-[11px]">${esc(r.subcategory)}</div>`:''}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.brand||'—')}</td>
+        <td class="px-3 py-2 text-on-surface-variant text-[11px]">${(r.channels||[]).join(', ')||'—'}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${r.price!=null?usd(r.price):'—'}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function renderListingsTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+      <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+      <th class="px-3 py-2">Listing</th><th class="px-3 py-2">Channel</th><th class="px-3 py-2 font-mono">Listing ID</th>
+      <th class="px-3 py-2 text-right">Channel price</th><th class="px-3 py-2">Last sync</th><th class="px-3 py-2">Status</th><th class="w-8"></th>
+    </tr></thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div class="min-w-0"><div class="font-medium truncate">${esc(r.productName)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div></div></div></td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.channel)}</td>
+        <td class="px-3 py-2 font-mono text-[11px] text-on-surface-variant">${esc(r.channelListingId)}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.channelPrice)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.lastSyncedAt)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function renderBlanksTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+      <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+      <th class="px-3 py-2">Blank</th><th class="px-3 py-2">Supplier SKU</th><th class="px-3 py-2 text-right">Blank cost</th>
+      <th class="px-3 py-2">Mockup</th><th class="px-3 py-2">Design</th><th class="px-3 py-2">Status</th><th class="w-8"></th>
+    </tr></thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div class="min-w-0"><div class="font-medium truncate">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.blankId)} · ${esc(r.blankCategory)}</div></div></div></td>
+        <td class="px-3 py-2 font-mono text-[11px] text-on-surface-variant">${esc(r.supplierBlankSku)}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.blankCost)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.mockupStatus)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.designStatus)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function renderReviewTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+      <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+      <th class="px-3 py-2">Item</th><th class="px-3 py-2">Flags</th><th class="px-3 py-2">Issues</th>
+      <th class="px-3 py-2">Reviewed by</th><th class="px-3 py-2">Reviewed at</th><th class="px-3 py-2">Status</th><th class="w-8"></th>
+    </tr></thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div class="min-w-0"><div class="font-medium truncate">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div></div></div></td>
+        <td class="px-3 py-2">${(r.reviewFlags||[]).map(f=>`<span class="role-chip" style="margin-right:2px">${esc(f)}</span>`).join('')||'—'}</td>
+        <td class="px-3 py-2 text-on-surface-variant text-[11px]">${(r.issues||[]).join(' · ')||'—'}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.reviewedBy)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.reviewedAt)}</td>
+        <td class="px-3 py-2">${statusPill(r.status)}</td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+function renderPublishedTable(rows) {
+  if (!rows.length) return emptyState();
+  return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+      <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+      <th class="px-3 py-2">Item</th><th class="px-3 py-2">Type</th><th class="px-3 py-2">Published to</th>
+      <th class="px-3 py-2">First published</th><th class="px-3 py-2">Last published</th><th class="px-3 py-2 text-right">Price</th><th class="px-3 py-2">Status</th><th class="w-8"></th>
+    </tr></thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(r => `<tr class="cursor-pointer" data-id="${r.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+        <td class="px-3 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">${r.icon}</span><div class="min-w-0"><div class="font-medium truncate">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div></div></div></td>
+        <td class="px-3 py-2"><span class="role-chip">${esc(r.type)}</span></td>
+        <td class="px-3 py-2 text-on-surface-variant text-[11px]">${(r.publishedTo||[]).join(', ')||'—'}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.firstPublishedAt)}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${esc(r.publishedAt)}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${usd(r.price)}</td>
         <td class="px-3 py-2">${statusPill(r.status)}</td>
         <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
       </tr>`).join('')}
@@ -804,17 +1058,31 @@ function renderCategoriesTable(rows) {
   return `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
     <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
       <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
-      <th class="px-3 py-2">Collection</th><th class="px-3 py-2">Type</th><th class="px-3 py-2 text-right">Products</th><th class="px-3 py-2">Status</th><th class="w-8"></th>
+      <th class="w-8 px-2 py-2"></th>
+      <th class="px-3 py-2">Category</th><th class="px-3 py-2">Type</th><th class="px-3 py-2 text-right">Products</th><th class="px-3 py-2 text-right">Sub categories</th><th class="px-3 py-2">Status</th><th class="w-8"></th>
     </tr></thead>
     <tbody class="divide-y divide-surface-dim">
-      ${rows.map(r => `<tr class="cursor-pointer" data-id="${r.id}">
-        <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
-        <td class="px-3 py-2"><div class="font-medium">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">/collections/${esc(r.slug)}</div></td>
-        <td class="px-3 py-2 text-on-surface-variant">${esc(r.type)}</td>
-        <td class="px-3 py-2 text-right tabular-nums">${r.products}</td>
-        <td class="px-3 py-2">${statusPill(r.status)}</td>
-        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
-      </tr>`).join('')}
+      ${rows.map(r => {
+        const exp = state.expanded.has(r.id);
+        const subs = DATA.subcategories.filter(s => s.parentId === r.id);
+        const main = `<tr class="cursor-pointer ${exp?'bg-surface-container-low':''}" data-id="${r.id}">
+          <td class="px-3 py-2"><input type="checkbox" class="row-check" data-row-check ${state.sel.has(r.id)?'checked':''}></td>
+          <td class="px-2 py-2"><button class="w-5 h-5 rounded hover:bg-surface-container flex items-center justify-center text-on-surface-variant" data-toggle="${r.id}"><span class="material-symbols-outlined text-[16px]">${exp?'expand_more':'chevron_right'}</span></button></td>
+          <td class="px-3 py-2"><div class="font-medium">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">/${esc(r.category.toLowerCase())}/${esc(r.slug)}</div></td>
+          <td class="px-3 py-2 text-on-surface-variant">${esc(r.type)}</td>
+          <td class="px-3 py-2 text-right tabular-nums">${r.products}</td>
+          <td class="px-3 py-2 text-right tabular-nums">${subs.length}</td>
+          <td class="px-3 py-2">${statusPill(r.status)}</td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu data-id="${r.id}"><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+        </tr>`;
+        let sub = '';
+        if (exp) {
+          sub = `<tr class="subtable"><td colspan="8">${subs.length ? `<table><thead><tr><th>Sub category</th><th>Handle</th><th class="right">Products</th><th>Channels</th><th>Status</th><th class="right"></th></tr></thead><tbody>
+            ${subs.map(sc => `<tr><td class="font-medium">${esc(sc.name)}</td><td class="font-mono text-[11px] text-on-surface-variant">/${esc(sc.slug)}</td><td class="right">${sc.products}</td><td class="text-[11px] text-on-surface-variant">${(sc.channels||[]).join(', ')||'—'}</td><td>${statusPill(sc.status)}</td><td class="right"><button class="text-[11px] text-primary font-semibold hover:underline" data-sub-open="${sc.id}">Open</button></td></tr>`).join('')}
+          </tbody></table>` : '<div class="px-3 py-2 text-[11px] text-on-surface-variant">No sub categories</div>'}</td></tr>`;
+        }
+        return main + sub;
+      }).join('')}
     </tbody></table></div>`;
 }
 
@@ -822,6 +1090,11 @@ const BULK_ACTIONS = {
   products: [{a:'publish',l:'Publish'},{a:'archive',l:'Archive'},{a:'delete',l:'Delete'}],
   skus: [{a:'publish',l:'Publish'},{a:'archive',l:'Archive'}],
   bundles: [{a:'publish',l:'Publish'},{a:'archive',l:'Archive'}],
+  items: [{a:'publish',l:'Publish'},{a:'archive',l:'Archive'}],
+  listings: [{a:'resync',l:'Re-sync'},{a:'unpublish',l:'Unpublish'}],
+  blanks: [{a:'assign',l:'Assign to designer'},{a:'sample',l:'Order samples'}],
+  review: [{a:'approve',l:'Approve all'},{a:'reject',l:'Reject selected'}],
+  published: [{a:'unpublish',l:'Unpublish'},{a:'view',l:'View on storefront'}],
   suppliers: [{a:'create-po',l:'Create PO'},{a:'email',l:'Email'}],
   brands: [{a:'apply',l:'Apply to storefront'},{a:'export',l:'Export assets'}],
   channels: [{a:'sync',l:'Sync now'},{a:'disconnect',l:'Disconnect'}],
@@ -834,6 +1107,11 @@ function render() {
   if (state.entity === 'products') html = renderProductsTable(rows);
   else if (state.entity === 'skus') html = renderSkusTable(rows);
   else if (state.entity === 'bundles') html = renderBundlesTable(rows);
+  else if (state.entity === 'items') html = renderItemsTable(rows);
+  else if (state.entity === 'listings') html = renderListingsTable(rows);
+  else if (state.entity === 'blanks') html = renderBlanksTable(rows);
+  else if (state.entity === 'review') html = renderReviewTable(rows);
+  else if (state.entity === 'published') html = renderPublishedTable(rows);
   else if (state.entity === 'suppliers') html = renderSuppliersTable(rows);
   else if (state.entity === 'brands') html = renderBrandsTable(rows);
   else if (state.entity === 'channels') html = renderChannelsTable(rows);
@@ -862,11 +1140,11 @@ function render() {
 }
 
 function updateKpis() {
-  const all = DATA.products.length + DATA.skus.length + DATA.bundles.length + DATA.suppliers.length + DATA.brands.length + DATA.channels.length + DATA.categories.length;
+  const all = DATA.products.length + DATA.skus.length + DATA.bundles.length + DATA.items.length + DATA.listings.length + DATA.blanks.length + DATA.review.length + DATA.published.length + DATA.suppliers.length + DATA.brands.length + DATA.channels.length + DATA.categories.length + DATA.subcategories.length;
   $('kpiAll').textContent = all;
-  $('kpiReview').textContent = DATA.products.filter(r => r.status === 'Needs review' || (r.margin != null && r.margin < 50)).length;
-  $('kpiDesign').textContent = DATA.products.filter(r => r.status === 'Needs Design').length;
-  $('kpiLive').textContent = [...DATA.products, ...DATA.skus, ...DATA.bundles].filter(r => ['Published','Active','Live','In stock'].includes(r.status)).length;
+  $('kpiReview').textContent = DATA.review.length + DATA.products.filter(r => r.status === 'Needs review').length;
+  $('kpiDesign').textContent = DATA.blanks.filter(b => b.designStatus !== 'Complete').length;
+  $('kpiLive').textContent = DATA.published.length;
 }
 
 function updateBulk() {
@@ -980,10 +1258,16 @@ function openDrawer(record) {
     product: { icon:'inventory', sub:'Catalog product' },
     sku: { icon:'qr_code', sub:'SKU record' },
     bundle: { icon:'redeem', sub:'Grouped items' },
+    item: { icon:'view_list', sub:'Unified catalog item' },
+    listing: { icon:'storefront', sub:'Channel listing' },
+    blank: { icon:'layers', sub:'Supplier blank item' },
+    review: { icon:'fact_check', sub:'Catalog review record' },
+    published: { icon:'check_circle', sub:'Published item' },
     supplier: { icon:'factory', sub:'Supplier party' },
     brand: { icon:'branding_watermark', sub:'Brand identity' },
     channel: { icon:'local_mall', sub:'Sales channel' },
-    category: { icon:'category', sub:'Collection' }
+    category: { icon:'category', sub:'Category' },
+    subcategory: { icon:'account_tree', sub:'Sub category' }
   }[state.entity] || { icon:'inventory', sub:'' };
   $('drawerIcon').textContent = meta.icon;
   $('drawerTitle').textContent = record.name;
@@ -1017,7 +1301,11 @@ function renderDrawerBody(r) {
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div><label class="field-label">Category</label><input class="field-input" value="${esc(r.category)}"/></div>
+        <div><label class="field-label">Sub category</label><input class="field-input" value="${esc(r.subcategory||'')}"/></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
         <div><label class="field-label">Supplier</label><input class="field-input" value="${esc(r.supplier)}"/></div>
+        <div><label class="field-label">Brand</label><input class="field-input" value="${esc(r.brand)}"/></div>
       </div>
       ${channelsBlock(r.channels)}
       <div class="grid grid-cols-3 gap-3">
@@ -1052,6 +1340,10 @@ function renderDrawerBody(r) {
         <div><label class="field-label">SKU</label><input class="field-input font-mono" value="${esc(r.sku)}"/></div>
         <div><label class="field-label">Variant</label><input class="field-input" value="${esc(r.variant)}"/></div>
       </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Category</label><input class="field-input" value="${esc(r.category)}"/></div>
+        <div><label class="field-label">Sub category</label><input class="field-input" value="${esc(r.subcategory||'')}"/></div>
+      </div>
       ${channelsBlock(r.channels)}
       <div class="grid grid-cols-4 gap-3">
         <div><label class="field-label">On hand</label><input class="field-input tabular-nums" value="${r.onhand==null?'':r.onhand}"/></div>
@@ -1067,6 +1359,126 @@ function renderDrawerBody(r) {
       <div class="grid grid-cols-2 gap-3">
         <div><label class="field-label">Bundle price</label><input class="field-input tabular-nums" value="${usd(r.price)}"/></div>
         <div><label class="field-label">Items total</label><input class="field-input tabular-nums" value="${usd(r.itemsTotal)}"/></div>
+      </div>`;
+  }
+  if (state.entity === 'items') {
+    return `
+      <div class="bg-surface-container-low rounded-lg p-3 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px] text-qb-blue">view_list</span>
+        <span class="role-chip">${esc(r.type)}</span>
+        <span class="text-[11px] text-on-surface-variant font-mono ml-auto">${esc(r.sku)}</span>
+      </div>
+      <div><label class="field-label">Item name</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Category</label><input class="field-input" value="${esc(r.category)}"/></div>
+        <div><label class="field-label">Sub category</label><input class="field-input" value="${esc(r.subcategory||'')}"/></div>
+      </div>
+      ${channelsBlock(r.channels)}
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Brand</label><input class="field-input" value="${esc(r.brand||'')}"/></div>
+        <div><label class="field-label">Price</label><input class="field-input tabular-nums" value="${usd(r.price)}"/></div>
+      </div>`;
+  }
+  if (state.entity === 'listings') {
+    return `
+      <div class="bg-surface-container-low rounded-lg p-3 flex items-center gap-3">
+        <div class="ch-badge ${r.channel==='Shopify'?'shopify':r.channel==='TikTok'?'tiktok':'etsy'}">${r.channel[0]}</div>
+        <div><div class="font-semibold">${esc(r.channel)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.channelListingId)}</div></div>
+        <div class="ml-auto">${statusPill(r.status)}</div>
+      </div>
+      <div><label class="field-label">Product name</label><input class="field-input" value="${esc(r.productName)}"/></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">SKU</label><input class="field-input font-mono" value="${esc(r.sku)}"/></div>
+        <div><label class="field-label">Channel price</label><input class="field-input tabular-nums" value="${usd(r.channelPrice)}"/></div>
+      </div>
+      <div><label class="field-label">Last synced</label><input class="field-input" value="${esc(r.lastSyncedAt)}"/></div>
+      <div class="pt-2">
+        <div class="section-h">Actions</div>
+        <div class="grid grid-cols-2 gap-2">
+          <button class="h-9 border border-surface-dim rounded text-body-md font-semibold hover:border-qb-blue" onclick="toast('Re-push to channel')">Re-push</button>
+          <button class="h-9 border border-surface-dim rounded text-body-md font-semibold hover:border-qb-blue" onclick="toast('Refresh from channel')">Refresh</button>
+        </div>
+      </div>`;
+  }
+  if (state.entity === 'blanks') {
+    return `
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Blank ID</label><input class="field-input font-mono" value="${esc(r.blankId)}"/></div>
+        <div><label class="field-label">Supplier SKU</label><input class="field-input font-mono" value="${esc(r.supplierBlankSku)}"/></div>
+      </div>
+      <div><label class="field-label">Blank name</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Supplier</label><input class="field-input" value="${esc(r.supplier)}"/></div>
+        <div><label class="field-label">Blank category</label><input class="field-input" value="${esc(r.blankCategory)}"/></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Blank cost</label><input class="field-input tabular-nums" value="${usd(r.blankCost)}"/></div>
+        <div><label class="field-label">Status</label><div>${statusPill(r.status)}</div></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Mockup status</label><input class="field-input" value="${esc(r.mockupStatus)}"/></div>
+        <div><label class="field-label">Design status</label><input class="field-input" value="${esc(r.designStatus)}"/></div>
+      </div>
+      <div class="pt-2">
+        <div class="section-h">Design flow</div>
+        <div class="grid grid-cols-3 gap-2">
+          <button class="h-9 border border-surface-dim rounded text-body-sm font-semibold hover:border-qb-blue" onclick="toast('Assign design')">Assign</button>
+          <button class="h-9 border border-surface-dim rounded text-body-sm font-semibold hover:border-qb-blue" onclick="toast('Request mockup')">Mockup</button>
+          <button class="h-9 border border-surface-dim rounded text-body-sm font-semibold hover:border-qb-blue" onclick="toast('Order sample')">Sample</button>
+        </div>
+      </div>`;
+  }
+  if (state.entity === 'review') {
+    return `
+      <div class="bg-surface-container-low rounded-lg p-3 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px] text-qb-maroon">fact_check</span>
+        <div><div class="font-semibold text-[13px]">${esc(r.name)}</div><div class="text-[11px] text-on-surface-variant font-mono">${esc(r.sku)}</div></div>
+        <div class="ml-auto">${statusPill(r.status)}</div>
+      </div>
+      <div><label class="field-label">Review status</label><input class="field-input" value="${esc(r.reviewStatus)}"/></div>
+      <div><label class="field-label">Flags</label>
+        <div class="flex flex-wrap gap-1">${(r.reviewFlags||[]).map(f=>`<span class="role-chip">${esc(f)}</span>`).join('')||'<span class="text-on-surface-variant text-[12px]">—</span>'}</div>
+      </div>
+      <div><label class="field-label">Issues</label>
+        <ul class="text-[12px] list-disc pl-5 space-y-1">${(r.issues||[]).map(i=>`<li>${esc(i)}</li>`).join('')||'<li>None</li>'}</ul>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Reviewed by</label><input class="field-input" value="${esc(r.reviewedBy)}"/></div>
+        <div><label class="field-label">Reviewed at</label><input class="field-input" value="${esc(r.reviewedAt)}"/></div>
+      </div>
+      <div class="pt-2">
+        <div class="section-h">Review actions</div>
+        <div class="grid grid-cols-3 gap-2">
+          <button class="h-9 bg-primary text-white rounded text-body-sm font-semibold" onclick="toast('Approved'); closeDrawer()">Approve</button>
+          <button class="h-9 border border-surface-dim rounded text-body-sm font-semibold" onclick="toast('Flagged')">Flag</button>
+          <button class="h-9 bg-error text-white rounded text-body-sm font-semibold" onclick="toast('Rejected'); closeDrawer()">Reject</button>
+        </div>
+      </div>`;
+  }
+  if (state.entity === 'published') {
+    return `
+      <div class="bg-surface-container-low rounded-lg p-3 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px] text-secondary">check_circle</span>
+        <span class="role-chip">${esc(r.type)}</span>
+        <span class="text-[11px] text-on-surface-variant font-mono ml-auto">${esc(r.sku)}</span>
+      </div>
+      <div><label class="field-label">Name</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Category</label><input class="field-input" value="${esc(r.category)}"/></div>
+        <div><label class="field-label">Sub category</label><input class="field-input" value="${esc(r.subcategory||'')}"/></div>
+      </div>
+      <div><label class="field-label">Published to</label>
+        <div class="flex flex-wrap gap-1">${(r.publishedTo||[]).map(c=>`<span class="role-chip customer">${esc(c)}</span>`).join('')||'—'}</div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">First published</label><input class="field-input" value="${esc(r.firstPublishedAt)}"/></div>
+        <div><label class="field-label">Last published</label><input class="field-input" value="${esc(r.publishedAt)}"/></div>
+      </div>
+      <div class="pt-2">
+        <div class="section-h">Storefront</div>
+        <button class="w-full h-9 border border-surface-dim rounded text-body-md font-semibold hover:border-qb-blue flex items-center justify-center gap-1" onclick="toast('Opening on storefront...')">
+          <span class="material-symbols-outlined text-[16px]">storefront</span>View on storefront
+        </button>
       </div>`;
   }
   if (state.entity === 'suppliers') {
@@ -1120,9 +1532,27 @@ function renderDrawerBody(r) {
   }
   if (state.entity === 'categories') {
     return `
-      <div><label class="field-label">Collection title</label><input class="field-input" value="${esc(r.name)}"/></div>
-      <div><label class="field-label">URL handle</label><div class="flex items-center"><span class="text-[12px] text-on-surface-variant px-2 bg-surface-container-low border border-r-0 border-surface-dim rounded-l h-9 flex items-center">/collections/</span><input class="field-input rounded-l-none" value="${esc(r.slug)}"/></div></div>
-      <div><label class="field-label">Type</label><select class="field-input"><option>Manual</option><option>Automated</option></select></div>
+      <div><label class="field-label">Category title</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div><label class="field-label">URL handle</label><div class="flex items-center"><span class="text-[12px] text-on-surface-variant px-2 bg-surface-container-low border border-r-0 border-surface-dim rounded-l h-9 flex items-center">/${esc(r.category.toLowerCase())}/</span><input class="field-input rounded-l-none" value="${esc(r.slug)}"/></div></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Type</label><select class="field-input"><option ${r.type==='Manual'?'selected':''}>Manual</option><option ${r.type?.startsWith('Automated')?'selected':''}>Automated</option></select></div>
+        <div><label class="field-label">Status</label><div>${statusPill(r.status)}</div></div>
+      </div>
+      <div class="pt-2">
+        <div class="section-h">Sub categories (${DATA.subcategories.filter(s => s.parentId === r.id).length})</div>
+        <div class="space-y-1">
+          ${DATA.subcategories.filter(s => s.parentId === r.id).map(sc => `
+            <button class="w-full flex items-center gap-2 p-2 rounded border border-surface-dim hover:border-qb-blue text-left" onclick="toast('Open sub category · ${esc(sc.name)}')">
+              <span class="material-symbols-outlined text-[16px] text-qb-blue">account_tree</span>
+              <span class="text-[12px] font-medium">${esc(sc.name)}</span>
+              <span class="ml-auto text-[11px] text-on-surface-variant">${sc.products} products</span>
+            </button>
+          `).join('') || '<div class="text-[11px] text-on-surface-variant">No sub categories yet</div>'}
+        </div>
+        <button class="mt-2 w-full h-8 border border-dashed border-surface-dim rounded text-[12px] font-semibold hover:border-primary flex items-center justify-center gap-1" onclick="toast('Add sub category')">
+          <span class="material-symbols-outlined text-[14px]">add</span>Add sub category
+        </button>
+      </div>
       <div class="pt-2"><div class="section-h">Visibility</div>
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-body-sm"><input type="checkbox" class="row-check" checked/>Publish to storefront</label>
@@ -1130,13 +1560,24 @@ function renderDrawerBody(r) {
         </div>
       </div>`;
   }
+  if (state.entity === 'subcategories') {
+    return `
+      <div><label class="field-label">Sub category</label><input class="field-input" value="${esc(r.name)}"/></div>
+      <div><label class="field-label">URL handle</label><div class="flex items-center"><span class="text-[12px] text-on-surface-variant px-2 bg-surface-container-low border border-r-0 border-surface-dim rounded-l h-9 flex items-center">/subcategories/</span><input class="field-input rounded-l-none" value="${esc(r.slug)}"/></div></div>
+      <div><label class="field-label">Parent category</label><input class="field-input" value="${esc(r.parentCategory)}"/></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="field-label">Products</label><input class="field-input tabular-nums" value="${r.products}"/></div>
+        <div><label class="field-label">Status</label><div>${statusPill(r.status)}</div></div>
+      </div>
+      ${channelsBlock(r.channels)}`;
+  }
   return '';
 }
 
 function openFlyout() { $('flyoutScrim').classList.add('open'); }
 function closeFlyout() { $('flyoutScrim').classList.remove('open'); }
 
-// ===== ROW MENU (FIXED: populated per entity, clamped to viewport) =====
+// ===== ROW MENU =====
 function buildRowMenu(entity) {
   const actions = ROW_MENU_ACTIONS[entity] || [];
   return actions.map(x => x.sep
@@ -1149,7 +1590,6 @@ function openRowMenu(trigger) {
   const menu = $('rowMenu');
   menu.classList.remove('open');
   menu.innerHTML = `<div class="menu-header">${ENTITY_LABELS[state.entity]}</div>` + buildRowMenu(state.entity);
-  // Make visible briefly to measure
   menu.style.visibility = 'hidden';
   menu.classList.add('open');
   const rect = trigger.getBoundingClientRect();
@@ -1209,16 +1649,18 @@ $('facetApply').addEventListener('click', () => {
 });
 
 document.addEventListener('click', e => {
-  // Row menu action
   const actionBtn = e.target.closest('#rowMenu [data-action]');
   if (actionBtn) {
     const action = actionBtn.dataset.action;
     const menu = $('rowMenu');
     const id = menu._id, entity = menu._entity;
     menu.classList.remove('open');
-    if (action === 'open') {
+    if (action === 'open' || action === 'view') {
       const rec = DATA[entity].find(r => r.id === id);
       if (rec) openDrawer(rec);
+    } else if (action === 'add-sub') {
+      closeFacetDrawer();
+      openFacetCreateDrawer('subcategory');
     } else {
       toast(`${action} · ${id}`);
     }
@@ -1274,7 +1716,14 @@ document.addEventListener('click', e => {
   if (skuLink) {
     e.stopPropagation();
     const sku = DATA.skus.find(s => s.id === skuLink.dataset.skuOpen);
-    if (sku) openDrawer(sku);
+    if (sku) { state.entity = 'skus'; document.querySelectorAll('[data-entity]').forEach(b => b.classList.toggle('active', b.dataset.entity === 'skus')); openDrawer(sku); }
+    return;
+  }
+  const subLink = e.target.closest('[data-sub-open]');
+  if (subLink) {
+    e.stopPropagation();
+    const sc = DATA.subcategories.find(s => s.id === subLink.dataset.subOpen);
+    if (sc) openDrawer(sc);
     return;
   }
 

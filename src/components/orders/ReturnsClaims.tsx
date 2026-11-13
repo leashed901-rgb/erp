@@ -86,23 +86,23 @@ export function ReturnsClaims({ onToast, onCreate, onOpenPeek }: OrdersScreenPro
     ];
     if (row.status === 'Requested') {
       items.push({ label: 'Approve return', icon: 'check_circle', dividerBefore: true, onClick: () => {
-        await fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Approved' }) }).catch(() => {});
+        fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Approved' }) }).catch(() => {});
         onToast(`RMA ${row.id} approved`);
       } });
       items.push({ label: 'Decline return', icon: 'cancel', onClick: () => {
-        await fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Declined' }) }).catch(() => {});
+        fetch(`/api/v1/documents/${row.docId}/void?type=RMA`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Declined' }) }).catch(() => {});
         onToast(`RMA ${row.id} declined`);
       } });
     }
     if (row.status === 'Approved') {
       items.push({ label: 'Mark in transit', icon: 'local_shipping', dividerBefore: true, onClick: () => {
-        onToast(`Status updated`);
+
         onToast(`RMA ${row.id} marked in transit`);
       } });
     }
     if (row.status === 'In transit') {
       items.push({ label: 'Mark items received', icon: 'inventory', dividerBefore: true, onClick: () => {
-        onToast(`Status updated`);
+
         onToast(`RMA ${row.id} marked received`);
       } });
     }
@@ -111,12 +111,12 @@ export function ReturnsClaims({ onToast, onCreate, onOpenPeek }: OrdersScreenPro
     }
     if (row.status === 'Received' || row.status === 'Approved') {
       items.push({ label: 'Issue refund…', icon: 'payments', onClick: () => {
-        onToast(`Status updated`);
+
         onToast(`RMA ${row.id} refunded`);
       } });
     }
     items.push({ label: 'Delete', icon: 'delete', danger: true, dividerBefore: true, onClick: () => {
-      await fetch(`/api/v1/documents/${row.docId}?type=RMA`, { method: 'DELETE' }).catch(() => {});
+      fetch(`/api/v1/documents/${row.docId}?type=RMA`, { method: 'DELETE' }).catch(() => {});
       onToast(`RMA ${row.id} deleted`);
     } });
     return items;

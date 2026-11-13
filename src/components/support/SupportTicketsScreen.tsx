@@ -1,10 +1,6 @@
 'use client';
-/* SupportTicketsScreen — 1:1 port of upload/support_extract/Support/tickets.html
-   The HTML's <style> block lives in src/app/support.css (+ marketing.css globals).
-   The HTML's <body> is ported to JSX below; class names are identical.
-   The HTML's <script> (filtering, view tabs, bulk selection, row menu,
-   ticket detail drawer) is ported to React state + handlers below. */
-import { useState } from 'react';
+/* SupportTicketsScreen — reads from /api/v1/tickets (real support_tickets table). */
+import { useState, useEffect } from 'react';
 
 interface SupportScreenProps {
   onToast: (msg: string) => void;
@@ -24,11 +20,39 @@ interface Ticket {
   assignee: 'Maya Chen' | 'Noah Kim' | 'Unassigned';
 }
 
-const TICKETS_INIT: Ticket[] = [
-  { id: 'SD-4821', subject: 'Unable to access account', customer: 'Olivia Rhys', custId: 'CUST-0882', initials: 'OR', avatarBg: 'bg-qb-blue', priority: 'High', status: 'Open', assignee: 'Maya Chen' },
-  { id: 'SD-4820', subject: 'Refund request for order #8821', customer: 'Ethan Cole', custId: 'CUST-0911', initials: 'EC', avatarBg: 'bg-qb-teal', priority: 'Normal', status: 'Pending', assignee: 'Noah Kim' },
-  { id: 'SD-4819', subject: 'App crashes on checkout', customer: 'Priya Shah', custId: 'CUST-0402', initials: 'PS', avatarBg: 'bg-qb-maroon', priority: 'Urgent', status: 'Open', assignee: 'Unassigned' },
-];
+const TICKETS_INIT: Ticket[] = [];
+
+// Fetch real tickets from /api/v1/tickets on mount
+function useTickets() {
+  const [items, setItems] = useState<Ticket[]>(TICKETS_INIT);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/v1/tickets')
+      .then(r => r.json())
+      .then(json => {
+        if (cancelled) return;
+        const rows: Ticket[] = (json.data || []).map((t: Record<string, unknown>) => ({
+          id: String(t.ticket_ref || t.id),
+          subject: String(t.subject || 'No subject'),
+          customer: String(t.requester_name || t.requester_email || 'Unknown'),
+          custId: String(t.requester_customer_id || ''),
+          initials: String(t.requester_name?.[0] || '?').toUpperCase(),
+          avatarBg: 'bg-qb-blue',
+          priority: (t.priority === 'urgent' ? 'Urgent' : t.priority === 'high' ? 'High' : t.priority === 'low' ? 'Low' : 'Normal') as Ticket['priority'],
+          status: (t.status === 'closed' ? 'Solved' : t.status === 'pending' ? 'Pending' : 'Open') as Ticket['status'],
+          assignee: 'Unassigned',
+        }));
+        setItems(rows);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+    return () => { cancelled = true; };
+  }, []);
+
+  return { items, setItems, loaded };
+}
 
 type ViewTab = 'All' | 'Unassigned' | 'Mine';
 const VIEW_TABS: { id: ViewTab; label: string }[] = [
@@ -40,8 +64,8 @@ const VIEW_TABS: { id: ViewTab; label: string }[] = [
 const PRIORITY_FILTERS = ['', 'Urgent', 'High', 'Normal', 'Low'];
 
 export default function SupportTicketsScreen({ onToast, onNavigate }: SupportScreenProps) {
-  /* ─── state (mirrors HTML's currentTab / filters / bulk / row menu / drawer) ─── */
-  const [items, setItems] = useState<Ticket[]>(TICKETS_INIT);
+  /* ─── REAL data from /api/v1/tickets ─── */
+  const { items, setItems, loaded } = useTickets();
   const [currentTab, setCurrentTab] = useState<ViewTab>('All');
   const [q, setQ] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');

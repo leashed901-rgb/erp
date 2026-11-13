@@ -116,44 +116,40 @@ export default function PaymentModal({
 
     setSaving(true);
     try {
-      const res = await fetch('/api/crm/payments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_id: prefill.partyId,
-          amount: amt,
-          provider,
-          status,
-          invoice_id: linkedInvoiceId,
-          deposit_account_id: depositAccount,
-          reference: reference || undefined,
-          memo: memo || undefined,
-          processed_at: new Date(payDate).toISOString(),
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to record payment');
-
-      // If linked to an invoice, update its balance + status in the DB.
-      // The payment_transactions row already has invoice_id — now we
-      // update the invoice's amount_paid and balanceDue.
+      // If linked to an invoice, use the Document Engine receive endpoint
+      // which creates a receipt + updates the invoice in one call.
       if (linkedInvoiceId) {
-        const inv = unpaidInvoices.find((i) => i.id === linkedInvoiceId);
-        if (inv) {
-          const newAmountPaid = Number(inv.amount_paid || 0) + amt;
-          const newBalance = Number(inv.total) - newAmountPaid;
-          const newStatus = newBalance <= 0 ? 'PAID' : 'OPEN';
-          await fetch(`/api/invoices/${inv.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              status: newStatus,
-              amount_paid: newAmountPaid,
-              balanceDue: newBalance,
-              paidAt: newBalance <= 0 ? new Date().toISOString() : null,
-            }),
-          }).catch(() => {});
+        const res = await fetch(`/api/v1/documents/${linkedInvoiceId}/receive?type=Invoice`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: amt,
+            method: provider,
+            reference: reference || undefined,
+          }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json?.error?.message || 'Failed to record payment');
         }
+      } else {
+        // Standalone payment (no invoice) — record in payment_transactions
+        const res = await fetch('/api/crm/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id: prefill.partyId,
+            amount: amt,
+            provider,
+            status: 'SUCCEEDED',
+            deposit_account_id: depositAccount,
+            reference: reference || undefined,
+            memo: memo || undefined,
+            processed_at: new Date(payDate).toISOString(),
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error?.message || 'Failed to record payment');
       }
 
       const providerLabel = PROVIDERS.find((p) => p.value === provider)?.label || provider;

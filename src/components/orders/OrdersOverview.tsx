@@ -62,6 +62,26 @@ export function OrdersOverview({ onNavigate, onToast, onCreate, onOpenCreateFlyo
     { name: 'Delivered', value: orders.filter(o => o.status === 'delivered').length, color: '#1e5a38' },
   ].map(st => ({ ...st, pct: orders.length ? Math.round((st.value / orders.length) * 100) : 0 }));
 
+  // Attention items — computed from real orders that need attention
+  const ATTENTION_ITEMS = orders
+    .filter((o) => o.needs_attention === true)
+    .slice(0, 4)
+    .map((o) => ({
+      icon: 'error',
+      title: `Order ${o.order_number} needs attention`,
+      sub: String(o.attention_reason || 'Review required'),
+    }));
+
+  // Top products — placeholder until order line analytics are wired
+  const TOP_PRODUCTS: { name: string; units: number; revenue: string }[] = [];
+
+  // Activity — computed from real orders
+  const ACTIVITY = orders.slice(0, 4).map((o) => ({
+    icon: o.status === 'shipped' || o.status === 'fulfilled' ? 'local_shipping' : o.status === 'delivered' ? 'check_circle' : 'inventory_2',
+    text: `Order ${o.order_number} ${String(o.status || 'created')}`,
+    time: String(o.updated_at || o.created_at || '').slice(0, 10),
+  }));
+
   return (
     <div className={styles.container}>
       {/* Context header */}

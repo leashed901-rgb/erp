@@ -1,0 +1,97 @@
+Chart of Accounts
+
+Current Assets (1000-1139)
+1001 Cash on Hand: Physical currency kept at your business
+1005 Checking Account: Your primary business bank account
+1010 Savings Account: Business savings and reserves
+1020 Accounts Receivable: Money owed to you by customers
+1025 Inventory: Goods held for sale (if applicable)
+1030 Prepaid Expenses: Services paid for in advance (insurance, rent)
+
+Fixed Assets 
+
+1040 Equipment: Computers, machinery, tools
+1045 Accumulated Depreciation - Equipment: Tracks value reduction over time
+1050 Vehicles: Business-owned vehicles
+1055 Accumulated Depreciation - Vehicles: Vehicle depreciation
+1060 Furniture and Fixtures: Office furniture, display cases
+1065 Leasehold Improvements: Improvements to rented space
+
+Other Assets 
+
+1070 Security Deposits: Deposits paid on leases or utilities
+1075 Long-Term Investments: Investments held beyond one year
+1080 Intangible Assets: Patents, trademarks, goodwill
+
+
+2000 – 2999  Liabilities 
+
+Current Liabilities 
+2000 Accounts Payable: Money you owe to vendors and suppliers
+2010 Credit Card Payable: Outstanding credit card balances
+2020 Payroll Liabilities: Wages and taxes owed to employees
+2025 Sales Tax Payable: Collected sales tax awaiting remittance
+2030 Short-Term Loans: Loans due within one year
+2035 Current Portion of Long-Term Debt: This year's payments on long-term loans
+2040 Unearned Revenue: Payments received for services not yet delivered
+
+Long-Term Liabilities 
+
+2050 Long-Term Loans: Bank loans, equipment financing beyond one year
+2060 Mortgage Payable: Property loans
+2070 Lease Obligations: Long-term lease commitments
+
+
+3000 – 3999 Equity
+3000 Owner's Capital: Original investment in the business
+3005 Owner's Draw: Money taken out by the owner (reduces equity)
+3010 Retained Earnings: Accumulated profits kept in the business
+3020 Common Stock: Shares issued (for corporations)
+3030 Additional Paid-In Capital: Amounts above par value (corporations)
+
+4000 – 4999 Revenue 
+4000 Sales Revenue: Income from products sold
+4010 Service Revenue: Income from services provided
+4020 Consulting Revenue: Income from consulting work
+4050 Interest Income: Interest earned on bank accounts
+4060 Other Income: Miscellaneous income sources
+4090 Sales Returns and Allowances: Reduces revenue for returns (contra-revenue)
+
+5000 – 5999  Expenses 
+
+Cost of Goods Sold 
+5000 Cost of Goods Sold: Direct costs of products sold
+5005 Direct Labor: Labor directly producing goods/services
+5010 Materials and Supplies: Raw materials for production
+5015 Subcontractor Costs: Outsourced production costs
+
+Operating Expenses
+5020 Advertising and Marketing: All marketing costs
+5030 Bank Fees and Charges: Bank and payment processing fees
+5040 Depreciation Expense: Annual equipment value reduction
+5050 Insurance: Business insurance premiums
+5060 Legal and Professional Fees: Lawyers, accountants, consultants
+5070 Office Supplies: Paper, pens, general supplies
+5080 Rent Expense: Office or facility rent
+5090 Repairs and Maintenance: Equipment and facility upkeep
+
+6000 – 6999 Overhead Costs or Expenses 
+
+6000 Software and Subscriptions: Business software costs
+6010 Telephone and Internet: Communication costs
+6020 Travel and Entertainment: Business travel expenses
+6030 Utilities: Electric, gas, water
+6040 Wages and Salaries: Employee compensation
+6045 Payroll Taxes: Employer portion of payroll taxes
+
+Other Expenses (6050-6099)
+6050 Interest Expense: Interest on loans and credit
+6060 Income Tax Expense: Federal and state income taxes
+6070 Miscellaneous Expense: Expenses not fitting other categories
+
+7000 – 7999 Other Income
+
+8000 – 8999 Other Expense
+
+
+

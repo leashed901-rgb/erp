@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import styles from './BillsScreen.module.css';
 import type { DocumentStatus } from '@/lib/platformStore';
 import DocumentEngine from '../DocumentEngine';
@@ -143,12 +143,10 @@ export default function BillsScreen({
   const [activeTab, setActiveTab] = useState<'For review' | 'Unpaid' | 'Paid'>('For review');
 
   // Fetch real bills from the Document Engine API
-  useEffect(() => {
-    let cancelled = false;
+  const loadBills = useCallback(() => {
     fetch('/api/v1/documents?type=Bill')
       .then((r) => r.json())
       .then((json) => {
-        if (cancelled) return;
         const rows: BillItem[] = (json.data || []).map((d: Record<string, unknown>) => ({
           id: String(d.id),
           vendor: String(d.vendor_id || '—').slice(0, 8),
@@ -165,8 +163,8 @@ export default function BillsScreen({
         setBills(rows);
       })
       .catch(() => {});
-    return () => { cancelled = true; };
   }, []);
+  useEffect(() => { loadBills(); }, [loadBills]);
 
   // Selected bill rows
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -398,26 +396,56 @@ export default function BillsScreen({
   };
   // Remaining old code removed — handleSaveNewBill now uses the Document Engine API above
 
-  // Review & Approve
-  const handleApproveBill = (id: string) => {
-    fetch(`/api/v1/documents/${id}/approve?type=Bill`, { method: "POST" }).catch(() => {});
+  // Review & Approve — calls POST /api/v1/documents/[id]/approve (wraps acct_decide_bill).
+  // On success the row visibly flips to Unpaid (the refresh re-fetches from the DB).
+  const handleApproveBill = async (id: string) => {
     setActiveRowMenuId(null);
-    showToast('Bill approved and moved to Unpaid');
+    try {
+      const res = await fetch(`/api/v1/documents/${id}/approve?type=Bill`, { method: 'POST' });
+      if (res.ok) {
+        showToast('Bill approved → Unpaid');
+        loadBills();
+      } else {
+        const json = await res.json().catch(() => ({}));
+        showToast(`Approve failed: ${json?.error?.message || res.statusText}`);
+      }
+    } catch {
+      showToast('Approve failed — network error');
+    }
   };
 
-  // Mark as Paid — records a full payment against the bill
-  const handleMarkAsPaid = (id: string) => {
-    const doc = null;
-    fetch(`/api/v1/documents/${id}/pay?type=Bill`, { method: "POST" }).catch(() => {});
+  // Mark as Paid — records a full payment against the bill.
+  const handleMarkAsPaid = async (id: string) => {
     setActiveRowMenuId(null);
-    showToast('Bill marked as Paid');
+    try {
+      const res = await fetch(`/api/v1/documents/${id}/pay?type=Bill`, { method: 'POST' });
+      if (res.ok) {
+        showToast('Bill marked as Paid');
+        loadBills();
+      } else {
+        const json = await res.json().catch(() => ({}));
+        showToast(`Pay failed: ${json?.error?.message || res.statusText}`);
+      }
+    } catch {
+      showToast('Pay failed — network error');
+    }
   };
 
   // Delete Bill
-  const handleDeleteBill = (id: string) => {
-    fetch(`/api/v1/documents/${id}?type=Bill`, { method: "DELETE" }).catch(() => {});
+  const handleDeleteBill = async (id: string) => {
     setActiveRowMenuId(null);
-    showToast('Bill deleted');
+    try {
+      const res = await fetch(`/api/v1/documents/${id}?type=Bill`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Bill deleted');
+        loadBills();
+      } else {
+        const json = await res.json().catch(() => ({}));
+        showToast(`Delete failed: ${json?.error?.message || res.statusText}`);
+      }
+    } catch {
+      showToast('Delete failed — network error');
+    }
   };
 
   // Column toggle

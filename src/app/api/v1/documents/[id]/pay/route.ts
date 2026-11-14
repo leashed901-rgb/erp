@@ -11,11 +11,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch {}
 
-  if (type === 'bill') {
-    // Update bill status
+  if (type === 'bill' || type === 'Bill') {
+    // Load the bill to get the total, then mark as paid (amount_paid is NOT NULL).
+    const { data: bill } = await supabaseAdmin()
+      .from('acct_ap_bills')
+      .select('total')
+      .eq('id', id)
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .maybeSingle();
+    const total = Number(bill?.total) || 0;
+    const amountPaid = body.amount != null ? Number(body.amount) : total;
     const { data, error } = await supabaseAdmin().from('acct_ap_bills').update({
       status: 'paid',
-      amount_paid: body.amount || null,
+      amount_paid: amountPaid,
       open_balance: 0,
       updated_at: new Date().toISOString(),
     }).eq('id', id).eq('tenant_id', DEFAULT_TENANT_ID).select('*').single();

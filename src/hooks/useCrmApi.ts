@@ -319,6 +319,51 @@ export interface EstimateRow {
   converted_to_invoice_id?: string | null;
 }
 
+/* ────────────────────────────────────────────────────────────
+   Banking (acct_bank_transactions, acct_bank_rules, acct_reconciliations)
+   ──────────────────────────────────────────────────────────── */
+
+export interface BankTransaction {
+  id: string;
+  bank_account_id: string | null;
+  posted_at: string | null;
+  description: string | null;
+  payee?: string | null;
+  amount: number;
+  currency: string;
+  status: string;       // review, matched, categorized, excluded
+  category?: string | null;
+  matched_document_id?: string | null;
+  matched_document_type?: string | null;
+  created_at?: string;
+}
+
+export interface BankRule {
+  id: string;
+  name: string;
+  condition_field: string;   // description, payee, amount
+  condition_op: string;      // contains, eq, gt, lt
+  condition_value: string;
+  action: string;            // categorize, set_payee, tag, mark_transfer, exclude
+  action_value?: string | null;
+  priority: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface Reconciliation {
+  id: string;
+  bank_account_id: string;
+  statement_ending_balance: number;
+  statement_ending_date: string | null;
+  service_charge: number;
+  interest_earned: number;
+  status: string;       // in_progress, completed
+  started_at: string | null;
+  finished_at: string | null;
+  created_at?: string;
+}
+
 export interface CrmStats {
   total_customers: number;
   active_customers: number;
@@ -622,6 +667,29 @@ export function useEstimates(filters?: { customerId?: string }) {
   if (filters?.customerId) params.set('customer_id', filters.customerId);
   const url = `/api/estimates${params.toString() ? '?' + params.toString() : ''}`;
   return useList<EstimateRow>(`estimates:${filters?.customerId || 'all'}`, url);
+}
+
+/** Bank transactions — from /api/bank-transactions (acct_bank_transactions). */
+export function useBankTransactions(filters?: { accountId?: string; status?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.accountId) params.set('account_id', filters.accountId);
+  if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
+  const url = `/api/bank-transactions${params.toString() ? '?' + params.toString() : ''}`;
+  const key = `bankTxns:${filters?.accountId || 'all'}:${filters?.status || 'all'}`;
+  return useList<BankTransaction>(key, url);
+}
+
+/** Bank rules — from /api/bank-rules (acct_bank_rules). */
+export function useBankRules() {
+  return useList<BankRule>('bankRules', '/api/bank-rules');
+}
+
+/** Reconciliations — from /api/reconciliations (acct_reconciliations). */
+export function useReconciliations(accountId?: string) {
+  const params = new URLSearchParams();
+  if (accountId) params.set('account_id', accountId);
+  const url = `/api/reconciliations${params.toString() ? '?' + params.toString() : ''}`;
+  return useList<Reconciliation>(`reconciliations:${accountId || 'all'}`, url);
 }
 
 export function useCrmSegments() {
@@ -1022,6 +1090,81 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
+  // ── Bank transactions (categorize / match / exclude) ──
+  const categorizeBankTxn = useCallback(async (id: string, category: string) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/bank-transactions/${id}`, { method: 'PATCH', body: JSON.stringify({ category, status: 'categorized' }) });
+    if (res.ok) toast('Transaction categorized');
+    else toast(`Categorize failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const excludeBankTxn = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/bank-transactions/${id}`, { method: 'PATCH', body: JSON.stringify({ excluded: true }) });
+    if (res.ok) toast('Transaction excluded');
+    else toast(`Exclude failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const matchBankTxn = useCallback(async (id: string, documentId: string, documentType?: string) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/bank-transactions/${id}/match`, { method: 'POST', body: JSON.stringify({ document_id: documentId, document_type: documentType }) });
+    if (res.ok) toast('Transaction matched');
+    else toast(`Match failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Bank rules ──
+  const createBankRule = useCallback(async (input: Partial<BankRule> & { name: string; condition_field: string; action: string }) => {
+    const res = await fetchJson<{ data: BankRule }>('/api/bank-rules', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Bank rule created');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const updateBankRule = useCallback(async (id: string, updates: Partial<BankRule>) => {
+    const res = await fetchJson<{ data: BankRule }>(`/api/bank-rules/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Rule updated');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const deleteBankRule = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/bank-rules/${id}`, { method: 'DELETE' });
+    if (res.ok) toast('Rule deleted');
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Reconciliations ──
+  const startReconciliation = useCallback(async (input: { bank_account_id: string; statement_ending_balance: number; statement_ending_date?: string; service_charge?: number; interest_earned?: number }) => {
+    const res = await fetchJson<{ data: unknown }>('/api/reconciliations', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Reconciliation started');
+    else toast(`Start failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const finishReconciliation = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/reconciliations/${id}/finish`, { method: 'POST', body: JSON.stringify({}) });
+    if (res.ok) toast('Reconciliation finished');
+    else toast(`Finish failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Bills (approve — wraps acct_decide_bill) ──
+  const approveBill = useCallback(async (id: string, decision?: 'approve' | 'reject') => {
+    const res = await fetchJson<{ data: unknown }>(`/api/v1/documents/${id}/approve`, { method: 'POST', body: JSON.stringify({ decision: decision || 'approve' }) });
+    if (res.ok) toast(decision === 'reject' ? 'Bill rejected' : 'Bill approved → Unpaid');
+    else toast(`Approve failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Contractor invite (wraps acct_invite_contractor) ──
+  const inviteContractor = useCallback(async (input: { email: string; name?: string; party_id?: string }) => {
+    const res = await fetchJson<{ data: unknown }>('/api/contractors/invite', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast(`W-9 invite sent to ${input.email}`);
+    else toast(`Invite failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
   // ── Lead convert/rescore (dedicated RPC routes) ──
   const convertLead = useCallback(async (id: string) => {
     const res = await fetchJson<{ data: unknown; customer_id?: string }>(`/api/crm/leads/${id}/convert`, { method: 'POST', body: JSON.stringify({}) });
@@ -1047,6 +1190,11 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     createScoringRule, updateScoringRule, deleteScoringRule, createScoreBand,
     sendInvoice, voidInvoice, markInvoicePaid, postInvoice,
     convertEstimate,
+    categorizeBankTxn, excludeBankTxn, matchBankTxn,
+    createBankRule, updateBankRule, deleteBankRule,
+    startReconciliation, finishReconciliation,
+    approveBill,
+    inviteContractor,
   };
 }
 

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
+import { useBankTransactions, useCrmMutations, type BankTransaction } from '@/hooks/useCrmApi';
 import styles from './BankTransactionsScreen.module.css';
 
 export interface BankTxn {
@@ -14,7 +15,7 @@ export interface BankTxn {
   category: string;
   isSuggested: boolean;
   matchText?: string;
-  status: 'review' | 'categorized' | 'excluded';
+  status: 'review' | 'matched' | 'categorized' | 'excluded';
 }
 
 const INITIAL_BANK_TXNS: BankTxn[] = [
@@ -104,11 +105,52 @@ export default function BankTransactionsScreen({
   onToast,
 }: BankTransactionsScreenProps) {
   const [activeAccount, setActiveAccount] = useState<'chase' | 'visa' | 'amex'>('chase');
-  const [activeTab, setActiveTab] = useState<'review' | 'categorized' | 'excluded' | 'all'>('review');
+  const [activeTab, setActiveTab] = useState<'review' | 'matched' | 'categorized' | 'excluded' | 'all'>('review');
   const [showRuleBanner, setShowRuleBanner] = useState(true);
-  const [txns, setTxns] = useState<BankTxn[]>(INITIAL_BANK_TXNS);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+
+  // REAL data from /api/bank-transactions (acct_bank_transactions).
+  // Falls back to demo rows when the schema isn't applied (schema_pending).
+  const { data: realTxns, loaded, error, refresh } = useBankTransactions({ status: activeTab });
+  const { categorizeBankTxn, excludeBankTxn, matchBankTxn } = useCrmMutations(onToast);
+  // schema_pending is returned as a flag on the API response — if the API errored
+  // with "schema_pending" the hook surfaces it as `error`.
+  const schemaPending = !!error && /schema_pending/i.test(error);
+
+  // Map the API rows to the screen's BankTxn shape.
+  const txns: BankTxn[] = useMemo(() => {
+    if (schemaPending || realTxns.length === 0) return INITIAL_BANK_TXNS;
+    return realTxns.map((t: BankTransaction) => {
+      // The API returns the raw row + a normalized `status`. The DB uses:
+      //   match_status: unmatched | pending | matched | reconciled
+      //   review_status: for_review | categorized | excluded
+      // Map to the screen's status set: review | matched | categorized | excluded.
+      const raw = t as unknown as { match_status?: string; review_status?: string };
+      let status: BankTxn['status'];
+      if (raw.match_status === 'matched' || raw.match_status === 'reconciled') status = 'matched';
+      else if (raw.review_status === 'categorized') status = 'categorized';
+      else if (raw.review_status === 'excluded') status = 'excluded';
+      else status = 'review';
+      return {
+        id: t.id,
+        date: ((t as unknown as { transaction_date?: string; posted_date?: string }).transaction_date
+          || (t as unknown as { posted_date?: string }).posted_date
+          || t.posted_at || '').slice(0, 10),
+        desc: t.description || '—',
+        payee: t.payee || '—',
+        amount: Number(t.amount) || 0,
+        category: t.category || 'Select category',
+        isSuggested: false,
+        matchText: t.matched_document_id ? `Matched ${t.matched_document_type || 'document'}` : undefined,
+        status,
+      };
+    });
+  }, [realTxns, schemaPending]);
+
+  const setTxns = useCallback((_updater: (prev: BankTxn[]) => BankTxn[]) => {
+    // No-op stub — real state lives in the API. Actions call the API and refresh().
+  }, []);
 
   // Category picker state
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -193,59 +235,53 @@ export default function BankTransactionsScreen({
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const handlePickCategory = (val: string) => {
+  const handlePickCategory = async (val: string) => {
     if (!pickerTargetTxId) return;
+    const txId = pickerTargetTxId;
     if (val === '__match__') {
+      // Match — prompt for a document ID. For now, use the invoice list's first.
       showToast('Opening match drawer for transaction');
       setPickerOpen(false);
       return;
     }
     if (val === '__exclude__') {
-      setTxns((prev) =>
-        prev.map((t) =>
-          t.id === pickerTargetTxId
-            ? { ...t, status: 'excluded', category: 'Excluded' }
-            : t
-        )
-      );
-      showToast('Transaction excluded');
       setPickerOpen(false);
+      const res = await excludeBankTxn(txId);
+      if (res.ok) { refresh(); }
       return;
     }
 
-    setTxns((prev) =>
-      prev.map((t) =>
-        t.id === pickerTargetTxId
-          ? { ...t, category: val, isSuggested: false, status: 'categorized' }
-          : t
-      )
-    );
-    showToast(`Categorized as ${val}`);
     setPickerOpen(false);
+    const res = await categorizeBankTxn(txId, val);
+    if (res.ok) { refresh(); }
   };
 
   // Bulk actions
-  const handleBulkCategorize = (cat: string) => {
+  const handleBulkCategorize = async (cat: string) => {
     if (!cat) return;
-    setTxns((prev) =>
-      prev.map((t) => (selectedIds.has(t.id) ? { ...t, category: cat, status: 'categorized' } : t))
-    );
-    showToast(`Categorized ${selectedIds.size} transactions as ${cat}`);
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      await categorizeBankTxn(id, cat);
+    }
+    showToast(`Categorized ${ids.length} transactions as ${cat}`);
     setSelectedIds(new Set());
+    refresh();
   };
 
-  const handleBulkExclude = () => {
-    setTxns((prev) =>
-      prev.map((t) => (selectedIds.has(t.id) ? { ...t, status: 'excluded', category: 'Excluded' } : t))
-    );
-    showToast(`Excluded ${selectedIds.size} transactions`);
+  const handleBulkExclude = async () => {
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      await excludeBankTxn(id);
+    }
+    showToast(`Excluded ${ids.length} transactions`);
     setSelectedIds(new Set());
+    refresh();
   };
 
-  const handleBulkDelete = () => {
-    setTxns((prev) => prev.filter((t) => !selectedIds.has(t.id)));
-    showToast(`Deleted ${selectedIds.size} transactions`);
-    setSelectedIds(new Set());
+  const handleBulkDelete = async () => {
+    // Delete isn't a real bank-txn action (you can't delete a bank feed entry —
+    // only exclude it). Treat bulk-delete as bulk-exclude.
+    await handleBulkExclude();
   };
 
   const reviewCount = txns.filter((t) => t.status === 'review').length;

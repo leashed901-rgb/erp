@@ -316,6 +316,24 @@ export default function Vendors({
       showToast(`"${display}" added`);
     }
 
+    // If this is a Contractor with an email + W-9 requested, fire the invite RPC.
+    // Wraps acct_invite_contractor via POST /api/contractors/invite.
+    if (primaryRole === 'Contractor' && form.w9 && email) {
+      fetch('/api/contractors/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          name: display,
+          party_id: drawerVendor || undefined,
+        }),
+      }).then((r) => r.json()).then((json) => {
+        if (json?.data?.invited) {
+          showToast(`W-9 invite sent to ${email}`);
+        }
+      }).catch(() => {});
+    }
+
     if (andNew) {
       openVendorDrawer(null, primaryRole);
     } else {

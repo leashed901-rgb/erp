@@ -786,6 +786,21 @@ export default function GlobalShell() {
         'File extension': ['finance', 'tax-filing'],
         // CRM Appointments — the create flyout lands on the calendar screen.
         'Appointment': ['contacts', 'appointments'],
+        // CRM & Communication cross-module actions
+        'Send customer message': ['contacts', 'parties'],
+        'Create support ticket': ['support', 'tickets'],
+        'View customer invoices': ['finance', 'invoices'],
+        'View customer statements': ['finance', 'statements'],
+        'Add lead': ['contacts', 'leads'],
+        'Create deal': ['contacts', 'deals'],
+        'Book appointment': ['contacts', 'appointments'],
+        'Add note': ['contacts', 'parties'],
+        // Seller Marketplace
+        'Add seller': ['contacts', 'sellers'],
+        'Review onboarding queue': ['contacts', 'sellers'],
+        'View seller feed': ['contacts', 'sellers'],
+        'Review appeals': ['contacts', 'sellers'],
+        'Review violations': ['contacts', 'sellers'],
       };
       const navTarget = ciLookup(navigateMap, label);
       if (navTarget) {

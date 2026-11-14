@@ -522,7 +522,6 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
           { id: 'leads', label: 'Leads', type: 'list' },
           { id: 'deals', label: 'Deals', type: 'list' },
           { id: 'appointments', label: 'Appointments', type: 'list' },
-          { id: 'templates', label: 'Templates', type: 'list' },
         ],
       },
       {

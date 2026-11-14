@@ -300,15 +300,15 @@ export default function DealsWorkbench({ onToast }: Props) {
           This pipeline has no stages. Add stages in the Pipelines screen.
         </div>
       ) : view === 'board' ? (
-        /* KANBAN BOARD */
-        <div className="flex gap-3 overflow-x-auto flex-1 pb-3">
+        /* KANBAN BOARD — fit-to-screen: columns share viewport width */
+        <div className="flex gap-2 flex-1 pb-3 min-h-0 overflow-hidden">
           {stages.map((stage) => {
             const stageDeals = dealsByStage(stage.id);
             const stageValue = stageDeals.reduce((s, d) => s + Number(d.amount) || 0, 0);
             return (
               <div
                 key={stage.id}
-                className={`w-72 shrink-0 bg-surface-container-low rounded-lg flex flex-col transition-colors ${dragOverStage === stage.id ? 'ring-2 ring-primary' : ''}`}
+                className={`flex-1 min-w-[140px] max-w-[300px] bg-surface-container-low rounded-lg flex flex-col transition-colors ${dragOverStage === stage.id ? 'ring-2 ring-primary' : ''}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverStage(stage.id); }}
                 onDragLeave={() => setDragOverStage((s) => (s === stage.id ? null : s))}
                 onDrop={(e) => onDrop(e, stage.id)}

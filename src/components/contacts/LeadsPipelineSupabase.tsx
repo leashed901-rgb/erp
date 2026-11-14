@@ -284,14 +284,14 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
           Fetching leads from Supabase…
         </div>
       ) : view === 'board' ? (
-        /* KANBAN BOARD */
-        <div className="flex gap-3 overflow-x-auto flex-1 pb-3">
+        /* KANBAN BOARD — fit-to-screen: columns share viewport width, cards shrink */
+        <div className="flex gap-2 flex-1 pb-3 min-h-0 overflow-hidden">
           {PIPELINE_STAGES.map(stage => {
             const stageLeads = leadsByStage(stage.id);
             return (
               <div
                 key={stage.id}
-                className="w-64 shrink-0 bg-surface-container-low rounded-lg flex flex-col"
+                className="flex-1 min-w-[140px] max-w-[280px] bg-surface-container-low rounded-lg flex flex-col"
                 onDragOver={e => e.preventDefault()}
                 onDrop={e => onDrop(e, stage.id)}
               >
@@ -331,22 +331,23 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
                         </button>
                       )}
                       {lead.status !== 'converted' && (
-                        <div className="mt-1 flex items-center gap-1">
+                        <div className="mt-1.5 flex items-center gap-1">
                           <button
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 flex items-center gap-0.5"
+                            className="flex-1 h-6 px-2 rounded bg-primary text-white text-[10px] font-bold hover:bg-primary-container disabled:opacity-40 flex items-center justify-center gap-0.5"
                             onClick={(e) => { e.stopPropagation(); handleConvert(lead.id); }}
                             disabled={convertingId === lead.id}
                             title="Convert this lead to a customer"
                           >
-                            <span className="material-symbols-outlined text-[10px]">person_add</span>{convertingId === lead.id ? '…' : 'Convert'}
+                            <span className="material-symbols-outlined text-[12px]">person_add</span>
+                            {convertingId === lead.id ? '…' : 'Convert to customer'}
                           </button>
                           <button
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant hover:bg-surface-dim disabled:opacity-40 flex items-center gap-0.5"
+                            className="h-6 w-6 rounded bg-surface-container-high text-on-surface-variant hover:bg-surface-dim disabled:opacity-40 flex items-center justify-center"
                             onClick={(e) => { e.stopPropagation(); handleRescore(lead.id); }}
                             disabled={rescoringId === lead.id}
                             title="Recalculate lead score"
                           >
-                            <span className="material-symbols-outlined text-[10px]">analytics</span>{rescoringId === lead.id ? '…' : 'Score'}
+                            <span className="material-symbols-outlined text-[12px]">analytics</span>
                           </button>
                         </div>
                       )}

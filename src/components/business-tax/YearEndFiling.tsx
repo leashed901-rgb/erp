@@ -2,6 +2,7 @@
 import './business-tax.css';
 import { useState, useEffect, useRef } from 'react';
 import { BusinessTaxScreenProps, TAX_NAV, daysUntil } from './types';
+import { useEfileFilings, useCrmMutations } from '@/hooks/useCrmApi';
 
 type FilingAction = 'continue' | 'restart' | 'extension' | 'accountant' | 'abandon';
 
@@ -14,6 +15,11 @@ export default function YearEndFiling({
   // Feature flag — true shows working page, false shows gated route
   const [ungated, setUngated] = useState(true);
 
+  // REAL data: efile_filings for this year.
+  const year = 2026;
+  const { data: filings, loaded, refresh } = useEfileFilings(year);
+  const { createTaxReturn, updateTaxReturn } = useCrmMutations(onToast);
+
   // Filing split menu
   const [filingMenuOpen, setFilingMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -23,6 +29,7 @@ export default function YearEndFiling({
   // E-file drawer (step 4 of 5)
   const [efileOpen, setEfileOpen] = useState(false);
   const [authorized, setAuthorized] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const days = daysUntil('2027-03-15');
 
@@ -44,7 +51,15 @@ export default function YearEndFiling({
     return () => document.removeEventListener('click', onDocClick);
   }, [filingMenuOpen]);
 
-  // ── Handlers ────────────────────────────────────────────────
+  // ── Handlers — every action writes to efile_filings ────────────
+
+  // Create a tax return (POST /api/tax/filings → efile_filings row, status=draft).
+  async function handleCreateReturn() {
+    setBusy(true);
+    const res = await createTaxReturn({ form_code: '1120', tax_year: year });
+    setBusy(false);
+    if (res.ok) refresh();
+  }
 
   function handleFlagToggle() {
     const next = !ungated;
@@ -61,18 +76,37 @@ export default function YearEndFiling({
     setFilingMenuOpen((v) => !v);
   }
 
-  function handleFilingAction(act: FilingAction) {
+  async function handleFilingAction(act: FilingAction) {
     setFilingMenuOpen(false);
+    const filing = filings[0]; // the current draft filing
     if (act === 'continue') {
       setEfileOpen(true);
       return;
     }
     if (act === 'restart') {
-      onToast('Restarting review from step 1…');
+      if (filing) {
+        setBusy(true);
+        await updateTaxReturn(filing.id, { status: 'draft' });
+        setBusy(false);
+      }
       return;
     }
     if (act === 'extension') {
-      onToast('Form 7004 extension filed — deadline moved to Sep 15, 2027');
+      // File Form 7004 extension — flip the filing status + move due_date.
+      if (filing) {
+        setBusy(true);
+        await updateTaxReturn(filing.id, { status: 'extension_filed', due_date: '2027-09-15' });
+        setBusy(false);
+      } else {
+        // No filing yet — create one + mark extension filed.
+        setBusy(true);
+        const res = await createTaxReturn({ form_code: '7004', tax_year: year, due_date: '2027-09-15' });
+        if (res.ok) {
+          const filingId = (res as { data?: { id: string } }).data?.id;
+          if (filingId) await updateTaxReturn(filingId, { status: 'extension_filed' });
+        }
+        setBusy(false);
+      }
       return;
     }
     if (act === 'accountant') {
@@ -80,7 +114,11 @@ export default function YearEndFiling({
       return;
     }
     if (act === 'abandon') {
-      onToast('Draft discarded — can resume anytime from Year-end and filing');
+      if (filing) {
+        setBusy(true);
+        await updateTaxReturn(filing.id, { status: 'voided' });
+        setBusy(false);
+      }
     }
   }
 
@@ -92,10 +130,16 @@ export default function YearEndFiling({
     setEfileOpen(false);
   }
 
-  function handleTransmit() {
+  async function handleTransmit() {
     if (!authorized) return;
+    const filing = filings[0];
+    setBusy(true);
+    if (filing) {
+      await updateTaxReturn(filing.id, { status: 'transmitted', confirmation_number: `CONF-${Date.now().toString(36).toUpperCase()}` });
+    }
+    setBusy(false);
     setEfileOpen(false);
-    onToast('Return transmitted to IRS — confirmation to follow within 24h');
+    refresh();
   }
 
   function handleGatedContact(e: React.MouseEvent<HTMLAnchorElement>) {
@@ -205,9 +249,18 @@ export default function YearEndFiling({
                   <span className="material-symbols-outlined text-[12px]">verified</span>
                   Feature enabled
                 </span>
+                {/* Real filing status from efile_filings */}
+                {filings.length > 0 && (
+                  <span className={`flag-chip ${filings[0].status === 'transmitted' ? 'text-secondary' : filings[0].status === 'extension_filed' ? 'text-qb-maroon' : 'text-on-surface-variant'}`}>
+                    {filings[0].form_code} · {filings[0].status}
+                    {filings[0].confirmation_number && ` · ${filings[0].confirmation_number}`}
+                  </span>
+                )}
               </div>
               <p className="text-body-sm text-on-surface-variant mt-0.5">
-                Prepare, review, and e-file your annual return for tax year 2026.
+                Prepare, review, and e-file your annual return for tax year {year}.
+                {loaded && filings.length > 0 && ` ${filings.length} filing${filings.length === 1 ? '' : 's'} on record.`}
+                {loaded && filings.length === 0 && ' No filings yet — create one to start.'}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -215,19 +268,31 @@ export default function YearEndFiling({
                 className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
                 onClick={() => onToast('Tax year switcher — 2024 / 2025 / 2026')}
               >
-                <span className="material-symbols-outlined text-[16px]">calendar_month</span>Tax year 2026 ▾
+                <span className="material-symbols-outlined text-[16px]">calendar_month</span>Tax year {year} ▾
+              </button>
+              {/* Create tax return — POST /api/tax/filings → efile_filings row */}
+              <button
+                className="h-8 px-3 border border-primary text-primary rounded text-body-md font-semibold hover:bg-primary/10 flex items-center gap-1 disabled:opacity-40"
+                onClick={handleCreateReturn}
+                disabled={busy || filings.some(f => f.status !== 'void' && f.status !== 'voided')}
+                title="Create a draft Form 1120 return in efile_filings"
+              >
+                <span className="material-symbols-outlined text-[16px]">add</span>
+                {busy ? 'Creating…' : 'Create tax return'}
               </button>
               <div className="flex split-btn">
                 <button
-                  className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                  className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main disabled:opacity-40"
                   onClick={openEfile}
+                  disabled={filings.length === 0}
                 >
                   <span className="material-symbols-outlined text-[16px]">play_arrow</span>Continue filing
                 </button>
                 <button
                   ref={splitBtnRef}
-                  className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
+                  className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow disabled:opacity-40"
                   onClick={openFilingMenu}
+                  disabled={filings.length === 0}
                   aria-haspopup="menu"
                   aria-expanded={filingMenuOpen}
                 >
@@ -236,6 +301,46 @@ export default function YearEndFiling({
               </div>
             </div>
           </div>
+
+          {/* Filing list — real rows from efile_filings */}
+          {loaded && filings.length > 0 && (
+            <div className="bg-white rounded-xl border border-surface-dim overflow-hidden mb-5">
+              <div className="px-4 py-2 border-b border-surface-dim bg-surface-container-low text-label-sm font-bold uppercase tracking-wider text-on-surface-variant">
+                Filings · {filings.length} record{filings.length === 1 ? '' : 's'}
+              </div>
+              <table className="w-full text-left text-body-sm">
+                <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+                  <tr>
+                    <th className="px-3 py-2">Form</th>
+                    <th className="px-3 py-2">Tax year</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Due date</th>
+                    <th className="px-3 py-2">Confirmation</th>
+                    <th className="px-3 py-2">Filed at</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-dim">
+                  {filings.map((f) => (
+                    <tr key={f.id} className="hover:bg-surface-container-low">
+                      <td className="px-3 py-2 font-medium">{f.form_code}</td>
+                      <td className="px-3 py-2">{f.tax_year}</td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
+                          f.status === 'transmitted' ? 'bg-secondary/15 text-secondary'
+                          : f.status === 'extension_filed' ? 'bg-qb-maroon/15 text-qb-maroon'
+                          : f.status === 'voided' ? 'bg-surface-dim text-on-surface-variant line-through'
+                          : 'bg-surface-container-high text-on-surface-variant'
+                        }`}>{f.status}</span>
+                      </td>
+                      <td className="px-3 py-2 text-on-surface-variant">{f.due_date || '—'}</td>
+                      <td className="px-3 py-2 text-on-surface-variant font-mono text-[11px]">{f.confirmation_number || '—'}</td>
+                      <td className="px-3 py-2 text-on-surface-variant text-[11px]">{f.filed_at ? f.filed_at.slice(0, 19).replace('T', ' ') : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Filing wizard step bar */}
           <div className="bg-white rounded-xl border border-surface-dim p-4 mb-5">

@@ -438,6 +438,25 @@ export interface TaxFiling {
   created_at: string;
 }
 
+/** E-file tax return (efile_filings — the IRS e-file table). */
+export interface EfileFiling {
+  id: string;
+  form_code: string;
+  tax_year: number;
+  channel: string;
+  status: string;           // draft, extension_filed, transmitted, filed, voided
+  period_start: string | null;
+  period_end: string | null;
+  due_date: string | null;
+  confirmation_number: string | null;
+  filed_at: string | null;
+  is_correction: boolean;
+  total_amount: number;
+  record_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CrmStats {
   total_customers: number;
   active_customers: number;
@@ -814,6 +833,14 @@ export function useTaxRates() {
 /** Sales tax filings — from /api/sales-tax/filings. */
 export function useTaxFilings() {
   return useList<TaxFiling>('taxFilings', '/api/sales-tax/filings');
+}
+
+/** E-file tax returns — from /api/tax/filings (efile_filings). */
+export function useEfileFilings(year?: number) {
+  const params = new URLSearchParams();
+  if (year) params.set('year', String(year));
+  const url = `/api/tax/filings${params.toString() ? '?' + params.toString() : ''}`;
+  return useList<EfileFiling>(`efileFilings:${year || 'all'}`, url);
 }
 
 export function useCrmSegments() {
@@ -1327,6 +1354,20 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
+  const createTaxReturn = useCallback(async (input: { form_code: string; tax_year: number; period_start?: string; period_end?: string; due_date?: string }) => {
+    const res = await fetchJson<{ data: EfileFiling }>('/api/tax/filings', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast(`Tax return ${input.form_code} for ${input.tax_year} created`);
+    else toast(`Create failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const updateTaxReturn = useCallback(async (id: string, updates: Partial<EfileFiling>) => {
+    const res = await fetchJson<{ data: EfileFiling }>(`/api/tax/filings/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Tax return updated');
+    else toast(`Update failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
   // ── Sales Tax ──
   const createTaxJurisdiction = useCallback(async (input: { code: string; name: string; country?: string; state?: string }) => {
     const res = await fetchJson<{ data: unknown }>('/api/sales-tax/jurisdictions', { method: 'POST', body: JSON.stringify(input) });
@@ -1386,7 +1427,7 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     approveBill,
     inviteContractor,
     createAccount, updateAccount, deleteAccount, seedAccounts,
-    generate1099s,
+    generate1099s, createTaxReturn, updateTaxReturn,
     createTaxJurisdiction, createTaxRate, prepareTaxFiling, calculateTax,
   };
 }

@@ -3264,6 +3264,20 @@ function TabScreenRenderer({
     );
   }
 
+  if (screenId === 'tax-return') {
+    // Create tax return — routes to YearEndFiling which now reads/writes
+    // efile_filings. The YearEndFiling screen shows the filing list +
+    // handles create/extension/transmit/restart/abandon via real API calls.
+    return (
+      <YearEndFiling
+        onNavigate={onNavigate}
+        onToast={onToast}
+        onCreate={onCreate}
+        onOpenCreateFlyout={onOpenCreateFlyout}
+      />
+    );
+  }
+
   if (screenId === 'sales-overview') {
     return (
       <SalesOverview

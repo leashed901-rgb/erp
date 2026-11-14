@@ -205,6 +205,56 @@ export interface CrmTask {
   created_at: string;
 }
 
+/* ────────────────────────────────────────────────────────────
+   Deals & Pipelines (crm_deals, crm_pipelines, crm_pipeline_stages)
+   ──────────────────────────────────────────────────────────── */
+
+export interface PipelineStage {
+  id: string;
+  pipeline_id: string;
+  name: string;
+  sort_order: number;
+  probability: number | null;
+  stage_kind: string | null; // open | won | lost
+  rotting_days: number | null;
+  created_at: string;
+}
+
+export interface Pipeline {
+  id: string;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  is_active: boolean;
+  currency: string;
+  stages?: PipelineStage[];
+  created_at: string;
+}
+
+export interface Deal {
+  id: string;
+  deal_number: string;
+  name: string;
+  pipeline_id: string;
+  stage_id: string;
+  status: string; // open, won, lost
+  customer_id: string | null;
+  lead_id: string | null;
+  owner_staff_id: string | null;
+  amount: number;
+  currency: string;
+  probability: number;
+  expected_close_date: string | null;
+  source: string | null;
+  notes: string | null;
+  lost_reason: string | null;
+  won_at: string | null;
+  lost_at: string | null;
+  stage_entered_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CrmStats {
   total_customers: number;
   active_customers: number;
@@ -460,6 +510,28 @@ export function useCrmLeads(status?: string) {
   if (status && status !== 'all') params.set('status', status);
   const url = `/api/crm/leads${params.toString() ? '?' + params.toString() : ''}`;
   return useList<CrmLead>(`crmLeads:${status || ''}`, url);
+}
+
+/** Deals — optionally scoped to a customer, lead, or pipeline. */
+export function useDeals(filters?: { customerId?: string; leadId?: string; pipelineId?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.customerId) params.set('customer_id', filters.customerId);
+  if (filters?.leadId) params.set('lead_id', filters.leadId);
+  if (filters?.pipelineId) params.set('pipeline_id', filters.pipelineId);
+  const url = `/api/crm/deals${params.toString() ? '?' + params.toString() : ''}`;
+  const key = `crmDeals:${filters?.customerId || ''}:${filters?.leadId || ''}:${filters?.pipelineId || ''}`;
+  return useList<Deal>(key, url);
+}
+
+/** All pipelines (with their stages if the API joins them). */
+export function usePipelines() {
+  return useList<Pipeline>('crmPipelines', '/api/crm/pipelines');
+}
+
+/** Stages for one pipeline. */
+export function usePipelineStages(pipelineId: string | null) {
+  const url = pipelineId ? `/api/crm/pipeline-stages?pipeline_id=${pipelineId}` : '/api/crm/pipeline-stages';
+  return useList<PipelineStage>(`crmStages:${pipelineId || 'all'}`, url, undefined, { enabled: !!pipelineId });
 }
 
 export function useCrmSegments() {
@@ -749,11 +821,71 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
+  // ── Deals & Pipelines ──
+  const createDeal = useCallback(async (input: Partial<Deal> & { name: string; pipeline_id: string; stage_id: string; amount: number }) => {
+    const res = await fetchJson<{ data: Deal }>('/api/crm/deals', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Deal created');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const updateDeal = useCallback(async (id: string, updates: Partial<Deal>) => {
+    const res = await fetchJson<{ data: Deal }>(`/api/crm/deals/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Deal saved');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const deleteDeal = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/crm/deals/${id}`, { method: 'DELETE' });
+    if (res.ok) { evictFromAllCaches(i => i.id === id); toast('Deal deleted'); }
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const createPipeline = useCallback(async (input: Partial<Pipeline> & { name: string }) => {
+    const res = await fetchJson<{ data: Pipeline }>('/api/crm/pipelines', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Pipeline created');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const updatePipeline = useCallback(async (id: string, updates: Partial<Pipeline>) => {
+    const res = await fetchJson<{ data: Pipeline }>(`/api/crm/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Pipeline saved');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const createPipelineStage = useCallback(async (input: Partial<PipelineStage> & { pipeline_id: string; name: string; sort_order: number }) => {
+    const res = await fetchJson<{ data: PipelineStage }>('/api/crm/pipeline-stages', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Stage created');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Lead convert/rescore (dedicated RPC routes) ──
+  const convertLead = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: unknown; customer_id?: string }>(`/api/crm/leads/${id}/convert`, { method: 'POST', body: JSON.stringify({}) });
+    if (res.ok) toast('Lead converted → customer created');
+    else toast(`Convert failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const rescoreLead = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: unknown; score?: number }>(`/api/crm/leads/${id}/rescore`, { method: 'POST', body: JSON.stringify({}) });
+    if (res.ok) toast('Lead rescored');
+    else toast(`Rescore failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
   return {
     createParty, createCustomer, updateCustomer, archiveCustomer,
-    createLead, updateLead, deleteLead,
+    createLead, updateLead, deleteLead, convertLead, rescoreLead,
     createNote, updateNote, deleteNote,
     createTask, updateTask, deleteTask,
+    createDeal, updateDeal, deleteDeal,
+    createPipeline, updatePipeline, createPipelineStage,
   };
 }
 

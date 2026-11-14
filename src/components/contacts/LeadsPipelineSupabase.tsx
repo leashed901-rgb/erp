@@ -30,10 +30,12 @@ function initials(name: string | null) {
 
 export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
   const { data: leads, loaded, refresh: refetch } = useCrmLeads();
-  const { updateLead, deleteLead, createLead } = useCrmMutations(onToast);
+  const { updateLead, deleteLead, createLead, convertLead, rescoreLead } = useCrmMutations(onToast);
   const [view, setView] = useState<'board' | 'list'>('board');
   const [showCreate, setShowCreate] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [rescoringId, setRescoringId] = useState<string | null>(null);
 
   const leadsByStage = (stageId: string) => leads.filter(l => l.status === stageId);
 
@@ -48,6 +50,30 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
       refetch();
     } catch (e: any) {
       onToast(`Error: ${e.message}`);
+    }
+  }
+
+  async function handleConvert(id: string) {
+    setConvertingId(id);
+    try {
+      const res = await convertLead(id);
+      if (res.ok) refetch();
+    } finally {
+      setConvertingId(null);
+    }
+  }
+
+  async function handleRescore(id: string) {
+    setRescoringId(id);
+    try {
+      const res = await rescoreLead(id);
+      if (res.ok) {
+        const score = (res as any).data?.score;
+        if (typeof score === 'number') onToast(`Lead rescored → ${score}/100`);
+        refetch();
+      }
+    } finally {
+      setRescoringId(null);
     }
   }
 
@@ -165,6 +191,26 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
                           View customer →
                         </button>
                       )}
+                      {lead.status !== 'converted' && (
+                        <div className="mt-1 flex items-center gap-1">
+                          <button
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 flex items-center gap-0.5"
+                            onClick={(e) => { e.stopPropagation(); handleConvert(lead.id); }}
+                            disabled={convertingId === lead.id}
+                            title="Convert this lead to a customer"
+                          >
+                            <span className="material-symbols-outlined text-[10px]">person_add</span>{convertingId === lead.id ? '…' : 'Convert'}
+                          </button>
+                          <button
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant hover:bg-surface-dim disabled:opacity-40 flex items-center gap-0.5"
+                            onClick={(e) => { e.stopPropagation(); handleRescore(lead.id); }}
+                            disabled={rescoringId === lead.id}
+                            title="Recalculate lead score"
+                          >
+                            <span className="material-symbols-outlined text-[10px]">analytics</span>{rescoringId === lead.id ? '…' : 'Score'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                   {stageLeads.length === 0 && (
@@ -200,7 +246,8 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">First contact</th>
                 <th className="px-3 py-2">Last activity</th>
-                <th className="px-3 py-2 w-8"></th>
+                <th className="px-3 py-2">Actions</th>
+                <th className="px-2 py-2 w-8"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-dim">
@@ -227,6 +274,32 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
                   </td>
                   <td className="px-3 py-2 text-[11px]">{lead.first_contact_at?.slice(0, 10) || '—'}</td>
                   <td className="px-3 py-2 text-[11px]">{lead.last_activity_at?.slice(0, 10) || '—'}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-1">
+                      {lead.status !== 'converted' ? (
+                        <>
+                          <button
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 flex items-center gap-0.5"
+                            onClick={() => handleConvert(lead.id)}
+                            disabled={convertingId === lead.id}
+                            title="Convert to customer"
+                          >
+                            <span className="material-symbols-outlined text-[10px]">person_add</span>{convertingId === lead.id ? '…' : 'Convert'}
+                          </button>
+                          <button
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant hover:bg-surface-dim disabled:opacity-40 flex items-center gap-0.5"
+                            onClick={() => handleRescore(lead.id)}
+                            disabled={rescoringId === lead.id}
+                            title="Recalculate score"
+                          >
+                            <span className="material-symbols-outlined text-[10px]">analytics</span>{rescoringId === lead.id ? '…' : 'Score'}
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-secondary">converted</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-2 py-2">
                     <button className="text-on-surface-variant hover:text-error" onClick={() => handleDelete(lead.id)}>
                       <span className="material-symbols-outlined text-[16px]">delete</span>

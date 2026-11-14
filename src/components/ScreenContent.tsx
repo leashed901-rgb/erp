@@ -71,6 +71,8 @@ import ConversationInbox from './queue/ConversationInbox';
 import AppointmentsScreen from './contacts/AppointmentsScreen';
 import CustomersSupabase from './contacts/CustomersSupabase';
 import LeadsPipelineSupabase from './contacts/LeadsPipelineSupabase';
+import DealsWorkbench from './contacts/DealsWorkbench';
+import PipelinesScreen from './contacts/PipelinesScreen';
 import StatementsScreen from './contacts/StatementsScreen';
 import OrdersOverview from './orders/OrdersOverview';
 import OrdersWorkbench from './orders/OrdersWorkbench';
@@ -3042,6 +3044,17 @@ function TabScreenRenderer({
 
   if (screenId === 'leads') {
     return <LeadsPipelineSupabase onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+
+  if (screenId === 'deals') {
+    // Deals workbench — Kanban board (drag to move stage → PATCH /api/crm/deals/[id]),
+    // list view, deal drawer, create modal, right-click won/lost/follow-up.
+    return <DealsWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+
+  if (screenId === 'pipelines') {
+    // Pipelines + stages CRUD. Creating a pipeline seeds 6 default stages.
+    return <PipelinesScreen onToast={onToast} />;
   }
 
   if (screenId === 'appointments') {

@@ -520,6 +520,8 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-green',
         screens: [
           { id: 'leads', label: 'Leads', type: 'list' },
+          { id: 'deals', label: 'Deals', type: 'list' },
+          { id: 'pipelines', label: 'Pipelines', type: 'list' },
           { id: 'appointments', label: 'Appointments', type: 'list' },
           { id: 'segments', label: 'Segments', type: 'list' },
           { id: 'templates', label: 'Templates', type: 'list' },

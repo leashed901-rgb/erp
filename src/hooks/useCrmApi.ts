@@ -255,6 +255,70 @@ export interface Deal {
   updated_at: string;
 }
 
+/* ────────────────────────────────────────────────────────────
+   Lead scoring (crm_lead_scoring_rules, crm_lead_score_bands)
+   ──────────────────────────────────────────────────────────── */
+
+export interface ScoringRule {
+  id: string;
+  field: string;        // has_email, has_phone, inbound, engaged_7d, stale, source_equals
+  operator: string;     // eq, ne, gt, lt, exists, not_exists, contains
+  value: string | null;
+  points: number;       // can be negative (e.g. stale −20)
+  is_active: boolean;
+  label?: string | null;
+  created_at?: string;
+}
+
+export interface ScoreBand {
+  id: string;
+  label: string;        // hot, warm, cold
+  min_score: number;
+  max_score: number;
+  color?: string | null;
+}
+
+/** Invoice row (the unified shape from /api/v1/documents?type=Invoice). */
+export interface InvoiceRow {
+  id: string;
+  invoice_number: string;
+  customer_id: string | null;
+  customer_name?: string | null;
+  invoice_date: string | null;
+  due_date: string | null;
+  status: string;       // DRAFT, OPEN, PAID, VOID, OVERDUE
+  total: number;
+  open_balance: number;
+  subtotal?: number;
+  tax_total?: number;
+  currency: string;
+  sent_at?: string | null;
+  paid_at?: string | null;
+  voided_at?: string | null;
+  posted_at?: string | null;
+  void_reason?: string | null;
+  source_system?: string | null;
+}
+
+/** Estimate row (from /api/estimates). */
+export interface EstimateRow {
+  id: string;
+  number: string;
+  customer_id: string | null;
+  customer_name?: string | null;
+  issue_date: string | null;
+  expiry_date: string | null;
+  status: string;       // draft, sent, accepted, declined, expired, converted
+  subtotal: number;
+  tax_total: number;
+  total: number;
+  currency: string;
+  notes?: string | null;
+  terms?: string | null;
+  converted_at?: string | null;
+  converted_to_invoice_id?: string | null;
+}
+
 export interface CrmStats {
   total_customers: number;
   active_customers: number;
@@ -532,6 +596,32 @@ export function usePipelines() {
 export function usePipelineStages(pipelineId: string | null) {
   const url = pipelineId ? `/api/crm/pipeline-stages?pipeline_id=${pipelineId}` : '/api/crm/pipeline-stages';
   return useList<PipelineStage>(`crmStages:${pipelineId || 'all'}`, url, undefined, { enabled: !!pipelineId });
+}
+
+/** Lead scoring rules (crm_lead_scoring_rules). */
+export function useScoringRules() {
+  return useList<ScoringRule>('crmScoringRules', '/api/crm/lead-scoring-rules');
+}
+
+/** Score bands (crm_lead_score_bands) — hot/warm/cold thresholds. */
+export function useScoreBands() {
+  return useList<ScoreBand>('crmScoreBands', '/api/crm/lead-score-bands');
+}
+
+/** Invoices — from /api/v1/documents?type=Invoice (acct_ar_invoices). */
+export function useInvoices(filters?: { customerId?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.customerId) params.set('customer_id', filters.customerId);
+  const url = `/api/v1/documents?type=Invoice${params.toString() ? '&' + params.toString() : ''}`;
+  return useList<InvoiceRow>(`invoices:${filters?.customerId || 'all'}`, url);
+}
+
+/** Estimates — from /api/estimates (acct_estimates). */
+export function useEstimates(filters?: { customerId?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.customerId) params.set('customer_id', filters.customerId);
+  const url = `/api/estimates${params.toString() ? '?' + params.toString() : ''}`;
+  return useList<EstimateRow>(`estimates:${filters?.customerId || 'all'}`, url);
 }
 
 export function useCrmSegments() {
@@ -864,6 +954,74 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
+  // ── Lead scoring rules ──
+  const createScoringRule = useCallback(async (input: Partial<ScoringRule> & { field: string; operator: string; points: number }) => {
+    const res = await fetchJson<{ data: ScoringRule }>('/api/crm/lead-scoring-rules', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Scoring rule created');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const updateScoringRule = useCallback(async (id: string, updates: Partial<ScoringRule>) => {
+    const res = await fetchJson<{ data: ScoringRule }>(`/api/crm/lead-scoring-rules/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Rule updated');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const deleteScoringRule = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/crm/lead-scoring-rules/${id}`, { method: 'DELETE' });
+    if (res.ok) toast('Rule deleted');
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const createScoreBand = useCallback(async (input: Partial<ScoreBand> & { label: string; min_score: number }) => {
+    const res = await fetchJson<{ data: ScoreBand }>('/api/crm/lead-score-bands', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Score band created');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Invoice actions (wrap acct_send_invoice / acct_void_invoice / etc.) ──
+  const sendInvoice = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/send`, { method: 'POST', body: JSON.stringify({}) });
+    if (res.ok) toast('Invoice sent');
+    else toast(`Send failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const voidInvoice = useCallback(async (id: string, reason?: string) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/void`, { method: 'POST', body: JSON.stringify({ reason: reason || 'Voided by user' }) });
+    if (res.ok) toast('Invoice voided');
+    else toast(`Void failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const markInvoicePaid = useCallback(async (id: string, opts?: { amount?: number; method?: string; reference?: string }) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/mark-paid`, { method: 'POST', body: JSON.stringify(opts || {}) });
+    if (res.ok) toast('Invoice marked paid');
+    else toast(`Mark paid failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const postInvoice = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/post`, { method: 'POST', body: JSON.stringify({}) });
+    if (res.ok) toast('Invoice posted');
+    else toast(`Post failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Estimate convert (wraps acct_convert_estimate) ──
+  const convertEstimate = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: unknown; invoice_id?: string; invoice_number?: string }>(`/api/estimates/${id}/convert`, { method: 'POST', body: JSON.stringify({}) });
+    if (res.ok) {
+      const inv = (res.data as { invoice_number?: string } | undefined)?.invoice_number;
+      toast(inv ? `Estimate converted → invoice ${inv}` : 'Estimate converted → invoice');
+    } else toast(`Convert failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
   // ── Lead convert/rescore (dedicated RPC routes) ──
   const convertLead = useCallback(async (id: string) => {
     const res = await fetchJson<{ data: unknown; customer_id?: string }>(`/api/crm/leads/${id}/convert`, { method: 'POST', body: JSON.stringify({}) });
@@ -886,6 +1044,9 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     createTask, updateTask, deleteTask,
     createDeal, updateDeal, deleteDeal,
     createPipeline, updatePipeline, createPipelineStage,
+    createScoringRule, updateScoringRule, deleteScoringRule, createScoreBand,
+    sendInvoice, voidInvoice, markInvoicePaid, postInvoice,
+    convertEstimate,
   };
 }
 

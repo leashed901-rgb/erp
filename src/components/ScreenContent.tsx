@@ -40,6 +40,7 @@ import BankRulesScreen from './finance/BankRulesScreen';
 import ReceiptsScreen from './finance/ReceiptsScreen';
 import BillsScreen from './finance/BillsScreen';
 import EstimatesScreen from './finance/EstimatesScreen';
+import EstimatesWorkbench from './finance/EstimatesWorkbench';
 import PurchaseOrderScreen from './finance/PurchaseOrderScreen';
 import ReportsScreen from './finance/ReportsScreen';
 import CashFlowScreen from './finance/CashFlowScreen';
@@ -73,6 +74,7 @@ import CustomersSupabase from './contacts/CustomersSupabase';
 import LeadsPipelineSupabase from './contacts/LeadsPipelineSupabase';
 import DealsWorkbench from './contacts/DealsWorkbench';
 import PipelinesScreen from './contacts/PipelinesScreen';
+import LeadScoringScreen from './contacts/LeadScoringScreen';
 import StatementsScreen from './contacts/StatementsScreen';
 import OrdersOverview from './orders/OrdersOverview';
 import OrdersWorkbench from './orders/OrdersWorkbench';
@@ -3057,6 +3059,11 @@ function TabScreenRenderer({
     return <PipelinesScreen onToast={onToast} />;
   }
 
+  if (screenId === 'lead-scoring') {
+    // Lead scoring rule builder + score bands.
+    return <LeadScoringScreen onToast={onToast} />;
+  }
+
   if (screenId === 'appointments') {
     // CRM Appointments — crm_appointments domain (day/week/list calendar,
     // create action, confirm→check-in→start→complete / cancel / no-show loop).
@@ -3293,9 +3300,9 @@ function TabScreenRenderer({
   }
 
   if (screenId === 'estimates') {
-    // Finance → Sales → Estimates: the full Document list (store-backed,
-    // DocumentEngine-wired). The contacts-scoped view is not routed here.
-    return <EstimatesScreen onToast={onToast} />;
+    // Finance → Sales → Estimates: real data from /api/estimates (acct_estimates).
+    // Convert-to-invoice row action wraps acct_convert_estimate RPC.
+    return <EstimatesWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'payment-links') {

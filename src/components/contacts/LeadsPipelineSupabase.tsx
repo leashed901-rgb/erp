@@ -3,9 +3,13 @@
  * LeadsPipelineSupabase — Leads pipeline screen wired to Supabase.
  * Reads from crm_leads table via /api/crm/leads.
  * Kanban-style pipeline board + list view. Lead→Customer conversion.
+ *
+ * Scoring rules live INLINE on this surface (not a separate sidebar item):
+ * a "Scoring rules" flyout opens from the header, and each lead card shows
+ * its score badge + a rescore button.
  */
 import { useState } from 'react';
-import { useCrmLeads, useCrmMutations, type CrmLead } from '@/hooks/useCrmApi';
+import { useCrmLeads, useCrmMutations, useScoringRules, type CrmLead, type ScoringRule } from '@/hooks/useCrmApi';
 
 interface LeadsPipelineProps {
   onToast: (m: string) => void;
@@ -28,14 +32,32 @@ function initials(name: string | null) {
   return (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
 }
 
+/** Score badge color by band (hot/warm/cold). */
+function scoreBadgeClass(score: number | undefined | null): string {
+  if (score == null) return 'bg-surface-container-high text-on-surface-variant';
+  if (score >= 70) return 'bg-error/15 text-error';
+  if (score >= 40) return 'bg-qb-maroon/15 text-qb-maroon';
+  return 'bg-surface-container-high text-on-surface-variant';
+}
+
 export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
   const { data: leads, loaded, refresh: refetch } = useCrmLeads();
-  const { updateLead, deleteLead, createLead, convertLead, rescoreLead } = useCrmMutations(onToast);
+  const { updateLead, deleteLead, createLead, convertLead, rescoreLead, createScoringRule, deleteScoringRule } = useCrmMutations(onToast);
+  // Scoring rules live inline now — fetched on this surface, not a separate screen.
+  const { data: scoringRules, refresh: refetchRules } = useScoringRules();
   const [view, setView] = useState<'board' | 'list'>('board');
   const [showCreate, setShowCreate] = useState(false);
+  const [showScoringPanel, setShowScoringPanel] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [convertingId, setConvertingId] = useState<string | null>(null);
   const [rescoringId, setRescoringId] = useState<string | null>(null);
+
+  // New-rule form state (inline on the scoring flyout)
+  const [ruleField, setRuleField] = useState('has_email');
+  const [ruleOperator, setRuleOperator] = useState('is_set');
+  const [rulePoints, setRulePoints] = useState('10');
+  const [ruleValue, setRuleValue] = useState('');
+  const [savingRule, setSavingRule] = useState(false);
 
   const leadsByStage = (stageId: string) => leads.filter(l => l.status === stageId);
 
@@ -77,6 +99,27 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
     }
   }
 
+  async function handleAddRule() {
+    setSavingRule(true);
+    const res = await createScoringRule({
+      field: ruleField,
+      operator: ruleOperator,
+      value: ruleValue || null,
+      points: Number(rulePoints) || 0,
+    });
+    setSavingRule(false);
+    if (res.ok) {
+      setRuleValue('');
+      setRulePoints('10');
+      refetchRules();
+    }
+  }
+
+  async function handleDeleteRule(id: string) {
+    const res = await deleteScoringRule(id);
+    if (res.ok) refetchRules();
+  }
+
   async function handleDelete(id: string) {
     try {
       await deleteLead(id);
@@ -106,10 +149,18 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
       {/* Header */}
       <div className="flex items-center justify-between py-4">
         <div>
-          <h1 className="text-headline-lg">Leads Pipeline</h1>
-          <p className="text-body-sm text-on-surface-variant mt-0.5">From Supabase crm_leads · {totalLeads} leads · {conversionRate}% conversion</p>
+          <h1 className="text-headline-lg">Leads</h1>
+          <p className="text-body-sm text-on-surface-variant mt-0.5">From Supabase crm_leads · {totalLeads} leads · {conversionRate}% conversion · {scoringRules.length} scoring rules</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Scoring rules — INLINE flyout (not a separate sidebar item) */}
+          <button
+            className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
+            onClick={() => setShowScoringPanel(v => !v)}
+            title="Configure lead scoring rules"
+          >
+            <span className="material-symbols-outlined text-[16px]">analytics</span>Scoring
+          </button>
           <div className="flex border border-surface-dim rounded overflow-hidden">
             <button className={`h-8 px-3 text-body-md ${view === 'board' ? 'bg-primary text-white' : 'hover:bg-surface-container-low'}`} onClick={() => setView('board')}>Board</button>
             <button className={`h-8 px-3 text-body-md ${view === 'list' ? 'bg-primary text-white' : 'hover:bg-surface-container-low'}`} onClick={() => setView('list')}>List</button>
@@ -119,6 +170,94 @@ export default function LeadsPipelineSupabase({ onToast }: LeadsPipelineProps) {
           </button>
         </div>
       </div>
+
+      {/* INLINE Scoring rules flyout — opens on this surface */}
+      {showScoringPanel && (
+        <div className="bg-white rounded-xl border border-surface-dim overflow-hidden mb-4">
+          <div className="px-4 py-3 border-b border-surface-dim flex items-center justify-between bg-surface-container-low">
+            <div>
+              <h2 className="text-headline-sm">Lead scoring rules</h2>
+              <p className="text-[11px] text-on-surface-variant">Each rule adds or subtracts points from a lead&apos;s score. {scoringRules.length} rule{scoringRules.length === 1 ? '' : 's'} active.</p>
+            </div>
+            <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setShowScoringPanel(false)}>
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
+          </div>
+          <div className="p-4">
+            {/* Add-rule form */}
+            <div className="flex items-end gap-2 flex-wrap mb-4 p-3 border border-dashed border-surface-dim rounded-lg">
+              <div className="flex-1 min-w-[140px]">
+                <label className="field-label">Field</label>
+                <select className="field-input" value={ruleField} onChange={(e) => setRuleField(e.target.value)}>
+                  <option value="has_email">Has email</option>
+                  <option value="has_phone">Has phone</option>
+                  <option value="inbound">Inbound lead</option>
+                  <option value="engaged_7d">Engaged in 7 days</option>
+                  <option value="stale">Stale (no activity 30d)</option>
+                  <option value="source_equals">Source equals</option>
+                  <option value="lead_type">Lead type equals</option>
+                </select>
+              </div>
+              <div className="w-28">
+                <label className="field-label">Operator</label>
+                <select className="field-input" value={ruleOperator} onChange={(e) => setRuleOperator(e.target.value)}>
+                  <option value="is_set">is set</option>
+                  <option value="is_not_set">is not set</option>
+                  <option value="eq">=</option>
+                  <option value="ne">≠</option>
+                  <option value="gt">&gt;</option>
+                  <option value="lt">&lt;</option>
+                  <option value="contains">contains</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-[120px]">
+                <label className="field-label">Value</label>
+                <input className="field-input" value={ruleValue} onChange={(e) => setRuleValue(e.target.value)} placeholder="(blank for is_set)" disabled={ruleOperator === 'is_set' || ruleOperator === 'is_not_set'} />
+              </div>
+              <div className="w-20">
+                <label className="field-label">Points</label>
+                <input className="field-input" type="number" value={rulePoints} onChange={(e) => setRulePoints(e.target.value)} />
+              </div>
+              <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-40 flex items-center gap-1" onClick={handleAddRule} disabled={savingRule}>
+                <span className="material-symbols-outlined text-[16px]">add</span>{savingRule ? '…' : 'Add rule'}
+              </button>
+            </div>
+            {/* Rules list */}
+            <table className="w-full text-left text-body-sm">
+              <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+                <tr>
+                  <th className="px-3 py-2">Active</th>
+                  <th className="px-3 py-2">Field</th>
+                  <th className="px-3 py-2">Op</th>
+                  <th className="px-3 py-2">Value</th>
+                  <th className="px-3 py-2 text-right">Points</th>
+                  <th className="w-8 px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-surface-dim">
+                {scoringRules.map((r: ScoringRule) => (
+                  <tr key={r.id} className="hover:bg-surface-container-low">
+                    <td className="px-3 py-2">
+                      <span className={`w-9 h-5 rounded-full relative inline-block ${r.is_active ? 'bg-primary' : 'bg-surface-dim'}`}>
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${r.is_active ? 'left-[18px]' : 'left-0.5'}`} />
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-medium">{r.field}</td>
+                    <td className="px-3 py-2 text-on-surface-variant">{r.operator}</td>
+                    <td className="px-3 py-2 text-on-surface-variant">{r.value || '—'}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums font-semibold ${r.points >= 0 ? 'text-secondary' : 'text-error'}`}>{r.points >= 0 ? '+' : ''}{r.points}</td>
+                    <td className="px-2 py-2">
+                      <button className="text-on-surface-variant hover:text-error" onClick={() => handleDeleteRule(r.id)} title="Delete rule">
+                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* KPI strip */}
       <div className="grid grid-cols-4 gap-3 mb-4">

@@ -54,15 +54,23 @@ export default function DealsWorkbench({ onToast }: Props) {
   const { data: stages, loaded: stagesLoaded } = usePipelineStages(pipelineId);
   const { data: deals, loaded: dealsLoaded, refresh: refreshDeals } = useDeals(pipelineId ? { pipelineId } : undefined);
   const { data: customers } = useCrmCustomers();
-  const { createDeal, updateDeal, deleteDeal, createTask, createNote } = useCrmMutations(onToast);
+  const { createDeal, updateDeal, deleteDeal, createTask, createNote, createPipeline, createPipelineStage } = useCrmMutations(onToast);
 
   const [view, setView] = useState<'board' | 'list'>('board');
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [drawerDeal, setDrawerDeal] = useState<Deal | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showStagesPanel, setShowStagesPanel] = useState(false);
+  const [showNewPipeline, setShowNewPipeline] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; deal: Deal } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // New-stage form (inline on the stages panel)
+  const [newStageName, setNewStageName] = useState('');
+  const [newStageKind, setNewStageKind] = useState('open');
+  const [newStageProb, setNewStageProb] = useState('0');
+  const [addingStage, setAddingStage] = useState(false);
 
   // Auto-select the first pipeline when they load.
   useEffect(() => {
@@ -153,6 +161,22 @@ export default function DealsWorkbench({ onToast }: Props) {
               <option key={p.id} value={p.id}>{p.name}{p.is_default ? ' (default)' : ''}</option>
             ))}
           </select>
+          {/* Stages management — INLINE (not a separate sidebar item) */}
+          <button
+            className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1 disabled:opacity-40"
+            onClick={() => setShowStagesPanel(v => !v)}
+            disabled={!pipelineId}
+            title="Manage stages for this pipeline"
+          >
+            <span className="material-symbols-outlined text-[16px]">tune</span>Stages
+          </button>
+          <button
+            className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
+            onClick={() => setShowNewPipeline(true)}
+            title="Create a new pipeline"
+          >
+            <span className="material-symbols-outlined text-[16px]">add</span>Pipeline
+          </button>
           <div className="flex border border-surface-dim rounded overflow-hidden">
             <button className={`h-8 px-3 text-body-md ${view === 'board' ? 'bg-primary text-white' : 'hover:bg-surface-container-low'}`} onClick={() => setView('board')}>Board</button>
             <button className={`h-8 px-3 text-body-md ${view === 'list' ? 'bg-primary text-white' : 'hover:bg-surface-container-low'}`} onClick={() => setView('list')}>List</button>
@@ -167,6 +191,81 @@ export default function DealsWorkbench({ onToast }: Props) {
           </button>
         </div>
       </div>
+
+      {/* INLINE Stages management panel — opens on this surface */}
+      {showStagesPanel && pipelineId && (
+        <div className="bg-white rounded-xl border border-surface-dim overflow-hidden mb-4">
+          <div className="px-4 py-3 border-b border-surface-dim flex items-center justify-between bg-surface-container-low">
+            <div>
+              <h2 className="text-headline-sm">Stages · {pipelines.find(p => p.id === pipelineId)?.name}</h2>
+              <p className="text-[11px] text-on-surface-variant">{stages.length} stage{stages.length === 1 ? '' : 's'} · drag deals between columns on the board</p>
+            </div>
+            <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setShowStagesPanel(false)}>
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
+          </div>
+          <div className="p-4">
+            {/* Stages list */}
+            <ol className="space-y-2 mb-4">
+              {stages.map((s, i) => (
+                <li key={s.id} className="flex items-center gap-3 p-3 bg-surface-container-low rounded-lg">
+                  <span className="text-[11px] text-on-surface-variant font-mono w-6 tabular-nums">{i + 1}.</span>
+                  <span className="font-medium flex-1">{s.name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${s.stage_kind === 'won' ? 'bg-secondary/15 text-secondary' : s.stage_kind === 'lost' ? 'bg-surface-container-high text-on-surface-variant' : 'bg-primary/10 text-primary'}`}>{s.stage_kind}</span>
+                  {s.probability != null && s.probability > 0 && <span className="text-[11px] text-on-surface-variant tabular-nums">{s.probability}%</span>}
+                </li>
+              ))}
+            </ol>
+            {/* Add-stage form */}
+            <div className="flex items-end gap-2 flex-wrap p-3 border border-dashed border-surface-dim rounded-lg">
+              <div className="flex-1 min-w-[140px]">
+                <label className="field-label">Stage name</label>
+                <input className="field-input" value={newStageName} onChange={(e) => setNewStageName(e.target.value)} placeholder="e.g. Proposal" />
+              </div>
+              <div className="w-24">
+                <label className="field-label">Kind</label>
+                <select className="field-input" value={newStageKind} onChange={(e) => setNewStageKind(e.target.value)}>
+                  <option value="open">Open</option>
+                  <option value="won">Won</option>
+                  <option value="lost">Lost</option>
+                </select>
+              </div>
+              <div className="w-20">
+                <label className="field-label">Prob %</label>
+                <input className="field-input" type="number" min={0} max={100} value={newStageProb} onChange={(e) => setNewStageProb(e.target.value)} />
+              </div>
+              <button
+                className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-40 flex items-center gap-1"
+                onClick={async () => {
+                  if (!pipelineId || !newStageName.trim()) return;
+                  setAddingStage(true);
+                  const nextOrder = stages.length > 0 ? Math.max(...stages.map(s => s.sort_order)) + 1 : 0;
+                  const res = await createPipelineStage({
+                    pipeline_id: pipelineId,
+                    name: newStageName.trim(),
+                    sort_order: nextOrder,
+                    probability: Number(newStageProb) || 0,
+                    stage_kind: newStageKind,
+                  });
+                  setAddingStage(false);
+                  if (res.ok) { setNewStageName(''); setNewStageProb('0'); setNewStageKind('open'); }
+                }}
+                disabled={!newStageName.trim() || addingStage}
+              >
+                {addingStage ? 'Adding…' : 'Add stage'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INLINE New pipeline modal */}
+      {showNewPipeline && (
+        <NewPipelineModal
+          onClose={() => setShowNewPipeline(false)}
+          onCreated={() => { setShowNewPipeline(false); }}
+        />
+      )}
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
@@ -554,6 +653,51 @@ function CreateDealModal({ pipelineId, stages, customers, onClose, onCreated }: 
         <div className="flex justify-end gap-2 mt-4">
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={onClose}>Cancel</button>
           <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-40" onClick={submit} disabled={!name.trim() || saving}>{saving ? 'Creating…' : 'Create deal'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── New pipeline modal — INLINE on the deals surface ── */
+function NewPipelineModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { createPipeline, createPipelineStage } = useCrmMutations(() => {});
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!name.trim()) return;
+    setSaving(true);
+    const res = await createPipeline({ name: name.trim() });
+    // Seed 6 default stages so the board is immediately usable.
+    const pipe = (res as { data?: Pipeline }).data;
+    if (pipe?.id) {
+      const defaults = [
+        { name: 'New', probability: 10, kind: 'open' },
+        { name: 'Qualified', probability: 30, kind: 'open' },
+        { name: 'Proposal', probability: 50, kind: 'open' },
+        { name: 'Negotiation', probability: 70, kind: 'open' },
+        { name: 'Won', probability: 100, kind: 'won' },
+        { name: 'Lost', probability: 0, kind: 'lost' },
+      ];
+      for (let i = 0; i < defaults.length; i++) {
+        const d = defaults[i];
+        await createPipelineStage({ pipeline_id: pipe.id, name: d.name, sort_order: i, probability: d.probability, stage_kind: d.kind });
+      }
+    }
+    setSaving(false);
+    if (res.ok) onCreated();
+  }
+
+  return (
+    <div className="modal-scrim open" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-headline-sm mb-1">New pipeline</h3>
+        <p className="text-body-sm text-on-surface-variant mb-4">Seeds 6 default stages (New → Qualified → Proposal → Negotiation → Won/Lost).</p>
+        <div><label className="field-label">Name *</label><input className="field-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sales Pipeline" autoFocus /></div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={onClose}>Cancel</button>
+          <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-40" onClick={submit} disabled={!name.trim() || saving}>{saving ? 'Creating…' : 'Create pipeline'}</button>
         </div>
       </div>
     </div>

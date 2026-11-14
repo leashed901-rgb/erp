@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
+import { useAccounts, useCrmMutations } from '@/hooks/useCrmApi';
 
 import styles from './ChartOfAccountsScreen.module.css';
 
@@ -122,28 +123,33 @@ export default function ChartOfAccountsScreen({
   onNavigate,
   onToast,
 }: ChartOfAccountsScreenProps) {
-  
+  // REAL data from /api/accounts (acct_chart_of_accounts).
+  const { data: realAccounts, loaded, refresh } = useAccounts({ active: true });
+  const { seedAccounts, createAccount, updateAccount, deleteAccount } = useCrmMutations(onToast);
 
   /* §1.1: Chart of Accounts is a view over the shared Account entity.
      Store types (Bank/CreditCard/COGS) fold into the 5 screen types. */
   const toScreenType = (t: string): AccountType =>
     t === 'Bank' ? 'Asset' : t === 'CreditCard' ? 'Liability' : t === 'COGS' ? 'Expense' : (t as AccountType);
 
+  // Capitalize the first letter of the DB account_type for the screen.
+  const capType = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
+
   const accounts: AccountItem[] = useMemo(
     () =>
-      [].map((a) => ({
+      realAccounts.map((a) => ({
         id: a.id,
-        number: a.number,
+        number: a.code,
         name: a.name,
-        type: toScreenType(a.type),
-        detail: a.detailType,
-        balance: a.balance,
-        bankBalance: a.bankBalance,
-        taxLine: '—',
-        active: a.active,
-        desc: a.description,
+        type: toScreenType(capType(a.account_type)),
+        detail: a.subtype || a.detail_type || '—',
+        balance: Number(a.opening_balance) || 0,
+        bankBalance: 0,
+        taxLine: a.detail_type === '1099' ? '1099-NEC' : '—',
+        active: a.is_active,
+        desc: a.description || '',
       })),
-    []
+    [realAccounts]
   );
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -374,6 +380,18 @@ export default function ChartOfAccountsScreen({
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                   expand_more
                 </span>
+              </button>
+
+              {/* SEED button — seeds the full standard chart of accounts from
+                  upload/chart of accounts.txt into acct_chart_of_accounts. */}
+              <button
+                type="button"
+                className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1 ml-2"
+                onClick={async () => { const res = await seedAccounts(); if (res.ok) refresh(); }}
+                title="Seed the standard chart of accounts (1001-6070)"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
+                Seed CoA
               </button>
 
               {newMenuOpen && (

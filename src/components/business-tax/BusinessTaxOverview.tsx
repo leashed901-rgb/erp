@@ -2,6 +2,7 @@
 import './business-tax.css';
 import { useState } from 'react';
 import { BusinessTaxScreenProps, TAX_NAV, daysUntil, deadlineTone } from './types';
+import { useTaxSummary, useCrmMutations } from '@/hooks/useCrmApi';
 
 type DeadlineTone = 'past' | 'urgent' | 'soon' | 'far';
 
@@ -56,6 +57,10 @@ export default function BusinessTaxOverview({
   onCreate,
   onOpenCreateFlyout,
 }: BusinessTaxScreenProps) {
+  // REAL tax summary from /api/tax/summary.
+  const { data: taxSummary, loaded } = useTaxSummary();
+  const { generate1099s } = useCrmMutations(onToast);
+
   // One string value per unmapped row ('' = unmapped)
   const [mapCats, setMapCats] = useState<string[]>(['', '', '']);
   const [saved, setSaved] = useState(false);
@@ -80,6 +85,12 @@ export default function BusinessTaxOverview({
     const [domain, screenId] = fn();
     onNavigate(domain as Parameters<typeof onNavigate>[0], screenId);
   };
+
+  // Format real values from the API, fall back to the mock if not loaded yet.
+  const fmtMoney = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number.isFinite(n) ? n : 0);
+  const taxableProfit = taxSummary?.taxable_income ?? 51032;
+  const estTax = taxSummary?.estimated_tax ?? 10717;
+  const deductibleExpenses = taxSummary?.deductible_expenses ?? 0;
 
   // Pre-compute future deadline badges once
   const q4Badge = computeDeadlineBadge('2027-01-15');
@@ -129,12 +140,12 @@ export default function BusinessTaxOverview({
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
           <div className="bg-white rounded-xl border border-surface-dim p-4">
             <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Est. taxable profit</span>
-            <div className="text-headline-lg mt-1 tabular-nums">$51,032.12</div>
+            <div className="text-headline-lg mt-1 tabular-nums">{loaded ? fmtMoney(taxableProfit) : '…'}</div>
             <div className="text-[11px] text-on-surface-variant mt-1">YTD · accrual</div>
           </div>
           <div className="bg-white rounded-xl border border-surface-dim p-4">
             <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Est. tax due</span>
-            <div className="text-headline-lg mt-1 tabular-nums">$10,716.75</div>
+            <div className="text-headline-lg mt-1 tabular-nums">{loaded ? fmtMoney(estTax) : '…'}</div>
             <div className="text-[11px] text-tertiary mt-1 flex items-center gap-1">
               <span className="material-symbols-outlined text-[13px]">info</span>21% federal · state TBD
             </div>

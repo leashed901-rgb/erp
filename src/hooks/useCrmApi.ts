@@ -364,6 +364,80 @@ export interface Reconciliation {
   created_at?: string;
 }
 
+/* ────────────────────────────────────────────────────────────
+   Chart of Accounts + Journal (acct_chart_of_accounts, acct_journal_entries)
+   ──────────────────────────────────────────────────────────── */
+
+export interface Account {
+  id: string;
+  code: string;
+  name: string;
+  account_type: string;        // asset, liability, equity, revenue, expense
+  normal_balance: string;      // debit, credit
+  subtype: string | null;
+  description: string | null;
+  currency: string;
+  is_control_account: boolean;
+  is_reconcilable: boolean;
+  is_posting_allowed: boolean;
+  is_system: boolean;
+  is_active: boolean;
+  detail_type: string | null;
+  sort_order: number | null;
+  parent_account_id: string | null;
+  opening_balance: number | null;
+  created_at: string;
+}
+
+/** Tax summary (business tax cockpit). */
+export interface TaxSummary {
+  year: number;
+  revenue: number;
+  deductible_expenses: number;
+  taxable_income: number;
+  estimated_tax: number;
+  deduction_categories: Array<{ category: string; amount: number; count: number; percent_deductible: number }>;
+  depreciable_assets: Array<{ id: string; name: string; cost: number; accumulated_depreciation: number; net_book_value: number }>;
+  contractor_count: number;
+  alerts: { uncategorized: number; missing_w9: number; unreconciled: number };
+}
+
+/** Sales tax jurisdiction. */
+export interface TaxJurisdiction {
+  id: string;
+  code: string;
+  name: string;
+  country: string;
+  state: string | null;
+  locality: string | null;
+  registration_number: string | null;
+}
+
+/** Sales tax rate / code. */
+export interface TaxCode {
+  id: string;
+  code: string;
+  name: string;
+  rate: number;
+  jurisdiction_id: string | null;
+  recoverable_percent: number | null;
+  is_compound: boolean | null;
+}
+
+/** Sales tax filing. */
+export interface TaxFiling {
+  id: string;
+  period_start: string;
+  period_end: string;
+  status: string;        // draft, filed, paid
+  jurisdiction_id: string | null;
+  taxable_sales: number | null;
+  tax_collected: number | null;
+  tax_remitted: number | null;
+  confirmation_ref: string | null;
+  created_at: string;
+}
+
 export interface CrmStats {
   total_customers: number;
   active_customers: number;
@@ -690,6 +764,56 @@ export function useReconciliations(accountId?: string) {
   if (accountId) params.set('account_id', accountId);
   const url = `/api/reconciliations${params.toString() ? '?' + params.toString() : ''}`;
   return useList<Reconciliation>(`reconciliations:${accountId || 'all'}`, url);
+}
+
+/** Chart of Accounts — from /api/accounts (acct_chart_of_accounts). */
+export function useAccounts(filters?: { type?: string; active?: boolean; q?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.type && filters.type !== 'all') params.set('type', filters.type);
+  if (filters?.active) params.set('active', 'true');
+  if (filters?.q) params.set('q', filters.q);
+  const url = `/api/accounts${params.toString() ? '?' + params.toString() : ''}`;
+  const key = `accounts:${filters?.type || 'all'}:${filters?.active ? 'active' : 'all'}:${filters?.q || ''}`;
+  return useList<Account>(key, url);
+}
+
+/** Tax summary — from /api/tax/summary. Not a list — fetches a single summary object. */
+export function useTaxSummary(year?: number) {
+  const [data, setData] = useState<TaxSummary | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    const y = year || new Date().getFullYear();
+    fetch(`/api/tax/summary?year=${y}`)
+      .then((r) => r.json())
+      .then((json) => { if (!cancelled && json.data) { setData(json.data); setError(null); } else if (!cancelled && json.error) { setError(json.error.message); } })
+      .catch((e) => { if (!cancelled) setError(String(e)); })
+      .finally(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+  }, [year, tick]);
+
+  return { data, loaded, error, refresh };
+}
+
+/** Sales tax jurisdictions — from /api/sales-tax/jurisdictions. */
+export function useTaxJurisdictions() {
+  return useList<TaxJurisdiction>('taxJurisdictions', '/api/sales-tax/jurisdictions');
+}
+
+/** Sales tax rates/codes — from /api/sales-tax/rates. */
+export function useTaxRates() {
+  return useList<TaxCode>('taxRates', '/api/sales-tax/rates');
+}
+
+/** Sales tax filings — from /api/sales-tax/filings. */
+export function useTaxFilings() {
+  return useList<TaxFiling>('taxFilings', '/api/sales-tax/filings');
 }
 
 export function useCrmSegments() {
@@ -1165,6 +1289,72 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
+  // ── Chart of Accounts ──
+  const createAccount = useCallback(async (input: Partial<Account> & { code: string; name: string; account_type: string }) => {
+    const res = await fetchJson<{ data: Account }>('/api/accounts', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast(`Account ${input.code} created`);
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const updateAccount = useCallback(async (id: string, updates: Partial<Account>) => {
+    const res = await fetchJson<{ data: Account }>(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Account saved');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const deleteAccount = useCallback(async (id: string, hard?: boolean) => {
+    const url = `/api/accounts/${id}${hard ? '?hard=true' : ''}`;
+    const res = await fetchJson<{ data: unknown }>(url, { method: 'DELETE' });
+    if (res.ok) toast(hard ? 'Account deleted' : 'Account deactivated');
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const seedAccounts = useCallback(async () => {
+    const res = await fetchJson<{ data: { seeded: number; total: number; message?: string } }>('/api/accounts/seed', { method: 'POST', body: JSON.stringify({}) });
+    if (res.ok) toast(res.data?.message || `Seeded ${res.data?.seeded || 0} accounts`);
+    else toast(`Seed failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Business Tax ──
+  const generate1099s = useCallback(async (year?: number) => {
+    const res = await fetchJson<{ data: unknown }>('/api/tax/1099s/generate', { method: 'POST', body: JSON.stringify({ year }) });
+    if (res.ok) toast('1099s generated');
+    else toast(`Generate failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  // ── Sales Tax ──
+  const createTaxJurisdiction = useCallback(async (input: { code: string; name: string; country?: string; state?: string }) => {
+    const res = await fetchJson<{ data: unknown }>('/api/sales-tax/jurisdictions', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast(`Jurisdiction ${input.name} created`);
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const createTaxRate = useCallback(async (input: { code: string; name: string; rate: number }) => {
+    const res = await fetchJson<{ data: unknown }>('/api/sales-tax/rates', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast(`Tax code ${input.code} created`);
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const prepareTaxFiling = useCallback(async (input: { period_start: string; period_end: string; jurisdiction_id?: string }) => {
+    const res = await fetchJson<{ data: unknown }>('/api/sales-tax/filings', { method: 'POST', body: JSON.stringify(input) });
+    if (res.ok) toast('Sales tax filing prepared');
+    else toast(`Prepare failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const calculateTax = useCallback(async (input: { amount: number; jurisdiction_id?: string; tax_code?: string }) => {
+    const res = await fetchJson<{ data: { tax: number; rate: number; total: number } }>('/api/sales-tax/calculate', { method: 'POST', body: JSON.stringify(input) });
+    if (!res.ok) toast(`Calculate failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
   // ── Lead convert/rescore (dedicated RPC routes) ──
   const convertLead = useCallback(async (id: string) => {
     const res = await fetchJson<{ data: unknown; customer_id?: string }>(`/api/crm/leads/${id}/convert`, { method: 'POST', body: JSON.stringify({}) });
@@ -1195,6 +1385,9 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     startReconciliation, finishReconciliation,
     approveBill,
     inviteContractor,
+    createAccount, updateAccount, deleteAccount, seedAccounts,
+    generate1099s,
+    createTaxJurisdiction, createTaxRate, prepareTaxFiling, calculateTax,
   };
 }
 

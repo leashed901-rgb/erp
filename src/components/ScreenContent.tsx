@@ -2968,6 +2968,8 @@ function TabScreenRenderer({
     case 'mkt-pixels': return <PixelsScreen onToast={onToast} />;
     case 'mkt-adspend': return <AdSpendScreen {...mktProps} />;
     case 'mkt-advertisers': return <AdvertisersScreen onToast={onToast} />;
+    case 'mkt-channels': return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="channels" />;
+    case 'mkt-templates': return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="brands" />;
     default: break;
   }
 
@@ -3332,12 +3334,22 @@ function TabScreenRenderer({
   }
 
   if (screenId === 'catalog-overview' || screenId === 'products') {
-    return (
-      <CatalogWorkbench
-        onToast={onToast}
-        onNavigate={onNavigate as (d: string, s: string) => void}
-      />
-    );
+    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+  if (screenId === 'listings') {
+    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="products" />;
+  }
+  if (screenId === 'bundles') {
+    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="bundles" />;
+  }
+  if (screenId === 'collections') {
+    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="categories" />;
+  }
+  if (screenId === 'brands') {
+    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="brands" />;
+  }
+  if (screenId === 'pricing') {
+    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="suppliers" />;
   }
 
   if (screenId === 'parties') {

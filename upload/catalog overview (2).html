@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Catalog — Overview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{ extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+    "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+    "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+    "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+    "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+    "on-error-container":"#93000a","background":"#faf9fc",
+    "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{ sans:["Inter"] },
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px;display:inline-flex}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+  .stat.success{background:#8af5be;color:#00714b}
+  .stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.error{background:#ffdad6;color:#93000a}
+  .stat.info{background:#e8f0fb;color:#0055a5}
+  .stat.neutral{background:#f4f3f7;color:#5a6355}
+  .kpi{background:#fff;border:1px solid #dad9dd;border-radius:12px;padding:14px;cursor:pointer;transition:all .12s}
+  .kpi:hover{border-color:#0077c5;box-shadow:0 2px 12px rgba(0,119,197,.08)}
+  .kpi-label{font:600 10px Inter;letter-spacing:.06em;text-transform:uppercase;color:#5a6355;display:flex;align-items:center;gap:6px}
+  .kpi-val{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1}
+  .kpi-sub{font-size:11px;margin-top:4px;color:#5a6355}
+  .act-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f4f3f7;cursor:pointer}
+  .act-row:last-child{border-bottom:none}
+  .act-row:hover{background:#f4f3f7;border-radius:4px;padding-left:6px;padding-right:6px;margin-left:-6px;margin-right:-6px}
+  .act-row .badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700}
+  .av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+  .bar-track{height:24px;background:#f4f3f7;border-radius:4px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:#fff;font-size:11px;font-weight:600}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">inventory_2</span>
+    <span class="text-label-md font-semibold">Catalog</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold">Overview</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
+      <span class="material-symbols-outlined text-[16px]">calendar_today</span>Nov 2026 ▾
+    </button>
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
+      <span class="material-symbols-outlined text-[16px]">download</span>Export
+    </button>
+    <div class="split-btn">
+      <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" id="btnCreate">
+        <span class="material-symbols-outlined text-[16px]">add</span>Create
+      </button>
+      <button class="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" id="btnCreateSplit">
+        <span class="material-symbols-outlined text-[16px]">expand_more</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Page title -->
+  <div class="py-4">
+    <h1 class="text-headline-lg">Catalog overview</h1>
+    <p class="text-body-sm text-on-surface-variant mt-0.5">Health, activity, and alerts across products, suppliers, channels, and collections</p>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+    <div class="kpi" onclick="toast('Open Products')">
+      <div class="kpi-label"><span class="material-symbols-outlined text-[14px] text-qb-blue">inventory</span>Products</div>
+      <div class="kpi-val">5,079</div>
+      <div class="kpi-sub">Across 12 suppliers · 1,024 designed</div>
+    </div>
+    <div class="kpi" onclick="toast('Open Variants & SKUs')">
+      <div class="kpi-label"><span class="material-symbols-outlined text-[14px] text-qb-teal">qr_code</span>Variants & SKUs</div>
+      <div class="kpi-val">8,412</div>
+      <div class="kpi-sub">91 on Classic Tee · 49 on Polo</div>
+    </div>
+    <div class="kpi" onclick="toast('Open Suppliers')">
+      <div class="kpi-label"><span class="material-symbols-outlined text-[14px] text-qb-maroon">factory</span>Suppliers</div>
+      <div class="kpi-val">12</div>
+      <div class="kpi-sub">3 POD · 2 materials · 7 other</div>
+    </div>
+    <div class="kpi" onclick="toast('Open Channels')">
+      <div class="kpi-label"><span class="material-symbols-outlined text-[14px] text-qb-green">local_mall</span>Channels</div>
+      <div class="kpi-val">4</div>
+      <div class="kpi-sub">3 connected · 1 needs sync · 2 errors</div>
+    </div>
+  </div>
+
+  <!-- Main grid: Health + Needs attention -->
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-5">
+
+    <!-- Catalog health -->
+    <div class="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-headline-sm">Catalog health</h2>
+        <span class="text-[11px] text-on-surface-variant">5,079 products</span>
+      </div>
+      <div class="space-y-2">
+        <div class="flex items-center gap-3">
+          <div class="w-32 text-[12px] text-on-surface-variant text-right">Designed &amp; live</div>
+          <div class="flex-1"><div class="bar-track"><div class="bar-fill" style="width:20%;background:#1e5a38">1,024</div></div></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="w-32 text-[12px] text-on-surface-variant text-right">Designed · Draft</div>
+          <div class="flex-1"><div class="bar-track"><div class="bar-fill" style="width:8%;background:#0055a5">412</div></div></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="w-32 text-[12px] text-on-surface-variant text-right">Needs design</div>
+          <div class="flex-1"><div class="bar-track"><div class="bar-fill" style="width:80%;background:#8a5a00">4,055</div></div></div>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="w-32 text-[12px] text-on-surface-variant text-right">Needs review</div>
+          <div class="flex-1"><div class="bar-track"><div class="bar-fill" style="width:4%;background:#6b1e28">196</div></div></div>
+        </div>
+      </div>
+      <div class="flex items-center gap-4 mt-3 pt-3 border-t border-surface-dim text-[11px] text-on-surface-variant">
+        <span><span class="font-semibold text-on-surface">20%</span> of catalog is designed</span>
+        <span><span class="font-semibold text-on-surface">80%</span> needs a design</span>
+        <span><span class="font-semibold text-qb-maroon">196</span> need review</span>
+      </div>
+    </div>
+
+    <!-- Needs attention -->
+    <div class="bg-white rounded-xl border border-surface-dim p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-headline-sm">Needs attention</h2>
+        <span class="text-[11px] text-error font-semibold">5 items</span>
+      </div>
+      <div>
+        <div class="act-row" onclick="toast('Open 47 products needing sync')">
+          <span class="material-symbols-outlined text-[18px] text-qb-maroon">sync_problem</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium">47 products out of sync</div>
+            <div class="text-[11px] text-on-surface-variant">TikTok Shop · price &amp; stock drift</div>
+          </div>
+          <span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+        </div>
+        <div class="act-row" onclick="toast('Open Etsy sync errors')">
+          <span class="material-symbols-outlined text-[18px] text-error">error</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium">2 failed syncs on Etsy</div>
+            <div class="text-[11px] text-on-surface-variant">Missing images on 2 listings</div>
+          </div>
+          <span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+        </div>
+        <div class="act-row" onclick="toast('Open UGC moderation')">
+          <span class="material-symbols-outlined text-[18px] text-qb-blue">rate_review</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium">8 UGC submissions pending</div>
+            <div class="text-[11px] text-on-surface-variant">Photos and reviews to moderate</div>
+          </div>
+          <span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+        </div>
+        <div class="act-row" onclick="toast('Open missing assets')">
+          <span class="material-symbols-outlined text-[18px] text-qb-maroon">image_not_supported</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium">1 brand missing favicon</div>
+            <div class="text-[11px] text-on-surface-variant">Lakeside Studio · draft brand</div>
+          </div>
+          <span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+        </div>
+        <div class="act-row" onclick="toast('Open low stock')">
+          <span class="material-symbols-outlined text-[18px] text-qb-maroon">inventory_2</span>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium">3 SKUs low or out of stock</div>
+            <div class="text-[11px] text-on-surface-variant">Soy Candle variants · Cedar &amp; Vanilla</div>
+          </div>
+          <span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Second row: Recent activity + Quick routes -->
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-5">
+
+    <!-- Recent activity -->
+    <div class="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-headline-sm">Recent activity</h2>
+        <button class="text-[11px] text-primary font-semibold hover:underline" onclick="toast('View all activity')">View all</button>
+      </div>
+      <div class="space-y-3 text-body-sm">
+        <div class="flex items-start gap-2">
+          <span class="material-symbols-outlined text-[16px] text-qb-green mt-0.5">palette</span>
+          <div class="min-w-0 flex-1">
+            <div class="font-medium">Classic Tee — Black designed</div>
+            <div class="text-[11px] text-on-surface-variant">91 variants · applied to 3 channels · 12 min ago</div>
+          </div>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="material-symbols-outlined text-[16px] text-qb-blue mt-0.5">sync</span>
+          <div class="min-w-0 flex-1">
+            <div class="font-medium">Shopify sync completed</div>
+            <div class="text-[11px] text-on-surface-variant">1,842 listings · 0 issues · 2 min ago</div>
+          </div>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="material-symbols-outlined text-[16px] text-qb-maroon mt-0.5">inventory_2</span>
+          <div class="min-w-0 flex-1">
+            <div class="font-medium">Soy Candle — Vanilla out of stock</div>
+            <div class="text-[11px] text-on-surface-variant">Cotton Source Co. · 42 min ago</div>
+          </div>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="material-symbols-outlined text-[16px] text-qb-teal mt-0.5">factory</span>
+          <div class="min-w-0 flex-1">
+            <div class="font-medium">Printify lead time updated</div>
+            <div class="text-[11px] text-on-surface-variant">2–3 days → 1–2 days · 2 hours ago</div>
+          </div>
+        </div>
+        <div class="flex items-start gap-2">
+          <span class="material-symbols-outlined text-[16px] text-qb-blue mt-0.5">rate_review</span>
+          <div class="min-w-0 flex-1">
+            <div class="font-medium">2 UGC submissions received</div>
+            <div class="text-[11px] text-on-surface-variant">Lightweight Sweatshirt (AOP) · 3 hours ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick routes -->
+    <div class="bg-white rounded-xl border border-surface-dim p-5">
+      <h2 class="text-headline-sm mb-3">Jump to</h2>
+      <div class="space-y-1">
+        <button class="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onclick="toast('Open Products')">
+          <span class="material-symbols-outlined text-[18px] text-qb-blue">inventory</span>
+          <span class="flex-1 text-body-sm font-medium">Products</span>
+          <span class="text-[11px] text-on-surface-variant">5,079</span>
+        </button>
+        <button class="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onclick="toast('Open Variants & SKUs')">
+          <span class="material-symbols-outlined text-[18px] text-qb-teal">qr_code</span>
+          <span class="flex-1 text-body-sm font-medium">Variants &amp; SKUs</span>
+          <span class="text-[11px] text-on-surface-variant">8,412</span>
+        </button>
+        <button class="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onclick="toast('Open Bundles')">
+          <span class="material-symbols-outlined text-[18px] text-qb-green">redeem</span>
+          <span class="flex-1 text-body-sm font-medium">Bundles</span>
+          <span class="text-[11px] text-on-surface-variant">12</span>
+        </button>
+        <button class="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onclick="toast('Open Suppliers')">
+          <span class="material-symbols-outlined text-[18px] text-qb-maroon">factory</span>
+          <span class="flex-1 text-body-sm font-medium">Suppliers</span>
+          <span class="text-[11px] text-on-surface-variant">12</span>
+        </button>
+        <button class="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onclick="toast('Open Brands')">
+          <span class="material-symbols-outlined text-[18px] text-qb-navy">branding_watermark</span>
+          <span class="flex-1 text-body-sm font-medium">Brands</span>
+          <span class="text-[11px] text-on-surface-variant">3</span>
+        </button>
+        <button class="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onclick="toast('Open Channels')">
+          <span class="material-symbols-outlined text-[18px] text-qb-green">local_mall</span>
+          <span class="flex-1 text-body-sm font-medium">Channels</span>
+          <span class="text-[11px] text-on-surface-variant">4</span>
+        </button>
+        <button class="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onclick="toast('Open Categories & Collections')">
+          <span class="material-symbols-outlined text-[18px] text-qb-blue">category</span>
+          <span class="flex-1 text-body-sm font-medium">Categories &amp; Collections</span>
+          <span class="text-[11px] text-on-surface-variant">24</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Third row: Top SKUs + Channel health -->
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+    <!-- Top SKUs -->
+    <div class="bg-white rounded-xl border border-surface-dim p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-headline-sm">Top SKUs (30d)</h2>
+        <button class="text-[11px] text-primary font-semibold hover:underline" onclick="toast('Open Variants')">View all</button>
+      </div>
+      <div>
+        <div class="act-row" onclick="toast('Open Classic Tee — M / Black')">
+          <div class="av bg-qb-blue">T</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium truncate">Classic Tee — M / Black</div>
+            <div class="text-[11px] text-on-surface-variant">1,842 sold · $2,800 margin</div>
+          </div>
+          <span class="text-body-sm font-semibold tabular-nums">$28.00</span>
+        </div>
+        <div class="act-row" onclick="toast('Open Speckled Mug')">
+          <div class="av bg-qb-teal">M</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium truncate">Speckled Wayland Ceramic Mug</div>
+            <div class="text-[11px] text-on-surface-variant">248 sold · $4,464 revenue</div>
+          </div>
+          <span class="text-body-sm font-semibold tabular-nums">$18.00</span>
+        </div>
+        <div class="act-row" onclick="toast('Open Soy Candle — Lavender')">
+          <div class="av bg-qb-maroon">C</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium truncate">Soy Candle — Lavender</div>
+            <div class="text-[11px] text-on-surface-variant">180 sold · $3,960 revenue</div>
+          </div>
+          <span class="text-body-sm font-semibold tabular-nums">$22.00</span>
+        </div>
+        <div class="act-row" onclick="toast('Open Dad Cap')">
+          <div class="av bg-qb-navy">D</div>
+          <div class="min-w-0 flex-1">
+            <div class="text-body-sm font-medium truncate">Dad Cap</div>
+            <div class="text-[11px] text-on-surface-variant">34 sold · $816 revenue</div>
+          </div>
+          <span class="text-body-sm font-semibold tabular-nums">$24.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Channel health -->
+    <div class="bg-white rounded-xl border border-surface-dim p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-headline-sm">Channel health</h2>
+        <button class="text-[11px] text-primary font-semibold hover:underline" onclick="toast('Open Channels')">Manage</button>
+      </div>
+      <div class="space-y-2">
+        <div class="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
+          <div class="w-7 h-7 rounded bg-qb-green text-white flex items-center justify-center text-[11px] font-bold">S</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-body-sm font-medium">Shopify</div>
+            <div class="text-[11px] text-on-surface-variant">1,842 listings · 0 needs sync</div>
+          </div>
+          <span class="stat success">Synced</span>
+        </div>
+        <div class="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
+          <div class="w-7 h-7 rounded bg-qb-maroon text-white flex items-center justify-center text-[11px] font-bold">T</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-body-sm font-medium">TikTok Shop</div>
+            <div class="text-[11px] text-on-surface-variant">842 listings · 45 need sync</div>
+          </div>
+          <span class="stat warn">Needs sync</span>
+        </div>
+        <div class="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
+          <div class="w-7 h-7 rounded bg-qb-maroon text-white flex items-center justify-center text-[11px] font-bold">E</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-body-sm font-medium">Etsy</div>
+            <div class="text-[11px] text-on-surface-variant">156 listings · 2 errors</div>
+          </div>
+          <span class="stat error">Failed sync</span>
+        </div>
+        <div class="flex items-center gap-3 py-2 last:border-0">
+          <div class="w-7 h-7 rounded bg-qb-blue text-white flex items-center justify-center text-[11px] font-bold">H</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-body-sm font-medium">Headless Storefront</div>
+            <div class="text-[11px] text-on-surface-variant">842 listings · 0 needs sync</div>
+          </div>
+          <span class="stat success">Synced</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<!-- Create split menu -->
+<div class="row-menu" id="createMenu" style="position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:250px;padding:4px;z-index:200;display:none">
+  <div class="menu-header" style="padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355">Create in Catalog</div>
+  <button data-create="Product" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">checkroom</span>Product</button>
+  <button data-create="Variant" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">qr_code</span>Variant / SKU</button>
+  <button data-create="Bundle" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">redeem</span>Bundle</button>
+  <div style="height:1px;background:#eeedf1;margin:4px 0"></div>
+  <button data-create="Category" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">category</span>Category</button>
+  <button data-create="Collection" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">collections_bookmark</span>Collection</button>
+  <div style="height:1px;background:#eeedf1;margin:4px 0"></div>
+  <button data-create="Supplier" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">factory</span>Supplier</button>
+  <button data-create="Brand" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">branding_watermark</span>Brand</button>
+  <button data-create="Channel" style="display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e"><span class="material-symbols-outlined" style="font-size:16px;color:#5a6355">link</span>Channel</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function toast(m){ const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('show'), 1800); }
+
+const createMenu = document.getElementById('createMenu');
+document.getElementById('btnCreateSplit').addEventListener('click', e => {
+  e.stopPropagation();
+  const r = e.currentTarget.getBoundingClientRect();
+  createMenu.style.top = (r.bottom + 4) + 'px';
+  createMenu.style.left = Math.min(r.right - 240, window.innerWidth - 260) + 'px';
+  createMenu.style.display = createMenu.style.display === 'block' ? 'none' : 'block';
+});
+document.getElementById('btnCreate').addEventListener('click', () => toast('Create → Product'));
+document.querySelectorAll('#createMenu [data-create]').forEach(b => {
+  b.addEventListener('click', () => {
+    createMenu.style.display = 'none';
+    toast('Create → ' + b.dataset.create);
+  });
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('#createMenu') && !e.target.closest('#btnCreateSplit')) {
+    createMenu.style.display = 'none';
+  }
+});
+</script>
+</body>
+</html>

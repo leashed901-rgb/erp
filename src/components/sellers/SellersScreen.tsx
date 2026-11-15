@@ -109,14 +109,8 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
 
   return (
     <main className="px-6 pb-12 flex flex-col h-full">
-      {/* BREADCRUMB */}
-      <div className="flex items-center gap-2 text-label-sm text-on-surface-variant mt-4 mb-2">
-        <span>Contacts</span><span className="text-outline">/</span>
-        <span className="text-on-surface font-semibold">Sellers</span>
-      </div>
-
-      {/* PAGE HEADER */}
-      <div className="flex items-start justify-between gap-4 py-3 mb-4 flex-wrap">
+      {/* PAGE HEADER — flat, no container */}
+      <div className="flex items-start justify-between gap-4 py-4 flex-wrap">
         <div>
           <h1 className="text-headline-lg">Sellers</h1>
           <p className="text-body-sm text-on-surface-variant mt-0.5">
@@ -162,8 +156,7 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
         </div>
       </div>
 
-      {/* SAVED VIEW CHIPS — replaces the old 'Onboarding Queue' sidebar screen.
-          Onboarding Queue = sellers without a profile (enforcement-only). */}
+      {/* SAVED VIEW CHIPS */}
       <div className="flex items-center gap-1.5 mb-3 flex-wrap">
         {VIEW_CHIPS.map(chip => {
           const isActive = view === chip.key;
@@ -181,14 +174,8 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
         })}
       </div>
 
-      {/* LIST CARD */}
-      <div className="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden mb-4">
-        {/* Filter bar */}
-        <div className="px-4 py-2 flex items-center gap-2 border-b border-surface-dim flex-wrap">
-          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">storefront</span>
-          <span className="text-label-sm text-on-surface-variant">Seller relationships</span>
-          <span className="ml-auto text-[11px] text-on-surface-variant">{filtered.length} of {totalSellers}</span>
-        </div>
+      {/* TABLE — flat, no container/box wrapper */}
+      <div className="bg-white rounded-xl border border-surface-dim overflow-hidden flex-1 flex flex-col">
 
         {filtered.length === 0 ? (
           <div className="py-12 px-6 text-center">

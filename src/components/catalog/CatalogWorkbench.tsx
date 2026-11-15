@@ -39,6 +39,9 @@ import {
 interface CatalogWorkbenchProps {
   onToast: (m: string) => void;
   onNavigate?: (d: string, s: string) => void;
+  /** When opened from a specific catalog sub-page (listings, bundles, collections,
+   *  brands, pricing, channels), default to that entity tab. */
+  defaultEntity?: EntityKey;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -479,9 +482,9 @@ function brandInitials(name: string): string {
    Component
    ════════════════════════════════════════════════════════════ */
 
-export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkbenchProps) {
+export default function CatalogWorkbench({ onToast, onNavigate, defaultEntity }: CatalogWorkbenchProps) {
   /* ── State (mirrors the HTML state object) ── */
-  const [entity, setEntity] = useState<EntityKey>('products');
+  const [entity, setEntity] = useState<EntityKey>(defaultEntity || 'products');
   const [saved, setSaved] = useState<string>('all');
   const [search, setSearch] = useState<string>('');
   // facets[entity][facetKey] = selected value | null
@@ -687,6 +690,14 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
     for (const k of keys) fresh[k] = stored[k] ?? null;
     return fresh;
   }, [facets, entity]);
+
+  /** Set/clear a facet value for the current entity. */
+  const setFacet = useCallback((key: string, value: string | null) => {
+    setFacets(prev => ({
+      ...prev,
+      [entity]: { ...(prev[entity] || {}), [key]: value },
+    }));
+  }, [entity]);
 
   /** Compute facet values + counts for a facet key (over the unfiltered rows). */
   const facetValues = useCallback((facetKey: string): [string, number][] => {
@@ -1223,8 +1234,49 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
           </div>
         </div>
 
-        {/* Table card */}
-        <div className="pt-4">
+        {/* Workbench: facet rail (left) + table (right) — matches catalog overview.html */}
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 pt-4">
+          {/* FACET RAIL — always visible on desktop, matches HTML <aside> */}
+          <aside className="bg-white rounded-xl border border-surface-dim p-2 h-fit sticky top-[68px] hidden lg:block">
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Facets</span>
+              <button
+                className="text-[11px] text-primary font-semibold hover:underline"
+                onClick={() => { setFacets(prev => ({ ...prev, [entity]: {} })); }}
+              >Clear</button>
+            </div>
+            {ENTITY_FACETS[entity].map(key => {
+              const def = FACET_DEFS[key];
+              if (!def) return null;
+              const vals = facetValues(key);
+              const activeVal = activeFacets[key];
+              return (
+                <div key={key} className="border-b border-surface-dim py-2.5 last:border-0">
+                  <div className="flex items-center justify-between px-2 pb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">{def.label}</span>
+                  </div>
+                  {vals.length === 0 ? (
+                    <div className="px-2 py-1 text-[11px] text-on-surface-variant">No values</div>
+                  ) : vals.map(([v, n]) => {
+                    const on = activeVal === v;
+                    return (
+                      <button
+                        key={v}
+                        className={`flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[12px] text-left ${on ? 'bg-primary/10 text-primary font-semibold' : 'text-on-surface hover:bg-surface-container-low'}`}
+                        onClick={() => setFacet(key, on ? null : v)}
+                      >
+                        <span className="flex-1 truncate">{v}</span>
+                        <span className="text-[10px] text-on-surface-variant tabular-nums">{n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </aside>
+
+          {/* TABLE */}
+          <div>
           <div className="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
             {/* Toolbar */}
             <div className="px-4 py-2 border-b border-surface-dim flex flex-wrap items-center gap-2">
@@ -1301,6 +1353,7 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
             />
           </div>
         </div>
+        </div>{/* close grid div */}
       </main>
 
       {/* ═══ Detail drawer ═══ */}

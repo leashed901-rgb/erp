@@ -154,6 +154,15 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
           { id: 'mkt-publishing-overview', label: 'Publishing Overview', type: 'overview' },
           { id: 'mkt-create-content', label: 'Create Content', type: 'wizard' },
           { id: 'mkt-oversight', label: 'Oversight', type: 'list' },
+          { id: 'mkt-channels', label: 'Channels', type: 'list' },
+        ],
+      },
+      {
+        name: 'Website',
+        icon: 'web',
+        bg: 'bg-qb-teal',
+        screens: [
+          { id: 'mkt-templates', label: 'Templates', type: 'list' },
         ],
       },
       {
@@ -195,7 +204,6 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
           { id: 'mkt-advertisers', label: 'Advertisers', type: 'list' },
         ],
       },
-      // CMS & Banners moved to Settings > Website / CMS
     ],
   },
   catalog: {
@@ -214,6 +222,18 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-green',
         screens: [
           { id: 'products', label: 'Products', type: 'list' },
+          { id: 'listings', label: 'Listings', type: 'list' },
+          { id: 'bundles', label: 'Bundles', type: 'list' },
+        ],
+      },
+      {
+        name: 'Organization',
+        icon: 'category',
+        bg: 'bg-qb-teal',
+        screens: [
+          { id: 'collections', label: 'Collections', type: 'list' },
+          { id: 'brands', label: 'Brands', type: 'list' },
+          { id: 'pricing', label: 'Pricing', type: 'list' },
         ],
       },
     ],

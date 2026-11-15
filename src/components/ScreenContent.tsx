@@ -54,6 +54,7 @@ import InvoicesScreen from './sales/InvoicesScreen';
 import PaymentLinksScreen from './sales/PaymentLinksScreen';
 import CatalogProductsScreen from './catalog/CatalogProductsScreen';
 import CatalogWorkbench from './catalog/CatalogWorkbench';
+import CatalogOverview from './catalog/CatalogOverview';
 import ContactsParties from './contacts/ContactsParties';
 import CrmOverviewSupabase from './contacts/CrmOverviewSupabase';
 // Sellers — Seller relationships group (Supabase-backed screens)
@@ -3333,7 +3334,10 @@ function TabScreenRenderer({
     );
   }
 
-  if (screenId === 'catalog-overview' || screenId === 'products') {
+  if (screenId === 'catalog-overview') {
+    return <CatalogOverview onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+  if (screenId === 'products') {
     return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
   if (screenId === 'listings') {

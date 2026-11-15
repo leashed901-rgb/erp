@@ -55,6 +55,13 @@ import PaymentLinksScreen from './sales/PaymentLinksScreen';
 import CatalogProductsScreen from './catalog/CatalogProductsScreen';
 import CatalogWorkbench from './catalog/CatalogWorkbench';
 import CatalogOverview from './catalog/CatalogOverview';
+import ProductsPage from './catalog/ProductsPage';
+import ListingsPage from './catalog/ListingsPage';
+import CollectionsPage from './catalog/CollectionsPage';
+import BrandsPage from './catalog/BrandsPage';
+import BundlesPage from './catalog/BundlesPage';
+import PricingPage from './catalog/PricingPage';
+import ChannelsPage from './catalog/ChannelsPage';
 import ContactsParties from './contacts/ContactsParties';
 import CrmOverviewSupabase from './contacts/CrmOverviewSupabase';
 // Sellers — Seller relationships group (Supabase-backed screens)
@@ -2969,8 +2976,8 @@ function TabScreenRenderer({
     case 'mkt-pixels': return <PixelsScreen onToast={onToast} />;
     case 'mkt-adspend': return <AdSpendScreen {...mktProps} />;
     case 'mkt-advertisers': return <AdvertisersScreen onToast={onToast} />;
-    case 'mkt-channels': return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="channels" />;
-    case 'mkt-templates': return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="brands" />;
+    case 'mkt-channels': return <ChannelsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+    case 'mkt-templates': return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
     default: break;
   }
 
@@ -3338,22 +3345,22 @@ function TabScreenRenderer({
     return <CatalogOverview onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
   if (screenId === 'products') {
-    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+    return <ProductsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
   if (screenId === 'listings') {
-    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="products" />;
+    return <ListingsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
   if (screenId === 'bundles') {
-    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="bundles" />;
+    return <BundlesPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
   if (screenId === 'collections') {
-    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="categories" />;
+    return <CollectionsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
   if (screenId === 'brands') {
-    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="brands" />;
+    return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
   if (screenId === 'pricing') {
-    return <CatalogWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} defaultEntity="suppliers" />;
+    return <PricingPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'parties') {

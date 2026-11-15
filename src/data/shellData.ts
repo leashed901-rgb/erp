@@ -211,26 +211,14 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
     icon: 'inventory_2',
     groups: [
       {
-        name: 'Catalog Overview',
+        name: 'Catalog',
         icon: 'play_circle',
         bg: 'bg-qb-navy',
-        screens: [{ id: 'catalog-overview', label: 'Overview', type: 'overview' }],
-      },
-      {
-        name: 'Products & Variants',
-        icon: 'checkroom',
-        bg: 'bg-qb-green',
         screens: [
+          { id: 'catalog-overview', label: 'Overview', type: 'overview' },
           { id: 'products', label: 'Products', type: 'list' },
           { id: 'listings', label: 'Listings', type: 'list' },
           { id: 'bundles', label: 'Bundles', type: 'list' },
-        ],
-      },
-      {
-        name: 'Organization',
-        icon: 'category',
-        bg: 'bg-qb-teal',
-        screens: [
           { id: 'collections', label: 'Collections', type: 'list' },
           { id: 'brands', label: 'Brands', type: 'list' },
           { id: 'pricing', label: 'Pricing', type: 'list' },

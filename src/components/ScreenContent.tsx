@@ -3331,7 +3331,7 @@ function TabScreenRenderer({
     );
   }
 
-  if (screenId === 'products') {
+  if (screenId === 'catalog-overview' || screenId === 'products') {
     return (
       <CatalogWorkbench
         onToast={onToast}

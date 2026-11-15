@@ -1126,20 +1126,15 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
           <div className={`flex ${styles.splitBtn}`}>
             <button
               className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
-              onClick={() => handleCreateAction('Product')}
-            >
-              <span className="material-symbols-outlined text-[16px]">add</span>Create
-            </button>
-            <button
-              data-create-split
-              className={`h-8 px-1.5 bg-primary text-white hover:bg-primary-container ${styles.splitBtnArrow}`}
               onClick={(e) => {
                 e.stopPropagation();
                 if (createMenu) setCreateMenu(null);
                 else openCreateMenu(e.currentTarget);
               }}
+              title="Create"
             >
-              <span className="material-symbols-outlined text-[16px]">expand_more</span>
+              <span className="material-symbols-outlined text-[16px]">add</span>Create
+              <span className="material-symbols-outlined text-[14px] ml-0.5">expand_more</span>
             </button>
           </div>
         </div>

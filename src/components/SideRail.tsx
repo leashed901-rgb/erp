@@ -236,10 +236,8 @@ export default function SideRail({
           {domain.groups.map((group) => {
             // The Design Studio's Catalog group renders the REAL tree once
             // loaded — every link maps to a node that actually exists.
-            // ONLY for the design domain — the catalog domain uses its own
-            // sidebar items (Overview, Products, Listings, etc.) from shellData.
             const groupScreens =
-              activeDomain === 'design' && group.name === 'Catalog' && realCatalogScreens ? realCatalogScreens : group.screens;
+              group.name === 'Catalog' && realCatalogScreens ? realCatalogScreens : group.screens;
             // Filter: a screen matches on its own label or a child's label.
             // Children filter independently unless the parent itself matches.
             // Hidden screens never render in the sidebar (they are opened

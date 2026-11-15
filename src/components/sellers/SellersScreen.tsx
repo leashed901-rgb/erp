@@ -41,9 +41,6 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
   const setSelectedSellerId = useSellerStore(s => s.setSelectedSellerId);
 
   const [q, setQ] = useState('');
-  // Saved view chip — 'Onboarding Queue' replaces the old sidebar screen.
-  // 'With violations' and 'Pending appeals' are the other natural filters.
-  const [view, setView] = useState<'all' | 'onboarding' | 'violations' | 'appeals'>('all');
   const [rowMenuForId, setRowMenuForId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [form, setForm] = useState<AddForm>(EMPTY_FORM);
@@ -52,31 +49,17 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
   /* Instant client-side search over names (server also supports ?q=). */
   const filtered = useMemo(() => {
     const ql = q.trim().toLowerCase();
-    return sellers.filter(s => {
-      // Saved view filter
-      let viewOk = true;
-      if (view === 'onboarding') viewOk = !s.has_profile;
-      else if (view === 'violations') viewOk = s.open_violations > 0;
-      else if (view === 'appeals') viewOk = s.pending_appeals > 0;
-      // Search filter
-      const qOk = !ql || `${s.display_name || ''} ${s.legal_name || ''} ${s.seller_id}`.toLowerCase().includes(ql);
-      return viewOk && qOk;
-    });
-  }, [sellers, q, view]);
+    if (!ql) return sellers;
+    return sellers.filter(s =>
+      `${s.display_name || ''} ${s.legal_name || ''} ${s.seller_id}`.toLowerCase().includes(ql),
+    );
+  }, [sellers, q]);
 
   const totalSellers = sellers.length;
   const withProfile = sellers.filter(s => s.has_profile).length;
   const enforcementOnly = totalSellers - withProfile;
   const openViolations = sellers.reduce((s, x) => s + x.open_violations, 0);
   const pendingAppeals = sellers.reduce((s, x) => s + x.pending_appeals, 0);
-  const onboardingCount = enforcementOnly; // sellers without a profile = in onboarding queue
-
-  const VIEW_CHIPS: { key: typeof view; label: string; count: number; icon: string }[] = [
-    { key: 'all', label: 'All', count: totalSellers, icon: 'list' },
-    { key: 'onboarding', label: 'Onboarding Queue', count: onboardingCount, icon: 'how_to_reg' },
-    { key: 'violations', label: 'With violations', count: sellers.filter(s => s.open_violations > 0).length, icon: 'gavel' },
-    { key: 'appeals', label: 'Pending appeals', count: sellers.filter(s => s.pending_appeals > 0).length, icon: 'campaign' },
-  ];
 
   function openDetail(s: SellerSummary) {
     setSelectedSellerId(s.seller_id);
@@ -109,8 +92,14 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
 
   return (
     <main className="px-6 pb-12 flex flex-col h-full">
-      {/* PAGE HEADER — flat, no container */}
-      <div className="flex items-start justify-between gap-4 py-4 flex-wrap">
+      {/* BREADCRUMB */}
+      <div className="flex items-center gap-2 text-label-sm text-on-surface-variant mt-4 mb-2">
+        <span>Contacts</span><span className="text-outline">/</span>
+        <span className="text-on-surface font-semibold">Sellers</span>
+      </div>
+
+      {/* PAGE HEADER */}
+      <div className="flex items-start justify-between gap-4 py-3 mb-4 flex-wrap">
         <div>
           <h1 className="text-headline-lg">Sellers</h1>
           <p className="text-body-sm text-on-surface-variant mt-0.5">
@@ -156,26 +145,14 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
         </div>
       </div>
 
-      {/* SAVED VIEW CHIPS */}
-      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-        {VIEW_CHIPS.map(chip => {
-          const isActive = view === chip.key;
-          return (
-            <button
-              key={chip.key}
-              className={`h-7 px-3 rounded-md text-label-sm flex items-center gap-1.5 border transition-colors ${isActive ? 'bg-primary text-white border-primary' : 'bg-white text-on-surface-variant border-surface-dim hover:bg-surface-container-low'}`}
-              onClick={() => setView(chip.key)}
-            >
-              <span className="material-symbols-outlined text-[14px]">{chip.icon}</span>
-              {chip.label}
-              <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/25' : 'bg-surface-container-low text-on-surface-variant'}`}>{chip.count}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* TABLE — flat, no container/box wrapper */}
-      <div className="bg-white rounded-xl border border-surface-dim overflow-hidden flex-1 flex flex-col">
+      {/* LIST CARD */}
+      <div className="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden mb-4">
+        {/* Filter bar */}
+        <div className="px-4 py-2 flex items-center gap-2 border-b border-surface-dim flex-wrap">
+          <span className="material-symbols-outlined text-[16px] text-on-surface-variant">storefront</span>
+          <span className="text-label-sm text-on-surface-variant">Seller relationships</span>
+          <span className="ml-auto text-[11px] text-on-surface-variant">{filtered.length} of {totalSellers}</span>
+        </div>
 
         {filtered.length === 0 ? (
           <div className="py-12 px-6 text-center">
@@ -210,9 +187,9 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-dim">
-                {filtered.map((s, idx) => (
+                {filtered.map(s => (
                   <tr
-                    key={s.seller_id || s.id || `seller-${idx}`}
+                    key={s.seller_id}
                     className="hover:bg-surface-container-low cursor-pointer"
                     onClick={() => openDetail(s)}
                   >
@@ -223,7 +200,7 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
                           <span className="font-medium truncate block text-primary hover:underline">{sellerDisplayName(s)}</span>
                           {s.has_profile ? (
                             <span className="text-[11px] text-on-surface-variant truncate block">
-                              {s.display_name && s.legal_name && s.display_name !== s.legal_name ? s.legal_name : (s.seller_id || '—').slice(0, 8)}
+                              {s.display_name && s.legal_name && s.display_name !== s.legal_name ? s.legal_name : s.seller_id.slice(0, 8)}
                             </span>
                           ) : (
                             <span className="text-[11px] text-on-surface-variant italic block">no profile — from enforcement data</span>

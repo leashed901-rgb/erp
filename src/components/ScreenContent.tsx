@@ -2,7 +2,6 @@
 // Business Tax + Sales screens wired here (tax-overview / tax-summary / tax-filing)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
 import {
   DEMO_ROWS,
   DOMAINS,
@@ -40,7 +39,6 @@ import BankRulesScreen from './finance/BankRulesScreen';
 import ReceiptsScreen from './finance/ReceiptsScreen';
 import BillsScreen from './finance/BillsScreen';
 import EstimatesScreen from './finance/EstimatesScreen';
-import EstimatesWorkbench from './finance/EstimatesWorkbench';
 import PurchaseOrderScreen from './finance/PurchaseOrderScreen';
 import ReportsScreen from './finance/ReportsScreen';
 import CashFlowScreen from './finance/CashFlowScreen';
@@ -53,15 +51,14 @@ import SalesTransactions from './sales/SalesTransactions';
 import InvoicesScreen from './sales/InvoicesScreen';
 import PaymentLinksScreen from './sales/PaymentLinksScreen';
 import CatalogProductsScreen from './catalog/CatalogProductsScreen';
-import CatalogWorkbench from './catalog/CatalogWorkbench';
 import CatalogOverview from './catalog/CatalogOverview';
 import ProductsPage from './catalog/ProductsPage';
 import ListingsPage from './catalog/ListingsPage';
+import BundlesPage from './catalog/BundlesPage';
 import CollectionsPage from './catalog/CollectionsPage';
 import BrandsPage from './catalog/BrandsPage';
-import BundlesPage from './catalog/BundlesPage';
 import PricingPage from './catalog/PricingPage';
-import ChannelsPage from './catalog/ChannelsPage';
+import EcommercePage from './catalog/EcommercePage';
 import ContactsParties from './contacts/ContactsParties';
 import CrmOverviewSupabase from './contacts/CrmOverviewSupabase';
 // Sellers — Seller relationships group (Supabase-backed screens)
@@ -80,17 +77,14 @@ import ConversationInbox from './queue/ConversationInbox';
 import AppointmentsScreen from './contacts/AppointmentsScreen';
 import CustomersSupabase from './contacts/CustomersSupabase';
 import LeadsPipelineSupabase from './contacts/LeadsPipelineSupabase';
-import DealsWorkbench from './contacts/DealsWorkbench';
-import PipelinesScreen from './contacts/PipelinesScreen';
-import LeadScoringScreen from './contacts/LeadScoringScreen';
 import StatementsScreen from './contacts/StatementsScreen';
 import OrdersOverview from './orders/OrdersOverview';
-import OrdersWorkbench from './orders/OrdersWorkbench';
 import OrdersList from './orders/OrdersList';
 import PurchaseOrders from './orders/PurchaseOrders';
 import ReturnsClaims from './orders/ReturnsClaims';
 import FulfillmentQueue from './orders/FulfillmentQueue';
 import BatchSlips from './orders/BatchSlips';
+import ShippingSettings from './orders/ShippingSettings';
 import InventoryView from './orders/InventoryView';
 import DesignCanvasScreen from './design/DesignCanvasScreen';
 import DesignPreviewScreen from './design/DesignPreviewScreen';
@@ -2826,7 +2820,7 @@ function TabScreenRenderer({
       case 'orders-overview':
         return <OrdersOverview {...ordersProps} />;
       case 'orders':
-        return <OrdersWorkbench onToast={onToast} onNavigate={onNavigate} />;
+        return <OrdersList {...ordersProps} />;
       case 'purchase-orders':
         return <PurchaseOrders {...ordersProps} />;
       case 'returns':
@@ -2835,6 +2829,8 @@ function TabScreenRenderer({
         return <FulfillmentQueue {...ordersProps} />;
       case 'batch-slips':
         return <BatchSlips {...ordersProps} />;
+      case 'shipping-settings':
+        return <ShippingSettings {...ordersProps} />;
       case 'inventory':
         return <InventoryView {...ordersProps} />;
       default:
@@ -2976,8 +2972,6 @@ function TabScreenRenderer({
     case 'mkt-pixels': return <PixelsScreen onToast={onToast} />;
     case 'mkt-adspend': return <AdSpendScreen {...mktProps} />;
     case 'mkt-advertisers': return <AdvertisersScreen onToast={onToast} />;
-    case 'mkt-channels': return <ChannelsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
-    case 'mkt-templates': return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
     default: break;
   }
 
@@ -3056,22 +3050,6 @@ function TabScreenRenderer({
 
   if (screenId === 'leads') {
     return <LeadsPipelineSupabase onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
-  }
-
-  if (screenId === 'deals') {
-    // Deals workbench — Kanban board (drag to move stage → PATCH /api/crm/deals/[id]),
-    // list view, deal drawer, create modal, right-click won/lost/follow-up.
-    return <DealsWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
-  }
-
-  if (screenId === 'pipelines') {
-    // Pipelines + stages CRUD. Creating a pipeline seeds 6 default stages.
-    return <PipelinesScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'lead-scoring') {
-    // Lead scoring rule builder + score bands.
-    return <LeadScoringScreen onToast={onToast} />;
   }
 
   if (screenId === 'appointments') {
@@ -3274,20 +3252,6 @@ function TabScreenRenderer({
     );
   }
 
-  if (screenId === 'tax-return') {
-    // Create tax return — routes to YearEndFiling which now reads/writes
-    // efile_filings. The YearEndFiling screen shows the filing list +
-    // handles create/extension/transmit/restart/abandon via real API calls.
-    return (
-      <YearEndFiling
-        onNavigate={onNavigate}
-        onToast={onToast}
-        onCreate={onCreate}
-        onOpenCreateFlyout={onOpenCreateFlyout}
-      />
-    );
-  }
-
   if (screenId === 'sales-overview') {
     return (
       <SalesOverview
@@ -3324,9 +3288,9 @@ function TabScreenRenderer({
   }
 
   if (screenId === 'estimates') {
-    // Finance → Sales → Estimates: real data from /api/estimates (acct_estimates).
-    // Convert-to-invoice row action wraps acct_convert_estimate RPC.
-    return <EstimatesWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+    // Finance → Sales → Estimates: the full Document list (store-backed,
+    // DocumentEngine-wired). The contacts-scoped view is not routed here.
+    return <EstimatesScreen onToast={onToast} />;
   }
 
   if (screenId === 'payment-links') {
@@ -3341,26 +3305,46 @@ function TabScreenRenderer({
     );
   }
 
+  if (screenId === 'products') {
+    // The global Catalog products list — REAL data from the products table.
+    // Every row/name click opens ProductProfile (the tabbed product page that
+    // mirrors PartyProfile). Finance's “Products and services” uses the same
+    // list — one catalog, one screen.
+    return (
+      <CatalogProductsScreen
+        onNavigate={onNavigate as (d: string, s: string) => void}
+        onToast={onToast}
+        backLabel={domain === 'catalog' ? 'Products' : 'Products and services'}
+      />
+    );
+  }
+
   if (screenId === 'catalog-overview') {
     return <CatalogOverview onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
-  if (screenId === 'products') {
-    return <ProductsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
-  }
+
   if (screenId === 'listings') {
     return <ListingsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
+
   if (screenId === 'bundles') {
     return <BundlesPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
-  if (screenId === 'collections') {
+
+  if (screenId === 'categories') {
     return <CollectionsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
+
   if (screenId === 'brands') {
     return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
+
   if (screenId === 'pricing') {
     return <PricingPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+
+  if (screenId === 'ecommerce') {
+    return <EcommercePage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'parties') {

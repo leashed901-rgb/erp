@@ -34,13 +34,9 @@ export default function ListingsPage({ onToast, onNavigate }: Props) {
     <div className="flex items-center gap-2">
       <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-sync-all>
         <span className="material-symbols-outlined text-[16px]">open_in_new</span>View live site</button>
-      <div className="flex split-btn">
-        <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" onClick="toast('New storefront listing flow')">
+      <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 rounded" onClick="toast('New storefront listing flow')">
           <span className="material-symbols-outlined text-[16px]">add</span>New listing
         </button>
-        <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-          <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-      </div>
     </div>
   </div>
 

@@ -32,13 +32,9 @@ export default function ProductsPage({ onToast, onNavigate }: Props) {
       <p className="text-body-sm text-on-surface-variant mt-0.5">Manage your catalog, designs, and supplier blanks</p>
     </div>
     <div className="flex items-center gap-2">
-      <div className="flex split-btn">
-        <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-new-product>
+      <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 rounded" data-new-product>
           <span className="material-symbols-outlined text-[16px]">add</span>New product
         </button>
-        <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" data-new-split>
-          <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-      </div>
       <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-export>
         <span className="material-symbols-outlined text-[16px]">download</span>Export</button>
       <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-customize>

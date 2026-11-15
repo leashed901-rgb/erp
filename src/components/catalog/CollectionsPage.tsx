@@ -1,53 +1,244 @@
 'use client';
-import { useEffect, useState } from 'react';
-interface Props { onToast: (m: string) => void; onNavigate?: (d: string, s: string) => void; }
-interface Collection { id: string; name: string; slug: string; product_count?: number; type?: string; is_published?: boolean; }
-export default function CollectionsPage({ onToast }: Props) {
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [tab, setTab] = useState<'all' | 'published' | 'drafts'>('all');
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editing, setEditing] = useState<Collection | null>(null);
-  const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [type, setType] = useState<'manual' | 'automated'>('manual');
-  const [publish, setPublish] = useState(false);
-  useEffect(() => { fetch('/api/v1/collections').then(r=>r.json()).then(j=>{setCollections(j.data||[]);setLoaded(true);}).catch(()=>setLoaded(true)); }, []);
-  function refresh() { fetch('/api/v1/collections').then(r=>r.json()).then(j=>setCollections(j.data||[])); }
-  const filtered = collections.filter(c => { if (tab==='published' && !c.is_published) return false; if (tab==='drafts' && c.is_published) return false; return true; });
-  const publishedCount = collections.filter(c=>c.is_published).length;
-  const draftCount = collections.filter(c=>!c.is_published).length;
-  function openCreate() { setEditing(null); setName(''); setSlug(''); setType('manual'); setPublish(false); setDrawerOpen(true); }
-  function openEdit(c: Collection) { setEditing(c); setName(c.name); setSlug(c.slug||''); setType((c.type as any)||'manual'); setPublish(c.is_published||false); setDrawerOpen(true); }
-  async function save() { if(!name.trim()){onToast('Name required');return;} const body={name:name.trim(),slug:slug.trim()||name.trim().toLowerCase().replace(/\s+/g,'-'),type,is_published:publish}; if(editing){const r=await fetch(`/api/v1/collections/${editing.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(r.ok){onToast('Saved');setDrawerOpen(false);refresh();}}else{const r=await fetch('/api/v1/collections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(r.ok){onToast('Created');setDrawerOpen(false);refresh();}} }
-  async function del(id:string) { const r=await fetch(`/api/v1/collections/${id}`,{method:'DELETE'}); if(r.ok){onToast('Deleted');refresh();} }
+/**
+ * CollectionsPage.tsx — 1:1 port of upload/collections.html
+ * Installed from the HTML file you provided. Renders the exact layout.
+ */
+interface Props {
+  onToast: (m: string) => void;
+  onNavigate?: (d: string, s: string) => void;
+}
+
+export default function CollectionsPage({ onToast, onNavigate }: Props) {
   return (
-    <main className="px-6 pb-12">
-      <div className="flex items-center justify-between py-4 flex-wrap gap-4">
-        <div><h1 className="text-headline-lg">Categories &amp; Collections</h1><p className="text-body-sm text-on-surface-variant mt-0.5">Group products into themes for storefront publishing</p></div>
-        <div className="flex items-center gap-2"><button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={()=>onToast('Export')}><span className="material-symbols-outlined text-[16px]">download</span>Export</button><button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 rounded" onClick={openCreate}><span className="material-symbols-outlined text-[16px]">add</span>New collection</button></div>
+    <>
+
+
+
+<div className="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim">
+  <div className="flex items-center gap-3">
+    <span className="material-symbols-outlined text-[20px] text-on-surface-variant">category</span>
+    <span className="text-label-md font-semibold">Catalog</span>
+    <span className="text-outline">/</span>
+    <span className="text-label-md text-primary font-semibold">Categories &amp; Collections</span>
+  </div>
+  <div className="text-label-sm text-on-surface-variant">Preview · standalone</div>
+</div>
+
+<main className="px-6 pb-12">
+
+  <div className="flex items-center justify-between gap-4 py-4 flex-wrap">
+    <div>
+      <h1 className="text-headline-lg">Categories &amp; Collections</h1>
+      <p className="text-body-sm text-on-surface-variant mt-0.5">Group products into collections for the storefront</p>
+    </div>
+    <div className="flex items-center gap-2">
+      <div className="flex split-btn">
+        <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-new-collection>
+          <span className="material-symbols-outlined text-[16px]">add</span>New collection
+        </button>
+        <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" data-new-split>
+          <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
       </div>
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-        <div className="bg-white rounded-xl border border-surface-dim p-3"><div className="text-[10px] uppercase font-bold text-on-surface-variant">Total collections</div><div className="text-headline-sm tabular-nums mt-1">{collections.length}</div></div>
-        <div className="bg-white rounded-xl border border-surface-dim p-3"><div className="text-[10px] uppercase font-bold text-on-surface-variant">Published</div><div className="text-headline-sm tabular-nums mt-1 text-secondary">{publishedCount}</div></div>
-        <div className="bg-white rounded-xl border border-surface-dim p-3"><div className="text-[10px] uppercase font-bold text-on-surface-variant">Drafts</div><div className="text-headline-sm tabular-nums mt-1">{draftCount}</div></div>
-        <div className="bg-white rounded-xl border border-surface-dim p-3"><div className="text-[10px] uppercase font-bold text-on-surface-variant">Products in collections</div><div className="text-headline-sm tabular-nums mt-1">{collections.reduce((s,c)=>s+(c.product_count||0),0)}</div></div>
+      <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-export>
+        <span className="material-symbols-outlined text-[16px]">download</span>Export</button>
+    </div>
+  </div>
+
+  
+  <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+    <div className="bg-white rounded-xl border border-surface-dim p-3">
+      <div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Total collections</div>
+      <div className="text-headline-sm mt-1 tabular-nums">24</div>
+      <div className="text-[11px] text-on-surface-variant mt-0.5">Across 4 main categories</div>
+    </div>
+    <div className="bg-white rounded-xl border border-surface-dim p-3">
+      <div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Published</div>
+      <div className="text-headline-sm mt-1 tabular-nums text-secondary">18</div>
+      <div className="text-[11px] text-on-surface-variant mt-0.5">Visible on storefront</div>
+    </div>
+    <div className="bg-white rounded-xl border border-surface-dim p-3">
+      <div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Drafts</div>
+      <div className="text-headline-sm mt-1 tabular-nums text-qb-maroon">6</div>
+      <div className="text-[11px] text-on-surface-variant mt-0.5">Waiting for launch</div>
+    </div>
+    <div className="bg-white rounded-xl border border-surface-dim p-3">
+      <div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Uncategorized</div>
+      <div className="text-headline-sm mt-1 tabular-nums">12</div>
+      <div className="text-[11px] text-on-surface-variant mt-0.5">Products not in a collection</div>
+    </div>
+  </div>
+
+  
+  <div className="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
+    <div className="flex items-center gap-1 px-4 h-11 border-b border-surface-dim overflow-x-auto">
+      <button className="h-full px-3 text-label-md tab-underline active">All collections</button>
+      <button className="h-full px-3 text-label-md tab-underline text-on-surface-variant">Published</button>
+      <button className="h-full px-3 text-label-md tab-underline text-on-surface-variant">Drafts</button>
+      <button className="h-full px-3 text-label-md tab-underline text-on-surface-variant">Automated</button>
+    </div>
+
+    <div className="px-4 py-2 flex items-center gap-2 border-b border-surface-dim flex-wrap">
+      <div className="relative flex items-center flex-1 max-w-sm min-w-[180px]">
+        <span className="material-symbols-outlined absolute left-2 text-[15px] text-outline">search</span>
+        <input className="w-full h-7 pl-7 pr-2 bg-surface-container-low border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Filter collections…" data-filter/>
       </div>
-      <div className="flex items-center gap-1 border-b border-surface-dim mb-3">
-        <button className={`px-4 py-2 text-label-md border-b-2 ${tab==='all'?'border-qb-blue text-qb-blue font-semibold':'border-transparent text-on-surface-variant'}`} onClick={()=>setTab('all')}>All collections <span className="ml-1 text-[10px] text-outline">{collections.length}</span></button>
-        <button className={`px-4 py-2 text-label-md border-b-2 ${tab==='published'?'border-qb-blue text-qb-blue font-semibold':'border-transparent text-on-surface-variant'}`} onClick={()=>setTab('published')}>Published <span className="ml-1 text-[10px] text-outline">{publishedCount}</span></button>
-        <button className={`px-4 py-2 text-label-md border-b-2 ${tab==='drafts'?'border-qb-blue text-qb-blue font-semibold':'border-transparent text-on-surface-variant'}`} onClick={()=>setTab('drafts')}>Drafts <span className="ml-1 text-[10px] text-outline">{draftCount}</span></button>
+      <button className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1">
+        <span className="material-symbols-outlined text-[14px]">filter_list</span>Filter</button>
+      <span className="ml-auto text-[11px] text-on-surface-variant" data-c-count>—</span>
+    </div>
+
+    <div className="bulk-bar" data-bulk-bar>
+      <span className="text-[12px] font-semibold" data-bulk-count>0 selected</span>
+      <span className="w-px h-4 bg-white/30"></span>
+      <button><span className="material-symbols-outlined text-[14px] align-middle mr-1">publish</span>Publish</button>
+      <button><span className="material-symbols-outlined text-[14px] align-middle mr-1">visibility_off</span>Unpublish</button>
+      <button><span className="material-symbols-outlined text-[14px] align-middle mr-1">delete</span>Delete</button>
+    </div>
+
+    <table className="w-full text-left text-body-sm">
+      <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+        <tr>
+          <th className="w-8 px-3 py-2"><input type="checkbox" className="row-check" data-check-all/></th>
+          <th className="px-3 py-2">Collection title</th>
+          <th className="px-3 py-2">Products</th>
+          <th className="px-3 py-2">Type</th>
+          <th className="px-3 py-2">Visibility</th>
+          <th className="w-8"></th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-surface-dim" data-c-tbody>
+
+        <tr className="hover:bg-surface-container-low cursor-pointer c-row">
+          <td className="px-3 py-2"><input type="checkbox" className="row-check c-check"/></td>
+          <td className="px-3 py-2">
+            <div className="font-medium">Summer 2026</div>
+            <div className="text-[11px] text-on-surface-variant font-mono">/collections/summer-2026</div>
+          </td>
+          <td className="px-3 py-2 text-on-surface-variant">24 products</td>
+          <td className="px-3 py-2 text-on-surface-variant">Manual</td>
+          <td className="px-3 py-2"><span className="stat live">Published</span></td>
+          <td className="px-2 py-2 text-right"><button className="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu><span className="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+        </tr>
+
+        <tr className="hover:bg-surface-container-low cursor-pointer c-row">
+          <td className="px-3 py-2"><input type="checkbox" className="row-check c-check"/></td>
+          <td className="px-3 py-2">
+            <div className="font-medium">Best Sellers</div>
+            <div className="text-[11px] text-on-surface-variant font-mono">/collections/best-sellers</div>
+          </td>
+          <td className="px-3 py-2 text-on-surface-variant">42 products</td>
+          <td className="px-3 py-2 text-on-surface-variant">Automated (Sales)</td>
+          <td className="px-3 py-2"><span className="stat live">Published</span></td>
+          <td className="px-2 py-2 text-right"><button className="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu><span className="material-symbols-outlined text-[16px]">more_horiz</span></button></td>
+        </tr>
+
+        <tr className="hover:bg-surface-container-low cursor-pointer c-row">
+          <td className="px-3 py-2"><input type="checkbox" className="row-check c-check"/></td>
+          <td className="px-3 py-2">
+            <div className="font-medium">Fall Preview 2026</div>
+            <div className="text-[11px] text-on-surface-variant font-mono">/collections/fall-preview</div>
+          </td>
+          <td className="px-3 py-2 text-on-surface-variant">8 products</td>
+          <td className="px-3 py-2 text-on-surface-variant">Manual</td>
+          <td className="px-3 py-2"><span className="stat draft">Draft</span></td>
+          <td className="px-2 py-2 text-right"><button className="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu><span className="material-symbols-outlined text-[16px]">more_horiz</span></button></td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+
+<div className="row-menu">
+  <div className="menu-header">New</div>
+  <button><span className="material-symbols-outlined">collections_bookmark</span>Manual collection</button>
+  <button><span className="material-symbols-outlined">bolt</span>Automated collection</button>
+</div>
+
+
+<div className="row-menu">
+  <div className="menu-header">This collection</div>
+  <button><span className="material-symbols-outlined">edit</span>Edit collection</button>
+  <button><span className="material-symbols-outlined">open_in_new</span>View on storefront</button>
+  <button><span className="material-symbols-outlined">content_copy</span>Duplicate</button>
+  <div className="sep"></div>
+  <div className="menu-header">Organize</div>
+  <button><span className="material-symbols-outlined">inventory_2</span>Manage products</button>
+  <button><span className="material-symbols-outlined">rule</span>Edit rules</button>
+  <div className="sep"></div>
+  <div className="menu-header">Publishing</div>
+  <button><span className="material-symbols-outlined">publish</span>Publish to storefront</button>
+  <button className="danger"><span className="material-symbols-outlined">delete</span>Delete</button>
+</div>
+
+
+<div className="drawer-scrim"></div>
+<div className="drawer">
+  <div className="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">
+    <div className="flex items-center gap-2 min-w-0">
+      <span className="material-symbols-outlined text-[20px] text-primary">collections_bookmark</span>
+      <div className="min-w-0">
+        <div className="text-headline-sm truncate" data-c-title>New collection</div>
+        <div className="text-[11px] text-on-surface-variant">Organize products for the storefront</div>
       </div>
-      <div className="bg-white rounded-xl border border-surface-dim overflow-hidden">
-        <div className="overflow-x-auto"><table className="w-full text-left text-body-sm">
-          <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr><th className="px-3 py-2">Collection</th><th className="px-3 py-2">Products</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Status</th><th className="w-8 px-2 py-2"></th></tr></thead>
-          <tbody className="divide-y divide-surface-dim">
-            {filtered.map(c=>(<tr key={c.id} className="hover:bg-surface-container-low cursor-pointer" onClick={()=>openEdit(c)}><td className="px-3 py-2"><div className="font-medium">{c.name}</div><div className="text-[11px] text-on-surface-variant font-mono">/collections/{c.slug||c.id.slice(0,8)}</div></td><td className="px-3 py-2 text-on-surface-variant">{c.product_count||0}</td><td className="px-3 py-2"><span className="text-[11px] px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant">{c.type||'manual'}</span></td><td className="px-3 py-2"><span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${c.is_published?'bg-secondary/15 text-secondary':'bg-surface-container-high text-on-surface-variant'}`}>{c.is_published?'Published':'Draft'}</span></td><td className="px-2 py-2 text-right"><button className="text-on-surface-variant hover:text-error" onClick={e=>{e.stopPropagation();del(c.id);}}><span className="material-symbols-outlined text-[16px]">delete</span></button></td></tr>))}
-            {filtered.length===0 && <tr><td colSpan={5} className="px-3 py-12 text-center text-on-surface-variant">{loaded?'No collections found':'Loading…'}</td></tr>}
-          </tbody>
-        </table></div>
+    </div>
+    <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-coll>
+      <span className="material-symbols-outlined text-[18px]">close</span></button>
+  </div>
+
+  <div className="flex-1 overflow-y-auto p-5 space-y-4">
+    <div>
+      <div className="section-h">General</div>
+      <div className="space-y-3">
+        <div><label className="field-label">Collection title</label><input className="field-input" placeholder="e.g. Summer 2026"/></div>
+        <div>
+          <label className="field-label">URL handle</label>
+          <div className="flex items-center">
+            <span className="text-[12px] text-on-surface-variant px-2 bg-surface-container-low border border-r-0 border-surface-dim rounded-l h-9 flex items-center">/collections/</span>
+            <input className="field-input rounded-l-none" placeholder="summer-2026"/>
+          </div>
+        </div>
+        <div>
+          <label className="field-label">Description</label>
+          <textarea className="field-input" style={{ height: '60px', padding: '8px 10px', fontFamily: 'inherit' }} placeholder="Visible on the collection page"></textarea>
+        </div>
       </div>
-      {drawerOpen && (<><div className="fixed inset-0 bg-black/35 z-[200]" onClick={()=>setDrawerOpen(false)} /><div className="fixed top-0 right-0 bottom-0 w-[680px] max-w-[96vw] bg-white z-[201] flex flex-col"><div className="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0"><div className="flex items-center gap-2"><span className="material-symbols-outlined text-[20px] text-primary">collections_bookmark</span><div className="text-headline-sm">{editing?'Edit collection':'New collection'}</div></div><button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={()=>setDrawerOpen(false)}><span className="material-symbols-outlined text-[18px]">close</span></button></div><div className="flex-1 overflow-y-auto p-5 space-y-4"><div><label className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Title</label><input className="w-full h-9 px-3 mt-1 border border-surface-dim rounded text-body-md" value={name} onChange={e=>setName(e.target.value)} autoFocus /></div><div><label className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">URL handle</label><input className="w-full h-9 px-3 mt-1 border border-surface-dim rounded text-body-md font-mono text-body-sm" value={slug} onChange={e=>setSlug(e.target.value)} placeholder="/collections/…" /></div><div><label className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Type</label><div className="flex gap-3 mt-1"><label className="flex items-center gap-2 text-body-sm"><input type="radio" name="type" checked={type==='manual'} onChange={()=>setType('manual')} /> Manual</label><label className="flex items-center gap-2 text-body-sm"><input type="radio" name="type" checked={type==='automated'} onChange={()=>setType('automated')} /> Automated (rules)</label></div></div><div><label className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Visibility</label><div className="mt-1"><label className="flex items-center gap-2 text-body-sm"><input type="checkbox" checked={publish} onChange={()=>setPublish(!publish)} /> Publish to storefront</label></div></div></div><div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0"><button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={()=>setDrawerOpen(false)}>Cancel</button><button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={save}>{editing?'Save':'Create collection'}</button></div></div></>)}
-    </main>
+    </div>
+
+    <div className="pt-2">
+      <div className="section-h">Collection type</div>
+      <div className="space-y-3">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="coll-type" className="mt-0.5 row-check" defaultChecked/>
+          <div><div className="text-body-md font-medium">Manual</div><div className="text-[11px] text-on-surface-variant">Hand-pick products for this collection.</div></div>
+        </label>
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="coll-type" className="mt-0.5 row-check"/>
+          <div><div className="text-body-md font-medium">Automated</div><div className="text-[11px] text-on-surface-variant">Matches products based on conditions.</div></div>
+        </label>
+      </div>
+    </div>
+
+    <div className="pt-2">
+      <div className="section-h">Visibility</div>
+      <div className="space-y-2 mt-1">
+        <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" defaultChecked/>Publish to storefront</label>
+        <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" defaultChecked/>Include in search &amp; filters</label>
+        <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check"/>Feature on homepage</label>
+      </div>
+    </div>
+  </div>
+
+  <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
+    <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-coll>Cancel</button>
+    <div className="flex items-center gap-2">
+      <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low" data-save-draft>Save draft</button>
+      <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" data-save-coll>Save &amp; publish</button>
+    </div>
+  </div>
+</div>
+    </>
   );
 }

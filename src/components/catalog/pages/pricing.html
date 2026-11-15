@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Categories &amp; Pricing — Catalog</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme:{ extend:{
+    colors:{
+      "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+      "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+      "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+      "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+      "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+      "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+      "on-error-container":"#93000a","background":"#faf9fc",
+      "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+    },
+    fontFamily:{ sans:["Inter"] },
+    fontSize:{
+      "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+      "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+      "body-sm":["12px",{lineHeight:"16px"}],
+      "body-md":["14px",{lineHeight:"20px"}],
+      "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+      "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+      "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+    }
+  }}
+}
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none}
+  .hidden-imp{display:none!important}
+  .row-check{accent-color:#0077c5}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  
+  /* Popover Menu (Used for Categories & Row actions) */
+  .popover-menu{position:absolute;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:260px;padding:6px;z-index:200;display:none}
+  .popover-menu.open{display:block}
+  .popover-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .popover-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .popover-menu button:hover{background:#f4f3f7}
+  .popover-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .popover-menu .badge{margin-left:auto;font-size:10px;background:#f4f3f7;padding:2px 6px;border-radius:10px;color:#5a6355}
+
+  /* Price comparison table */
+  .comp-table{width:100%;font-size:13px}
+  .comp-table th{background:#f4f3f7;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5a6355;padding:10px 16px;text-align:left;border-bottom:1px solid #dad9dd}
+  .comp-table th.right{text-align:right}
+  .comp-table td{padding:12px 16px;border-bottom:1px solid #eeedf1;vertical-align:middle}
+  .comp-table td.right{text-align:right;font-variant-numeric:tabular-nums}
+  .comp-table tr:hover td{background:#faf9fc}
+  .comp-table tr.cheapest td{background:#e8f5e8}
+  .comp-table tr.cheapest td:first-child{border-left:3px solid #0a6400}
+
+  /* Flyout Modal */
+  .flyout-scrim{position:fixed;inset:0;background:rgba(26,28,30,.5);backdrop-filter:blur(4px);z-index:300;display:none;align-items:center;justify-content:center;padding:24px}
+  .flyout-scrim.open{display:flex}
+  .flyout-container{background:#faf9fc;border-radius:12px;width:100%;max-width:1200px;height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.2);overflow:hidden;border:1px solid #dad9dd}
+  
+  /* Swatches */
+  .color-swatch{width:24px;height:24px;border-radius:4px;border:1px solid rgba(0,0,0,.1);cursor:pointer;position:relative;transition:transform .1s}
+  .color-swatch:hover{transform:scale(1.1)}
+  .color-swatch.selected::after{content:"";position:absolute;inset:-4px;border:2px solid #0077c5;border-radius:6px}
+
+  /* Variant Matrix Table */
+  .matrix-table{width:100%;font-size:12px;border-collapse:collapse}
+  .matrix-table th{background:#f4f3f7;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#5a6355;padding:8px 12px;text-align:left;border:1px solid #dad9dd}
+  .matrix-table td{padding:8px 12px;border:1px solid #dad9dd;text-align:center;background:#fff}
+  .matrix-table td.row-label{text-align:left;font-weight:600;background:#faf9fc}
+  .matrix-table input[type="checkbox"]{width:16px;height:16px;accent-color:#0077c5;cursor:pointer}
+
+  /* Supplier cards */
+  .supplier-card{border:1px solid #dad9dd;border-radius:8px;padding:12px;background:#fff;display:flex;align-items:center;justify-content:space-between;transition:all .1s}
+  .supplier-card:hover{border-color:#0077c5;box-shadow:0 2px 8px rgba(0,119,197,.1)}
+  .supplier-card.cheapest{border-color:#0a6400;background:#e8f5e8;box-shadow:0 0 0 1px #0a6400}
+</style>
+</head>
+<body class="bg-background font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim relative z-50">
+  <div class="flex items-center gap-3">
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">inventory_2</span>
+    <span class="text-label-md font-semibold">Catalog</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold">Categories &amp; Pricing</span>
+  </div>
+  <div class="text-label-sm text-on-surface-variant">Preview · standalone</div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Top header / Toolbar -->
+  <div class="flex items-center justify-between gap-4 py-4 flex-wrap">
+    <div>
+      <h1 class="text-headline-lg mb-1">Price Comparison</h1>
+      <p class="text-body-sm text-on-surface-variant">Select a category to view the canonical product and compare supplier costs.</p>
+    </div>
+    
+    <div class="flex items-center gap-2">
+      <!-- Category Selector Trigger -->
+      <div class="relative">
+        <button class="h-9 px-3 bg-white border border-surface-dim rounded-md text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-2 shadow-sm" id="cat-trigger">
+          <span class="material-symbols-outlined text-[18px] text-qb-blue">category</span>
+          <span id="cat-label">Apparel</span>
+          <span class="material-symbols-outlined text-[18px] text-on-surface-variant">expand_more</span>
+        </button>
+        
+        <!-- Popover Menu: The 13 Categories -->
+        <div class="popover-menu" id="cat-menu" style="top: 42px; right: 0;">
+          <div class="menu-header">Apparel &amp; Accessories</div>
+          <button onclick="selectCat('Apparel', 'T-Shirt')"><span class="material-symbols-outlined">checkroom</span>Apparel <span class="badge">1,945</span></button>
+          <button onclick="selectCat('Headwear', 'Hat')"><span class="material-symbols-outlined">sports_baseball</span>Headwear <span class="badge">366</span></button>
+          <button onclick="selectCat('Accessories', 'Tote')"><span class="material-symbols-outlined">shopping_bag</span>Accessories <span class="badge">343</span></button>
+          <div class="menu-header">Home &amp; Living</div>
+          <button onclick="selectCat('Drinkware', 'Mug')"><span class="material-symbols-outlined">coffee</span>Drinkware <span class="badge">198</span></button>
+          <button onclick="selectCat('Wall Art', 'Poster')"><span class="material-symbols-outlined">image</span>Wall Art <span class="badge">630</span></button>
+          <button onclick="selectCat('Home & Living', 'Blanket')"><span class="material-symbols-outlined">chair</span>Home &amp; Living <span class="badge">323</span></button>
+          <div class="menu-header">Other Categories</div>
+          <button onclick="selectCat('Business', 'Notebook')"><span class="material-symbols-outlined">work</span>Business &amp; commercial <span class="badge">258</span></button>
+          <button onclick="selectCat('Cards', 'Greeting Card')"><span class="material-symbols-outlined">mail</span>Cards &amp; stationery <span class="badge">267</span></button>
+          <button onclick="selectCat('Collections', 'Gift Set')"><span class="material-symbols-outlined">redeem</span>Collections &amp; Occasions <span class="badge">3</span></button>
+          <button onclick="selectCat('Games', 'Puzzle')"><span class="material-symbols-outlined">extension</span>Games &amp; Puzzles <span class="badge">21</span></button>
+          <button onclick="selectCat('Keepsakes', 'Ornament')"><span class="material-symbols-outlined">diamond</span>Keepsakes <span class="badge">527</span></button>
+          <button onclick="selectCat('Technology', 'Phone Case')"><span class="material-symbols-outlined">devices</span>Technology <span class="badge">65</span></button>
+          <button onclick="selectCat('Wellness', 'Water Bottle')"><span class="material-symbols-outlined">spa</span>Wellness <span class="badge">16</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Subheader: Canonical Product -->
+  <div class="flex items-center gap-2 mb-4">
+    <h2 class="text-headline-md" id="canonical-title">Apparel &rsaquo; Black T-Shirt</h2>
+    <span class="px-2 py-0.5 rounded-full bg-qb-blue/10 text-qb-blue text-[10px] font-bold uppercase tracking-wider">Canonical Product</span>
+  </div>
+
+  <!-- Price Comparison Table -->
+  <div class="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
+    <table class="comp-table">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>SKU / Location</th>
+          <th class="right">Base Cost</th>
+          <th class="right">Shipping (Est.)</th>
+          <th class="right">Total Cost</th>
+          <th class="right">Lead Time</th>
+          <th class="w-8"></th>
+        </tr>
+      </thead>
+      <tbody id="comp-tbody">
+        <!-- Table rows get injected by JS -->
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<!-- ═══════════ VARIANT & PRICING WIZARD (FLYOUT) ═══════════ -->
+<div class="flyout-scrim" id="variant-flyout">
+  <div class="flyout-container">
+    
+    <!-- Header -->
+    <div class="flex items-center justify-between px-6 h-16 border-b border-surface-dim bg-white shrink-0">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-qb-blue text-white flex items-center justify-center font-bold">
+          <span class="material-symbols-outlined text-[18px]">grid_on</span>
+        </div>
+        <div>
+          <div class="text-headline-md" id="flyout-title">Apparel &rsaquo; T-Shirt</div>
+          <div class="text-[11px] text-on-surface-variant">Variant Matrix &amp; Supplier Routing</div>
+        </div>
+      </div>
+      <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onclick="closeFlyout()">
+        <span class="material-symbols-outlined text-[18px]">close</span>
+      </button>
+    </div>
+
+    <!-- Body (Two columns) -->
+    <div class="flex-1 overflow-y-auto p-6 grid grid-cols-1 xl:grid-cols-3 gap-6">
+      
+      <!-- Left Column: Variant Matrix -->
+      <div class="xl:col-span-2 space-y-6">
+        
+        <!-- Colors -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-label-sm font-bold uppercase tracking-wider text-on-surface">1. Select Colors</div>
+            <button class="text-[11px] text-primary font-semibold hover:underline">Select all</button>
+          </div>
+          <div class="flex flex-wrap gap-4">
+            <div class="flex flex-col items-center gap-1">
+              <div class="color-swatch selected" style="background:#1a1c1e" data-color="Black"></div>
+              <span class="text-[10px] font-medium text-on-surface-variant">Black</span>
+            </div>
+            <div class="flex flex-col items-center gap-1">
+              <div class="color-swatch selected" style="background:#ffffff; border-color:#dad9dd" data-color="White"></div>
+              <span class="text-[10px] font-medium text-on-surface-variant">White</span>
+            </div>
+            <div class="flex flex-col items-center gap-1">
+              <div class="color-swatch" style="background:#1e5a38" data-color="Forest Green"></div>
+              <span class="text-[10px] font-medium text-on-surface-variant">Forest</span>
+            </div>
+            <div class="flex flex-col items-center gap-1">
+              <div class="color-swatch" style="background:#6b1e28" data-color="Maroon"></div>
+              <span class="text-[10px] font-medium text-on-surface-variant">Maroon</span>
+            </div>
+            <div class="flex flex-col items-center gap-1">
+              <div class="color-swatch" style="background:#0077c5" data-color="Royal Blue"></div>
+              <span class="text-[10px] font-medium text-on-surface-variant">Royal</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sizes -->
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-label-sm font-bold uppercase tracking-wider text-on-surface">2. Select Sizes</div>
+            <button class="text-[11px] text-primary font-semibold hover:underline">Select all</button>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="px-3 py-1.5 border border-qb-blue bg-qb-blue/10 text-qb-blue rounded text-[12px] font-semibold">S</button>
+            <button class="px-3 py-1.5 border border-qb-blue bg-qb-blue/10 text-qb-blue rounded text-[12px] font-semibold">M</button>
+            <button class="px-3 py-1.5 border border-qb-blue bg-qb-blue/10 text-qb-blue rounded text-[12px] font-semibold">L</button>
+            <button class="px-3 py-1.5 border border-surface-dim rounded text-[12px] font-semibold hover:border-primary">XL</button>
+            <button class="px-3 py-1.5 border border-surface-dim rounded text-[12px] font-semibold hover:border-primary">2XL</button>
+            <button class="px-3 py-1.5 border border-surface-dim rounded text-[12px] font-semibold hover:border-primary">3XL</button>
+          </div>
+        </div>
+
+        <!-- Matrix Preview -->
+        <div>
+          <div class="text-label-sm font-bold uppercase tracking-wider text-on-surface mb-3">Matrix Preview</div>
+          <div class="overflow-x-auto">
+            <table class="matrix-table">
+              <thead>
+                <tr>
+                  <th style="width: 120px;">Color \ Size</th>
+                  <th>S</th>
+                  <th>M</th>
+                  <th>L</th>
+                  <th>XL</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="row-label">Black</td>
+                  <td><input type="checkbox" checked/></td>
+                  <td><input type="checkbox" checked/></td>
+                  <td><input type="checkbox" checked/></td>
+                  <td><input type="checkbox"/></td>
+                </tr>
+                <tr>
+                  <td class="row-label">White</td>
+                  <td><input type="checkbox" checked/></td>
+                  <td><input type="checkbox" checked/></td>
+                  <td><input type="checkbox" checked/></td>
+                  <td><input type="checkbox"/></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Supplier Costs -->
+      <div class="space-y-4">
+        <div class="text-label-sm font-bold uppercase tracking-wider text-on-surface mb-3">3. Supplier Routing</div>
+        <p class="text-[11px] text-on-surface-variant mb-4">Select the supplier with the lowest landed cost to fulfill this design.</p>
+        
+        <div class="space-y-2">
+          <div class="supplier-card cheapest">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded bg-qb-blue text-white flex items-center justify-center font-bold">P</div>
+              <div>
+                <div class="font-semibold text-body-sm">Printful</div>
+                <div class="text-[10px] text-on-surface-variant">Base: $9.12 · Ship: $3.50</div>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="font-bold text-secondary tabular-nums">$12.62<span class="text-[10px] font-normal text-on-surface-variant">/unit</span></div>
+              <div class="text-[10px] text-secondary font-semibold">Cheapest</div>
+            </div>
+          </div>
+          
+          <div class="supplier-card">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded bg-qb-green text-white flex items-center justify-center font-bold">G</div>
+              <div>
+                <div class="font-semibold text-body-sm">Gelato</div>
+                <div class="text-[10px] text-on-surface-variant">Base: $8.80 · Ship: $4.50</div>
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="font-bold tabular-nums">$13.30<span class="text-[10px] font-normal text-on-surface-variant">/unit</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="h-16 bg-white border-t border-surface-dim px-6 flex items-center justify-between shrink-0">
+      <button class="h-8 px-4 border border-surface-dim rounded text-body-md hover:bg-surface-container-low font-semibold" onclick="closeFlyout()">Cancel</button>
+      <div class="flex items-center gap-2">
+        <button class="h-9 px-5 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center gap-2 shadow-sm" onclick="closeFlyout(); toast('Opening Design Studio with selected variant matrix...')">
+          <span class="material-symbols-outlined text-[18px]">palette</span>Open Design Studio
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Row ⋯ menu -->
+<div class="popover-menu" id="row-menu">
+  <div class="menu-header">Supplier Pricing</div>
+  <button data-action="variant"><span class="material-symbols-outlined">tune</span>Variant &amp; Supplier Picker</button>
+  <button data-action="design"><span class="material-symbols-outlined">palette</span>Open in Design Studio</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),1800);}
+
+/* Category Popover Logic */
+const catMenu = document.getElementById('cat-menu');
+const catTrigger = document.getElementById('cat-trigger');
+
+catTrigger.addEventListener('click', (e) => {
+  e.stopPropagation();
+  catMenu.classList.toggle('open');
+});
+
+function closeCatMenu() { catMenu.classList.remove('open'); }
+
+document.addEventListener('click', e => {
+  if (!catMenu.contains(e.target) && !catTrigger.contains(e.target)) {
+    closeCatMenu();
+  }
+});
+
+/* Data & Rendering */
+const SUPPLIERS = [
+  { name: "Printful", badge: "P", color: "bg-qb-blue", sku: "TEE-001-M-BLK · US", base: 9.12, ship: 3.50, lead: "2–3 days" },
+  { name: "Gelato", badge: "G", color: "bg-qb-green", sku: "TEE-001-M-BLK · EU", base: 8.80, ship: 4.50, lead: "3–5 days" },
+  { name: "Printify", badge: "P", color: "bg-qb-maroon", sku: "TEE-001-M-BLK · US", base: 10.20, ship: 3.80, lead: "1–2 days" },
+  { name: "SPOD", badge: "S", color: "bg-qb-navy", sku: "TEE-001-M-BLK · US", base: 9.80, ship: 4.20, lead: "3–4 days" },
+  { name: "Tapstitch", badge: "T", color: "bg-qb-teal", sku: "TEE-001-M-BLK · EU", base: 11.00, ship: 5.00, lead: "5–7 days" }
+];
+
+function selectCat(catName, productName) {
+  closeCatMenu();
+  document.getElementById('cat-label').textContent = catName;
+  document.getElementById('canonical-title').innerHTML = `${catName} &rsaquo; Black ${productName} <span class="px-2 py-0.5 rounded-full bg-qb-blue/10 text-qb-blue text-[10px] font-bold uppercase tracking-wider">Canonical Product</span>`;
+  document.getElementById('flyout-title').innerHTML = `${catName} &rsaquo; ${productName}`;
+  renderTable(productName);
+  toast(`Loaded ${catName} price comparison`);
+}
+
+function renderTable(productName) {
+  const tbody = document.getElementById('comp-tbody');
+  const rows = SUPPLIERS.map(s => ({...s, total: s.base + s.ship}));
+  const minTotal = Math.min(...rows.map(r => r.total));
+
+  tbody.innerHTML = rows.map(s => {
+    const isCheapest = s.total === minTotal;
+    return `
+      <tr class="${isCheapest ? 'cheapest' : ''}">
+        <td>
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded ${s.color} text-white flex items-center justify-center text-[10px] font-bold">${s.badge}</div>
+            <div class="font-medium">${s.name}</div>
+          </div>
+        </td>
+        <td class="text-on-surface-variant font-mono text-[11px]">${s.sku}</td>
+        <td class="right">$${s.base.toFixed(2)}</td>
+        <td class="right">$${s.ship.toFixed(2)}</td>
+        <td class="right font-bold ${isCheapest ? 'text-secondary' : ''}">$${s.total.toFixed(2)}</td>
+        <td class="right text-on-surface-variant">${s.lead}</td>
+        <td class="px-2 py-2 text-right">
+          <button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu>
+            <span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  wireRowMenus();
+}
+
+function wireRowMenus() {
+  const rowMenu = document.getElementById('row-menu');
+  
+  document.querySelectorAll("[data-row-menu]").forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      catMenu.classList.remove('open');
+      rowMenu.classList.remove('open');
+      
+      const r = e.currentTarget.getBoundingClientRect();
+      rowMenu.style.top = (r.bottom + 4) + "px";
+      rowMenu.style.left = Math.min(r.right - 260, window.innerWidth - 280) + "px";
+      rowMenu.classList.add("open");
+    });
+  });
+}
+
+/* Row Menu Actions */
+document.querySelectorAll("#row-menu [data-action]").forEach(b => b.addEventListener("click", () => {
+  const act = b.dataset.action;
+  document.getElementById("row-menu").classList.remove("open");
+  
+  if (act === "variant") {
+    document.getElementById("variant-flyout").classList.add("open");
+    document.body.style.overflow = "hidden";
+  } else if (act === "design") {
+    toast("Opening Design Studio with current supplier...");
+  }
+}));
+
+/* Flyout close */
+function closeFlyout() {
+  document.getElementById('variant-flyout').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+/* Color Swatch Selection */
+document.querySelectorAll('.color-swatch').forEach(swatch => {
+  swatch.addEventListener('click', () => {
+    swatch.classList.toggle('selected');
+  });
+});
+
+/* Size Selection */
+document.querySelectorAll('.flex-wrap.gap-2 button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('border-qb-blue')) {
+      btn.classList.remove('border-qb-blue', 'bg-qb-blue/10', 'text-qb-blue');
+      btn.classList.add('border-surface-dim');
+    } else {
+      btn.classList.remove('border-surface-dim');
+      btn.classList.add('border-qb-blue', 'bg-qb-blue/10', 'text-qb-blue');
+    }
+  });
+});
+
+/* Initialize */
+renderTable('T-Shirt');
+</script>
+</body>
+</html>

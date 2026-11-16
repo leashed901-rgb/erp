@@ -28,14 +28,9 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
       <span className="material-symbols-outlined text-[16px]">download</span>Export
     </button>
-    <div className="split-btn">
-      <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main">
-        <span className="material-symbols-outlined text-[16px]">add</span>Create
-      </button>
-      <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-        <span className="material-symbols-outlined text-[16px]">expand_more</span>
-      </button>
-    </div>
+    <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 rounded" onClick={() => onNavigate?.('catalog', 'products')}>
+      <span className="material-symbols-outlined text-[16px]">add</span>Create
+    </button>
   </div>
 </div>
 
@@ -44,30 +39,30 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
   
   <div className="py-4">
     <h1 className="text-headline-lg">Catalog overview</h1>
-    <p className="text-body-sm text-on-surface-variant mt-0.5">Health, activity, and alerts across products, suppliers, channels, and collections</p>
+    <p className="text-body-sm text-on-surface-variant mt-0.5">Health, activity, and alerts across products, collections, and suppliers</p>
   </div>
 
   
   <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-    <div className="kpi" onClick={() => onToast('Open Products')}>
+    <div className="kpi" onClick={() => onNavigate?.('catalog', 'products')}>
       <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-blue">inventory</span>Products</div>
       <div className="kpi-val">5,079</div>
       <div className="kpi-sub">Across 12 suppliers · 1,024 designed</div>
     </div>
-    <div className="kpi" onClick={() => onToast('Open Variants &amp; SKUs')}>
+    <div className="kpi" onClick={() => onNavigate?.('catalog', 'products')}>
       <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-teal">qr_code</span>Variants &amp; SKUs</div>
       <div className="kpi-val">8,412</div>
       <div className="kpi-sub">91 on Classic Tee · 49 on Polo</div>
     </div>
-    <div className="kpi" onClick={() => onToast('Open Suppliers')}>
+    <div className="kpi" onClick={() => onNavigate?.('contacts', 'parties')}>
       <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-maroon">factory</span>Suppliers</div>
       <div className="kpi-val">12</div>
       <div className="kpi-sub">3 POD · 2 materials · 7 other</div>
     </div>
-    <div className="kpi" onClick={() => onToast('Open Channels')}>
-      <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-green">local_mall</span>Channels</div>
-      <div className="kpi-val">4</div>
-      <div className="kpi-sub">3 connected · 1 needs sync · 2 errors</div>
+    <div className="kpi" onClick={() => onNavigate?.('catalog', 'categories')}>
+      <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-green">category</span>Categories &amp; Collections</div>
+      <div className="kpi-val">24</div>
+      <div className="kpi-sub">12 categories · 12 collections</div>
     </div>
   </div>
 
@@ -112,31 +107,31 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
         <span className="text-[11px] text-error font-semibold">5 items</span>
       </div>
       <div>
-        <div className="act-row" onClick={() => onToast('Open 47 products needing sync')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'pricing')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">sync_problem</span>
           <div className="min-w-0 flex-1">
-            <div className="text-body-sm font-medium">47 products out of sync</div>
-            <div className="text-[11px] text-on-surface-variant">TikTok Shop · price &amp; stock drift</div>
+            <div className="text-body-sm font-medium">47 products need price refresh</div>
+            <div className="text-[11px] text-on-surface-variant">Cost changes from suppliers · 3 POD providers</div>
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick={() => onToast('Open Etsy sync errors')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'brands')}>
           <span className="material-symbols-outlined text-[18px] text-error">error</span>
           <div className="min-w-0 flex-1">
-            <div className="text-body-sm font-medium">2 failed syncs on Etsy</div>
-            <div className="text-[11px] text-on-surface-variant">Missing images on 2 listings</div>
+            <div className="text-body-sm font-medium">2 brand slugs missing</div>
+            <div className="text-[11px] text-on-surface-variant">Lakeside Studio · Riverbend Co.</div>
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick={() => onToast('Open UGC moderation')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'listings')}>
           <span className="material-symbols-outlined text-[18px] text-qb-blue">rate_review</span>
           <div className="min-w-0 flex-1">
-            <div className="text-body-sm font-medium">8 UGC submissions pending</div>
-            <div className="text-[11px] text-on-surface-variant">Photos and reviews to moderate</div>
+            <div className="text-body-sm font-medium">8 listings pending review</div>
+            <div className="text-[11px] text-on-surface-variant">Photos and copy to moderate</div>
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick={() => onToast('Open missing assets')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'brands')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">image_not_supported</span>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium">1 brand missing favicon</div>
@@ -144,11 +139,19 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick={() => onToast('Open low stock')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'pricing')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">inventory_2</span>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium">3 SKUs low or out of stock</div>
             <div className="text-[11px] text-on-surface-variant">Soy Candle variants · Cedar &amp; Vanilla</div>
+          </div>
+          <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+        </div>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'categories')}>
+          <span className="material-symbols-outlined text-[18px] text-qb-blue">category</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-body-sm font-medium">8 categories need updated metadata</div>
+            <div className="text-[11px] text-on-surface-variant">Missing SEO copy · slugs need review</div>
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
@@ -163,21 +166,21 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <div className="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-headline-sm">Recent activity</h2>
-        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onToast('View all activity')}>View all</button>
+        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onNavigate?.('catalog', 'products')}>View all</button>
       </div>
       <div className="space-y-3 text-body-sm">
         <div className="flex items-start gap-2">
           <span className="material-symbols-outlined text-[16px] text-qb-green mt-0.5">palette</span>
           <div className="min-w-0 flex-1">
             <div className="font-medium">Classic Tee — Black designed</div>
-            <div className="text-[11px] text-on-surface-variant">91 variants · applied to 3 channels · 12 min ago</div>
+            <div className="text-[11px] text-on-surface-variant">91 variants · applied to 3 collections · 12 min ago</div>
           </div>
         </div>
         <div className="flex items-start gap-2">
           <span className="material-symbols-outlined text-[16px] text-qb-blue mt-0.5">sync</span>
           <div className="min-w-0 flex-1">
-            <div className="font-medium">Shopify sync completed</div>
-            <div className="text-[11px] text-on-surface-variant">1,842 listings · 0 issues · 2 min ago</div>
+            <div className="font-medium">Collection refresh published</div>
+            <div className="text-[11px] text-on-surface-variant">Home &amp; Living · 842 listings · 2 min ago</div>
           </div>
         </div>
         <div className="flex items-start gap-2">
@@ -208,37 +211,32 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <div className="bg-white rounded-xl border border-surface-dim p-5">
       <h2 className="text-headline-sm mb-3">Jump to</h2>
       <div className="space-y-1">
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Products')}>
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onNavigate?.('catalog', 'products')}>
           <span className="material-symbols-outlined text-[18px] text-qb-blue">inventory</span>
           <span className="flex-1 text-body-sm font-medium">Products</span>
           <span className="text-[11px] text-on-surface-variant">5,079</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Variants &amp; SKUs')}>
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onNavigate?.('catalog', 'listings')}>
           <span className="material-symbols-outlined text-[18px] text-qb-teal">qr_code</span>
           <span className="flex-1 text-body-sm font-medium">Variants &amp; SKUs</span>
           <span className="text-[11px] text-on-surface-variant">8,412</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Bundles')}>
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onNavigate?.('catalog', 'bundles')}>
           <span className="material-symbols-outlined text-[18px] text-qb-green">redeem</span>
           <span className="flex-1 text-body-sm font-medium">Bundles</span>
           <span className="text-[11px] text-on-surface-variant">12</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Suppliers')}>
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onNavigate?.('contacts', 'parties')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">factory</span>
           <span className="flex-1 text-body-sm font-medium">Suppliers</span>
           <span className="text-[11px] text-on-surface-variant">12</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Brands')}>
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onNavigate?.('catalog', 'brands')}>
           <span className="material-symbols-outlined text-[18px] text-qb-navy">branding_watermark</span>
           <span className="flex-1 text-body-sm font-medium">Brands</span>
           <span className="text-[11px] text-on-surface-variant">3</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Channels')}>
-          <span className="material-symbols-outlined text-[18px] text-qb-green">local_mall</span>
-          <span className="flex-1 text-body-sm font-medium">Channels</span>
-          <span className="text-[11px] text-on-surface-variant">4</span>
-        </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Categories &amp; Collections')}>
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onNavigate?.('catalog', 'categories')}>
           <span className="material-symbols-outlined text-[18px] text-qb-blue">category</span>
           <span className="flex-1 text-body-sm font-medium">Categories &amp; Collections</span>
           <span className="text-[11px] text-on-surface-variant">24</span>
@@ -254,10 +252,10 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <div className="bg-white rounded-xl border border-surface-dim p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-headline-sm">Top SKUs (30d)</h2>
-        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onToast('Open Variants')}>View all</button>
+        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onNavigate?.('catalog', 'products')}>View all</button>
       </div>
       <div>
-        <div className="act-row" onClick={() => onToast('Open Classic Tee — M / Black')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'products')}>
           <div className="av bg-qb-blue">T</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Classic Tee — M / Black</div>
@@ -265,7 +263,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="text-body-sm font-semibold tabular-nums">$28.00</span>
         </div>
-        <div className="act-row" onClick={() => onToast('Open Speckled Mug')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'products')}>
           <div className="av bg-qb-teal">M</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Speckled Wayland Ceramic Mug</div>
@@ -273,7 +271,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="text-body-sm font-semibold tabular-nums">$18.00</span>
         </div>
-        <div className="act-row" onClick={() => onToast('Open Soy Candle — Lavender')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'products')}>
           <div className="av bg-qb-maroon">C</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Soy Candle — Lavender</div>
@@ -281,7 +279,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="text-body-sm font-semibold tabular-nums">$22.00</span>
         </div>
-        <div className="act-row" onClick={() => onToast('Open Dad Cap')}>
+        <div className="act-row" onClick={() => onNavigate?.('catalog', 'products')}>
           <div className="av bg-qb-navy">D</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Dad Cap</div>
@@ -295,41 +293,41 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     
     <div className="bg-white rounded-xl border border-surface-dim p-5">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-headline-sm">Channel health</h2>
-        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onToast('Open Channels')}>Manage</button>
+        <h2 className="text-headline-sm">Top collections</h2>
+        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onNavigate?.('catalog', 'categories')}>View all</button>
       </div>
       <div className="space-y-2">
         <div className="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
-          <div className="w-7 h-7 rounded bg-qb-green text-white flex items-center justify-center text-[11px] font-bold">S</div>
-          <div className="flex-1 min-w-0">
-            <div className="text-body-sm font-medium">Shopify</div>
-            <div className="text-[11px] text-on-surface-variant">1,842 listings · 0 needs sync</div>
-          </div>
-          <span className="stat success">Synced</span>
-        </div>
-        <div className="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
-          <div className="w-7 h-7 rounded bg-qb-maroon text-white flex items-center justify-center text-[11px] font-bold">T</div>
-          <div className="flex-1 min-w-0">
-            <div className="text-body-sm font-medium">TikTok Shop</div>
-            <div className="text-[11px] text-on-surface-variant">842 listings · 45 need sync</div>
-          </div>
-          <span className="stat warn">Needs sync</span>
-        </div>
-        <div className="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
-          <div className="w-7 h-7 rounded bg-qb-maroon text-white flex items-center justify-center text-[11px] font-bold">E</div>
-          <div className="flex-1 min-w-0">
-            <div className="text-body-sm font-medium">Etsy</div>
-            <div className="text-[11px] text-on-surface-variant">156 listings · 2 errors</div>
-          </div>
-          <span className="stat error">Failed sync</span>
-        </div>
-        <div className="flex items-center gap-3 py-2 last:border-0">
           <div className="w-7 h-7 rounded bg-qb-blue text-white flex items-center justify-center text-[11px] font-bold">H</div>
           <div className="flex-1 min-w-0">
-            <div className="text-body-sm font-medium">Headless Storefront</div>
-            <div className="text-[11px] text-on-surface-variant">842 listings · 0 needs sync</div>
+            <div className="text-body-sm font-medium">Home &amp; Living</div>
+            <div className="text-[11px] text-on-surface-variant">842 products · 12 subcategories</div>
           </div>
-          <span className="stat success">Synced</span>
+          <span className="stat success">Published</span>
+        </div>
+        <div className="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
+          <div className="w-7 h-7 rounded bg-qb-teal text-white flex items-center justify-center text-[11px] font-bold">A</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-body-sm font-medium">Apparel</div>
+            <div className="text-[11px] text-on-surface-variant">1,420 products · 8 subcategories</div>
+          </div>
+          <span className="stat success">Published</span>
+        </div>
+        <div className="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">
+          <div className="w-7 h-7 rounded bg-qb-maroon text-white flex items-center justify-center text-[11px] font-bold">D</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-body-sm font-medium">Drinkware</div>
+            <div className="text-[11px] text-on-surface-variant">318 products · 5 subcategories</div>
+          </div>
+          <span className="stat warn">Review</span>
+        </div>
+        <div className="flex items-center gap-3 py-2 last:border-0">
+          <div className="w-7 h-7 rounded bg-qb-green text-white flex items-center justify-center text-[11px] font-bold">W</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-body-sm font-medium">Wall Art</div>
+            <div className="text-[11px] text-on-surface-variant">214 products · 4 subcategories</div>
+          </div>
+          <span className="stat success">Published</span>
         </div>
       </div>
     </div>
@@ -350,7 +348,6 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
   <div style={{ height: '1px', background: '#eeedf1', margin: '4px 0' }}></div>
   <button style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 10px', fontSize: '13px', borderRadius: '4px', textAlign: 'left', color: '#1a1c1e' }}><span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#5a6355' }}>factory</span>Supplier</button>
   <button style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 10px', fontSize: '13px', borderRadius: '4px', textAlign: 'left', color: '#1a1c1e' }}><span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#5a6355' }}>branding_watermark</span>Brand</button>
-  <button style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 10px', fontSize: '13px', borderRadius: '4px', textAlign: 'left', color: '#1a1c1e' }}><span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#5a6355' }}>link</span>Channel</button>
 </div>
     </>
   );

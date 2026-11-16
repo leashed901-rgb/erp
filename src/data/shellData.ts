@@ -209,13 +209,23 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-navy',
         screens: [
           { id: 'catalog-overview', label: 'Overview', type: 'overview' },
-          { id: 'products', label: 'Products', type: 'list' },
+          // Products is a PARENT row (same bar as Overview, but with a chevron
+          // that lets down to reveal Listings). Matches every other module
+          // where the top-level item owns its sub-views as children.
+          {
+            id: 'products',
+            label: 'Products',
+            type: 'list',
+            children: [
+              { id: 'listings', label: 'Listings', type: 'list' },
+            ],
+          },
+          // Categories is a top-level parent (chevron → children).
           {
             id: 'categories',
             label: 'Categories',
             type: 'list',
             children: [
-              { id: 'listings', label: 'Listings', type: 'list' },
               { id: 'bundles', label: 'Bundles', type: 'list' },
               { id: 'brands', label: 'Brands', type: 'list' },
               { id: 'pricing', label: 'Pricing', type: 'list' },

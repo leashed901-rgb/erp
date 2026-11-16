@@ -1,6 +1,21 @@
 'use client';
 import './accounting.css';
 import { AccountingScreenProps, ACCT_NAV } from './types';
+import { useAccountingOverview, useBankAccounts } from '@/hooks/useAccountingApi';
+import { exportToCsv } from '@/lib/csvExport';
+
+const fmtMoney = (n: number) =>
+  `${n < 0 ? '−' : ''}$${Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+const fmtShortDate = (iso: string | null) => {
+  if (!iso) return '—';
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+const fmtFeedDate = (iso: string) => {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+};
+const ACTIVITY_ICONS: Record<string, string> = { journal: 'menu_book', receipt: 'receipt_long', bank: 'account_balance' };
 
 export default function AccountingOverview({
   onNavigate,
@@ -8,6 +23,48 @@ export default function AccountingOverview({
   onCreate,
   onOpenCreateFlyout,
 }: AccountingScreenProps) {
+  const { overview: ov } = useAccountingOverview();
+  const { bankAccounts } = useBankAccounts();
+  const monthLabel = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+  const setupItems = ov
+    ? [
+        { label: 'Connect bank account', done: ov.bankAccountCount > 0, sub: ov.bankAccountCount > 0 ? `${ov.bankAccountNames[0]} linked` : 'No bank accounts yet', go: null as null | (() => void) },
+        { label: 'Chart of accounts', done: ov.coaCount > 0, sub: `${ov.coaCount} active accounts`, go: null },
+        { label: 'First reconciliation', done: !!ov.lastReconciledDate, sub: ov.lastReconciledDate ? `Through ${fmtShortDate(ov.lastReconciledDate)}` : 'Not reconciled yet', go: null },
+        { label: 'Import receipts', done: ov.receiptsForReview === 0, sub: ov.receiptsForReview > 0 ? `${ov.receiptsForReview} awaiting review` : 'Inbox clear', go: () => onNavigate(...ACCT_NAV.receipts()) },
+        { label: 'Set up bank rules', done: ov.activeRuleCount > 0, sub: ov.activeRuleCount > 0 ? `${ov.activeRuleCount} active rule${ov.activeRuleCount === 1 ? '' : 's'}` : 'Auto-categorize repeating transactions', go: () => onNavigate(...ACCT_NAV.rules()) },
+        { label: 'Sales tax', done: ov.taxCodeCount > 0, sub: ov.taxCodeCount > 0 ? `${ov.taxCodeCount} tax code${ov.taxCodeCount === 1 ? '' : 's'} configured` : 'Configure tax rates', go: () => onNavigate(...ACCT_NAV.taxOverview()) },
+      ]
+    : [];
+  const setupDone = setupItems.filter((i) => i.done).length;
+  const setupPct = setupItems.length ? Math.round((setupDone / setupItems.length) * 100) : 0;
+
+  const handleExport = () => {
+    if (!bankAccounts.length) {
+      onToast('Nothing to export yet');
+      return;
+    }
+    exportToCsv(
+      bankAccounts.map((a) => ({ name: a.name, type: a.accountType, balance: a.balance })),
+      [
+        { key: 'name', label: 'Account' },
+        { key: 'type', label: 'Type' },
+        { key: 'balance', label: 'Balance' },
+      ],
+      'bank-balances.csv',
+    );
+    onToast('Bank balances exported');
+  };
+
+  const handleCopyFwd = async () => {
+    try {
+      await navigator.clipboard.writeText('receipts@unsaid.app');
+    } catch {
+      /* clipboard unavailable — the address is on screen */
+    }
+    onToast('Forwarding address copied');
+  };
   return (
     <div className="bg-background font-sans text-body-md text-on-surface antialiased">
       {/* Context header */}
@@ -28,7 +85,7 @@ export default function AccountingOverview({
         <div className="flex items-center justify-between gap-4 py-4">
           <div>
             <h1 className="text-headline-lg">Accounting — Overview</h1>
-            <p className="text-body-sm text-on-surface-variant mt-0.5">Bank feed, receipts, reconcile, books. Unsaid · Nov 2026</p>
+            <p className="text-body-sm text-on-surface-variant mt-0.5">Bank feed, receipts, reconcile, books. {ov?.entityName || 'Unsaid'} · {monthLabel}</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -38,7 +95,7 @@ export default function AccountingOverview({
               <span className="material-symbols-outlined text-[16px]">calendar_today</span>This month ▾</button>
             <button
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
-              onClick={() => onToast('Exporting…')}
+              onClick={handleExport}
             >
               <span className="material-symbols-outlined text-[16px]">download</span>Export</button>
           </div>
@@ -75,30 +132,30 @@ export default function AccountingOverview({
           ))}
         </div>
 
-        {/* KPI strip */}
+        {/* KPI strip — live aggregates from /api/accounting/overview */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
           <div className="bg-white rounded-xl border border-surface-dim p-4">
             <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">For review</span>
-            <div className="text-headline-lg mt-1 tabular-nums">47</div>
+            <div className="text-headline-lg mt-1 tabular-nums">{ov ? ov.reviewCount : '—'}</div>
             <div className="text-[11px] text-tertiary mt-1 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[13px]">schedule</span>Oldest 6 days ago</div>
+              <span className="material-symbols-outlined text-[13px]">schedule</span>{ov && ov.reviewOldestDate ? `Oldest ${fmtShortDate(ov.reviewOldestDate)}` : 'Queue clear'}</div>
           </div>
           <div className="bg-white rounded-xl border border-surface-dim p-4">
             <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Uncategorized</span>
-            <div className="text-headline-lg mt-1 tabular-nums">$2,418.90</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">12 transactions</div>
+            <div className="text-headline-lg mt-1 tabular-nums">{ov ? fmtMoney(ov.uncategorizedTotal) : '—'}</div>
+            <div className="text-[11px] text-on-surface-variant mt-1">{ov ? `${ov.uncategorizedCount} transaction${ov.uncategorizedCount === 1 ? '' : 's'}` : ''}</div>
           </div>
           <div className="bg-white rounded-xl border border-surface-dim p-4">
             <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Bank balance</span>
-            <div className="text-headline-lg mt-1 tabular-nums">$84,210.40</div>
+            <div className="text-headline-lg mt-1 tabular-nums">{ov ? fmtMoney(ov.bankBalance) : '—'}</div>
             <div className="text-[11px] text-secondary mt-1 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[13px]">sync</span>2m ago · Chase •9910</div>
+              <span className="material-symbols-outlined text-[13px]">sync</span>{ov ? `${ov.bankAccountCount} account${ov.bankAccountCount === 1 ? '' : 's'} · ${ov.bankAccountNames.join(', ')}` : ''}</div>
           </div>
           <div className="bg-white rounded-xl border border-surface-dim p-4">
             <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Reconciled</span>
-            <div className="text-headline-lg mt-1 tabular-nums">Oct 31</div>
+            <div className="text-headline-lg mt-1 tabular-nums">{ov ? fmtShortDate(ov.lastReconciledDate) : '—'}</div>
             <div className="text-[11px] text-secondary mt-1 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[13px]">check_circle</span>Period closed</div>
+              <span className="material-symbols-outlined text-[13px]">check_circle</span>{ov?.lastReconciledDate ? `Status ${ov.lastReconciledStatus || ''}` : 'No reconciliations yet'}</div>
           </div>
         </div>
 
@@ -145,77 +202,42 @@ export default function AccountingOverview({
         {/* Two-column: Setup checklist + Receipts inbox preview */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-5">
 
-          {/* Setup checklist (§A: "Setup checklist card until company setup complete") */}
+          {/* Setup checklist — each state read from the live tables */}
           <div className="bg-white rounded-xl border border-surface-dim p-5">
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h2 className="text-headline-sm">Set up your books</h2>
-                <p className="text-[11px] text-on-surface-variant mt-0.5">3 of 6 complete</p>
+                <p className="text-[11px] text-on-surface-variant mt-0.5">{setupDone} of {setupItems.length} complete</p>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-primary/10 text-primary">50%</span>
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-primary/10 text-primary">{setupPct}%</span>
             </div>
-            <div className="progress-bar mb-3"><div style={{ width: '50%' }} /></div>
+            <div className="progress-bar mb-3"><div style={{ width: `${setupPct}%` }} /></div>
             <div>
-              <div className="check-row">
-                <div className="check-badge done"><span className="material-symbols-outlined text-[14px]">check</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium">Connect bank account</div>
-                  <div className="text-[11px] text-on-surface-variant">Chase •9910 linked</div>
+              {setupItems.map((item) => (
+                <div className="check-row" key={item.label}>
+                  <div className={`check-badge ${item.done ? 'done' : 'todo'}`}><span className="material-symbols-outlined text-[14px]">{item.done ? 'check' : 'chevron_right'}</span></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-body-sm font-medium">{item.label}</div>
+                    <div className="text-[11px] text-on-surface-variant">{item.sub}</div>
+                  </div>
+                  {item.go && (
+                    <button
+                      className="h-7 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low"
+                      onClick={item.go}
+                    >Open</button>
+                  )}
                 </div>
-              </div>
-              <div className="check-row">
-                <div className="check-badge done"><span className="material-symbols-outlined text-[14px]">check</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium">Chart of accounts</div>
-                  <div className="text-[11px] text-on-surface-variant">34 accounts mapped</div>
-                </div>
-              </div>
-              <div className="check-row">
-                <div className="check-badge done"><span className="material-symbols-outlined text-[14px]">check</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium">First reconciliation</div>
-                  <div className="text-[11px] text-on-surface-variant">October closed</div>
-                </div>
-              </div>
-              <div className="check-row">
-                <div className="check-badge todo"><span className="material-symbols-outlined text-[14px]">chevron_right</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium">Import receipts</div>
-                  <div className="text-[11px] text-on-surface-variant">12 awaiting review</div>
-                </div>
-                <button
-                  className="h-7 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low"
-                  onClick={() => onNavigate(...ACCT_NAV.receipts())}
-                >Open</button>
-              </div>
-              <div className="check-row">
-                <div className="check-badge todo"><span className="material-symbols-outlined text-[14px]">chevron_right</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium">Set up bank rules</div>
-                  <div className="text-[11px] text-on-surface-variant">Auto-categorize repeating transactions</div>
-                </div>
-                <button
-                  className="h-7 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low"
-                  onClick={() => onNavigate(...ACCT_NAV.rules())}
-                >Open</button>
-              </div>
-              <div className="check-row">
-                <div className="check-badge todo"><span className="material-symbols-outlined text-[14px]">chevron_right</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium">Sales tax</div>
-                  <div className="text-[11px] text-on-surface-variant">Configure tax rates</div>
-                </div>
-                <button className="h-7 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low">Open</button>
-              </div>
+              ))}
+              {!ov && <div className="text-[11px] text-on-surface-variant">Loading setup state…</div>}
             </div>
           </div>
 
-          {/* Receipts inbox preview (§A intake-queue) */}
+          {/* Receipts inbox preview — live acct_document_inbox rows */}
           <div className="bg-white rounded-xl border border-surface-dim overflow-hidden">
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-headline-sm">Receipts inbox</h2>
-                <p className="text-[11px] text-on-surface-variant mt-0.5">12 for review</p>
+                <p className="text-[11px] text-on-surface-variant mt-0.5">{ov ? `${ov.receiptsForReview} for review` : 'Loading…'}</p>
               </div>
               <button
                 className="text-[11px] font-semibold text-primary hover:underline"
@@ -228,37 +250,29 @@ export default function AccountingOverview({
                 receipts@unsaid.app
                 <button
                   className="ml-auto text-primary font-semibold"
-                  onClick={() => onToast('Forwarding address copied')}
+                  onClick={handleCopyFwd}
                 >Copy</button>
               </div>
-              <button className="h-7 px-2 border border-dashed border-surface-dim rounded text-[11px] text-primary font-semibold hover:bg-surface-container-low flex items-center gap-1">
+              <button
+                className="h-7 px-2 border border-dashed border-surface-dim rounded text-[11px] text-primary font-semibold hover:bg-surface-container-low flex items-center gap-1"
+                onClick={() => onNavigate(...ACCT_NAV.receipts())}
+              >
                 <span className="material-symbols-outlined text-[14px]">upload</span>Upload</button>
             </div>
             <div className="border-t border-surface-dim">
-              <div className="inbox-row" onClick={() => onToast('Open receipt review')}>
-                <div className="receipt-thumb"><span className="material-symbols-outlined text-[16px] text-on-surface-variant">receipt_long</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Staples · Office supplies</div>
-                  <div className="text-[11px] text-on-surface-variant">10/30/2026 · $142.50 · Visa •4421</div>
+              {(ov?.receiptsPreview || []).map((r) => (
+                <div className="inbox-row" key={r.id} onClick={() => onNavigate(...ACCT_NAV.receipts())}>
+                  <div className="receipt-thumb"><span className="material-symbols-outlined text-[16px] text-on-surface-variant">receipt_long</span></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-body-sm font-medium truncate">{r.vendorName}</div>
+                    <div className="text-[11px] text-on-surface-variant">{fmtFeedDate(r.date)}{r.amount != null ? ` · ${fmtMoney(r.amount)}` : ''}{r.paymentAccountLabel ? ` · ${r.paymentAccountLabel}` : ''}</div>
+                  </div>
+                  {r.isNew && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-tertiary/15 text-tertiary">New</span>}
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-tertiary/15 text-tertiary">New</span>
-              </div>
-              <div className="inbox-row" onClick={() => onToast('Open receipt review')}>
-                <div className="receipt-thumb"><span className="material-symbols-outlined text-[16px] text-on-surface-variant">receipt_long</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">FedEx · Shipping</div>
-                  <div className="text-[11px] text-on-surface-variant">10/29/2026 · $84.20 · Bank •9910</div>
-                </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-tertiary/15 text-tertiary">New</span>
-              </div>
-              <div className="inbox-row" onClick={() => onToast('Open receipt review')}>
-                <div className="receipt-thumb"><span className="material-symbols-outlined text-[16px] text-on-surface-variant">receipt_long</span></div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Adobe · Software</div>
-                  <div className="text-[11px] text-on-surface-variant">10/30/2026 · $59.99 · Visa •4421</div>
-                </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-tertiary/15 text-tertiary">New</span>
-              </div>
+              ))}
+              {ov && ov.receiptsPreview.length === 0 && (
+                <div className="px-5 py-4 text-[11px] text-on-surface-variant">No receipts in the inbox yet — forward or upload one to start.</div>
+              )}
             </div>
           </div>
         </div>
@@ -266,12 +280,12 @@ export default function AccountingOverview({
         {/* Two-column: For review feed + Recent activity */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
 
-          {/* For review feed (Bank transactions preview) */}
+          {/* For review feed — live bank transactions awaiting review */}
           <div className="xl:col-span-2 bg-white rounded-xl border border-surface-dim overflow-hidden">
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-headline-sm">For review</h2>
-                <p className="text-[11px] text-on-surface-variant mt-0.5">47 bank transactions</p>
+                <p className="text-[11px] text-on-surface-variant mt-0.5">{ov ? `${ov.reviewCount} bank transaction${ov.reviewCount === 1 ? '' : 's'}` : 'Loading…'}</p>
               </div>
               <button
                 className="text-[11px] font-semibold text-primary hover:underline"
@@ -289,84 +303,38 @@ export default function AccountingOverview({
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-dim">
-                <tr className="hover:bg-surface-container-low">
-                  <td className="px-4 py-2">10/30</td>
-                  <td className="px-4 py-2 truncate">STAPLES #0412</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-error">−$142.50</td>
-                  <td className="px-4 py-2"><span className="px-2 py-0.5 rounded bg-surface-container text-[11px]">Office supplies</span></td>
-                  <td className="px-4 py-2 text-right"><button className="h-6 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low" onClick={() => onNavigate(...ACCT_NAV.bank())}>Review</button></td>
-                </tr>
-                <tr className="hover:bg-surface-container-low">
-                  <td className="px-4 py-2">10/29</td>
-                  <td className="px-4 py-2 truncate">FEDEX 001239847</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-error">−$84.20</td>
-                  <td className="px-4 py-2"><span className="px-2 py-0.5 rounded bg-surface-container text-[11px]">Shipping</span></td>
-                  <td className="px-4 py-2 text-right"><button className="h-6 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low" onClick={() => onNavigate(...ACCT_NAV.bank())}>Review</button></td>
-                </tr>
-                <tr className="hover:bg-surface-container-low">
-                  <td className="px-4 py-2">10/28</td>
-                  <td className="px-4 py-2 truncate">STRIPE PAYOUT</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-secondary">+$1,842.60</td>
-                  <td className="px-4 py-2"><span className="px-2 py-0.5 rounded bg-surface-container text-[11px]">Stripe clearing</span></td>
-                  <td className="px-4 py-2 text-right"><button className="h-6 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low" onClick={() => onNavigate(...ACCT_NAV.bank())}>Review</button></td>
-                </tr>
-                <tr className="hover:bg-surface-container-low">
-                  <td className="px-4 py-2">10/27</td>
-                  <td className="px-4 py-2 truncate">AWS EMEA CHARGES</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-error">−$124.88</td>
-                  <td className="px-4 py-2"><span className="px-2 py-0.5 rounded bg-surface-container text-[11px]">Software</span></td>
-                  <td className="px-4 py-2 text-right"><button className="h-6 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low" onClick={() => onNavigate(...ACCT_NAV.bank())}>Review</button></td>
-                </tr>
-                <tr className="hover:bg-surface-container-low">
-                  <td className="px-4 py-2">10/27</td>
-                  <td className="px-4 py-2 truncate">ACME CORP — ACH</td>
-                  <td className="px-4 py-2 text-right tabular-nums text-secondary">+$1,240.00</td>
-                  <td className="px-4 py-2"><span className="px-2 py-0.5 rounded bg-surface-container text-[11px]">Invoice 1002</span></td>
-                  <td className="px-4 py-2 text-right"><button className="h-6 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low" onClick={() => onNavigate(...ACCT_NAV.bank())}>Review</button></td>
-                </tr>
+                {(ov?.reviewFeed || []).map((t) => (
+                  <tr className="hover:bg-surface-container-low" key={t.id}>
+                    <td className="px-4 py-2">{fmtFeedDate(t.date)}</td>
+                    <td className="px-4 py-2 truncate">{t.description}</td>
+                    <td className={`px-4 py-2 text-right tabular-nums ${t.amount < 0 ? 'text-error' : 'text-secondary'}`}>{t.amount < 0 ? '−' : '+'}{fmtMoney(Math.abs(t.amount))}</td>
+                    <td className="px-4 py-2">{t.suggestedLabel ? <span className="px-2 py-0.5 rounded bg-surface-container text-[11px]">{t.suggestedLabel}</span> : <span className="text-[11px] text-on-surface-variant">—</span>}</td>
+                    <td className="px-4 py-2 text-right"><button className="h-6 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low" onClick={() => onNavigate(...ACCT_NAV.bank())}>Review</button></td>
+                  </tr>
+                ))}
+                {ov && ov.reviewFeed.length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-4 text-[11px] text-on-surface-variant">Nothing waiting for review — the bank feed is clear.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
 
-          {/* Recent activity */}
+          {/* Recent activity — latest journals, receipts and bank rows */}
           <div className="bg-white rounded-xl border border-surface-dim p-5">
             <h2 className="text-headline-sm mb-3">Recent activity</h2>
             <div className="space-y-3 text-body-sm">
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[16px] text-secondary mt-0.5">check_circle</span>
-                <div className="min-w-0">
-                  <div className="font-medium">October reconciled</div>
-                  <div className="text-[11px] text-on-surface-variant">Sarah A. · 2 hours ago</div>
+              {(ov?.activity || []).map((a) => (
+                <div className="flex items-start gap-2" key={a.id}>
+                  <span className="material-symbols-outlined text-[16px] text-qb-blue mt-0.5">{ACTIVITY_ICONS[a.kind] || 'history'}</span>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{a.title}</div>
+                    <div className="text-[11px] text-on-surface-variant">{a.detail} · {fmtShortDate(a.at)}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[16px] text-qb-blue mt-0.5">receipt_long</span>
-                <div className="min-w-0">
-                  <div className="font-medium">Invoice 1002 sent to Acme Corp</div>
-                  <div className="text-[11px] text-on-surface-variant">Marcus L. · Yesterday</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[16px] text-qb-maroon mt-0.5">credit_card</span>
-                <div className="min-w-0">
-                  <div className="font-medium">Staples expense created</div>
-                  <div className="text-[11px] text-on-surface-variant">Auto · 10/30</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[16px] text-tertiary mt-0.5">tune</span>
-                <div className="min-w-0">
-                  <div className="font-medium">Rule added: Stripe payouts</div>
-                  <div className="text-[11px] text-on-surface-variant">Priya N. · 10/28</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-[16px] text-on-surface-variant mt-0.5">person_add</span>
-                <div className="min-w-0">
-                  <div className="font-medium">New vendor: Printful</div>
-                  <div className="text-[11px] text-on-surface-variant">Auto · 10/26</div>
-                </div>
-              </div>
+              ))}
+              {ov && ov.activity.length === 0 && (
+                <div className="text-[11px] text-on-surface-variant">No activity yet.</div>
+              )}
             </div>
             <button
               className="w-full mt-4 h-8 border border-surface-dim rounded text-body-sm hover:bg-surface-container-low flex items-center justify-center gap-1"

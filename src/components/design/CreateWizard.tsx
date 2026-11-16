@@ -3,14 +3,18 @@
  * CreateWizard — the wizard launched from the Catalog sidebar (move 4).
  *
  * A 3-step flow that combines catalog browsing + design selection:
- *   Step 1: Choose a category (mirrors TOP_NAV top-level categories)
- *   Step 2: Choose a blank type + color/variant
- *   Step 3: Confirm → loads the canvas with the selection + opens Design drawer
+ *   Step 1: Choose a category (the storefront nav tree)
+ *   Step 2: Choose a REAL blank for that category (GET /api/v1/blanks)
+ *           + a REAL variant color (GET /api/v1/blanks/:id)
+ *   Step 3: Confirm → creates the draft design + loads the canvas
  *
- * This is the "wizard icon to start wizard" — launched from the Catalog group.
+ * No invented blanks, no invented colors: when the supplier catalog has
+ * no items mapped to a category, step 2 says so instead of showing a
+ * fake tee.
  */
-import { useState } from 'react';
-import { useDesignCanvas, BLANKS, SUPPLIER_COLORS } from '@/lib/designCanvasStore';
+import { useEffect, useState } from 'react';
+import { useDesignCanvas } from '@/lib/designCanvasStore';
+import { getBlank, listBlanks, type BlankCard, type BlankDetail } from '@/lib/podApi';
 import type { DomainKey } from '@/data/shellData';
 
 interface CreateWizardProps {
@@ -22,34 +26,94 @@ interface CreateWizardProps {
   initialSubcategory?: string;
 }
 
-const BLANK_OPTIONS = [
-  { key: 'tee', label: 'T-shirt', icon: 'checkroom' },
-  { key: 'hoodie', label: 'Hoodie', icon: 'checkroom' },
-  { key: 'mug', label: 'Mug', icon: 'local_cafe' },
-];
-
 export default function CreateWizard({ onToast, onNavigate, initialCategory, initialSubcategory }: CreateWizardProps) {
   const [step, setStep] = useState<1 | 2 | 3>(initialCategory ? 2 : 1);
   const [category, setCategory] = useState<string | null>(initialCategory || null);
   const [subcategory, setSubcategory] = useState<string | null>(initialSubcategory || null);
-  const [blankKey, setBlankKey] = useState<string>('tee');
-  const [colorIdx, setColorIdx] = useState(0);
+  const [blankId, setBlankId] = useState<string | null>(null);
+  const [blanks, setBlanks] = useState<BlankCard[]>([]);
+  const [blanksStatus, setBlanksStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [blanksError, setBlanksError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<BlankDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [colorName, setColorName] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
 
-  // The REAL category tree nav (departments → subcategories), hydrated from
-  // GET /api/v1/categories by the store. TOP_NAV stays only as the
-  // pre-fetch placeholder.
+  // The storefront nav tree (departments → subcategories) — navigation
+  // structure, not product data.
   const navMap = useDesignCanvas((s) => s.navMap);
 
-  const loadBlank = useDesignCanvas((s) => s.loadBlank);
-  const selectColor = useDesignCanvas((s) => s.selectColor);
+  const loadBlankDetail = useDesignCanvas((s) => s.loadBlankDetail);
+  const startDesign = useDesignCanvas((s) => s.startDesign);
+  const loadBlankFromDetail = useDesignCanvas((s) => s.loadBlankFromDetail);
   const setSupplierCategory = useDesignCanvas((s) => s.setSupplierCategory);
 
-  const color = SUPPLIER_COLORS[colorIdx] || SUPPLIER_COLORS[0];
+  // Step 2 data — real blanks for the chosen category.
+  useEffect(() => {
+    if (step !== 2 || !category) return;
+    let cancelled = false;
+    setBlanksStatus('loading');
+    setBlanksError(null);
+    setBlankId(null);
+    setDetail(null);
+    setColorName(null);
+    listBlanks({ category, subcategory: subcategory ?? undefined, limit: 24 })
+      .then((res) => {
+        if (cancelled) return;
+        setBlanks(res.items);
+        setBlanksStatus('ready');
+        if (res.items.length === 0) {
+          setBlanksError(
+            res.meta?.matched === false
+              ? `No products in “${category}” yet — the supplier catalog has no items mapped to this category.`
+              : 'No products in this category yet.',
+          );
+        }
+      })
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setBlanksStatus('error');
+          setBlanksError(e.message || 'Could not load products for this category.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, category, subcategory]);
+
+  // Real variant colors for the chosen blank.
+  useEffect(() => {
+    if (!blankId) {
+      setDetail(null);
+      setColorName(null);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    getBlank(blankId)
+      .then((d) => {
+        if (cancelled) return;
+        setDetail(d);
+        setColorName(d.variants.colors[0]?.name ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [blankId]);
+
+  const selectedBlank = blanks.find((b) => b.id === blankId) ?? null;
+  const colors = detail?.variants.colors ?? [];
 
   function next() {
     if (step === 1 && category) {
       setStep(2);
-    } else if (step === 2) {
+    } else if (step === 2 && blankId) {
       setStep(3);
     }
   }
@@ -57,14 +121,29 @@ export default function CreateWizard({ onToast, onNavigate, initialCategory, ini
     if (step > 1) setStep((s) => (s - 1) as 1 | 2 | 3);
   }
   function finish() {
-    loadBlank(blankKey);
-    selectColor(color);
-    if (category) {
-      const sub = navMap[category]?.[0] || subcategory || '';
-      setSupplierCategory(category, sub);
-    }
-    onNavigate('design', 'new-design');
-    onToast('Wizard complete — canvas loaded, Design drawer opened.');
+    if (!blankId || finishing) return;
+    setFinishing(true);
+    void (async () => {
+      const d = await loadBlankDetail(blankId);
+      if (!d) {
+        onToast('Could not load that product — try again.');
+        setFinishing(false);
+        return;
+      }
+      try {
+        await startDesign(d, colorName ?? undefined);
+      } catch {
+        // Draft creation failed (network) — still design.
+        loadBlankFromDetail(d);
+      }
+      if (category) {
+        const sub = navMap[category]?.[0] || subcategory || '';
+        setSupplierCategory(category, sub);
+      }
+      onNavigate('design', 'new-design');
+      onToast('Wizard complete — canvas loaded, Design drawer opened.');
+      setFinishing(false);
+    })();
   }
 
   return (
@@ -155,43 +234,68 @@ export default function CreateWizard({ onToast, onNavigate, initialCategory, ini
             <h2 className="text-title-md mb-1">Choose a blank & variant</h2>
             <p className="text-body-sm text-on-surface-variant mb-4">
               Category: <b>{category}</b>
+              {subcategory ? <> / {subcategory}</> : null}
             </p>
 
-            <div className="section-label">Blank type</div>
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {BLANK_OPTIONS.map((b) => (
-                <button
-                  key={b.key}
-                  type="button"
-                  onClick={() => setBlankKey(b.key)}
-                  className={`p-4 rounded-xl border text-center transition-colors ${
-                    blankKey === b.key
-                      ? 'border-primary bg-primary-container/20'
-                      : 'border-surface-dim hover:bg-surface-container-low'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[24px] text-on-surface-variant">{b.icon}</span>
-                  <div className="font-medium text-body-md mt-1">{b.label}</div>
-                </button>
-              ))}
-            </div>
+            <div className="section-label">Blank</div>
+            {blanksStatus === 'loading' && (
+              <p className="text-body-sm text-on-surface-variant mb-6">Loading products…</p>
+            )}
+            {blanksStatus !== 'loading' && blanks.length === 0 && (
+              <p className="text-body-sm text-on-surface-variant mb-6">{blanksError ?? 'No products in this category yet.'}</p>
+            )}
+            {blanks.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-6">
+                {blanks.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => setBlankId(b.id)}
+                    className={`p-3 rounded-xl border text-left transition-colors ${
+                      blankId === b.id
+                        ? 'border-primary bg-primary-container/20'
+                        : 'border-surface-dim hover:bg-surface-container-low'
+                    }`}
+                  >
+                    {b.mockupThumbUrl && (
+                      <img src={b.mockupThumbUrl} alt={b.name} className="w-full aspect-square object-cover rounded-lg mb-2" />
+                    )}
+                    <div className="font-medium text-body-md">{b.name}</div>
+                    <div className="text-[11px] text-on-surface-variant">
+                      {b.brand} · {b.supplier}
+                      {b.baseCost != null ? ` · $${b.baseCost.toFixed(2)}` : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
 
-            <div className="section-label">Color / variant</div>
-            <div className="flex flex-wrap gap-2">
-              {SUPPLIER_COLORS.map((c, i) => (
-                <button
-                  key={c.sku}
-                  type="button"
-                  onClick={() => setColorIdx(i)}
-                  className={`w-10 h-10 rounded-full border-2 transition-colors ${
-                    colorIdx === i ? 'border-on-surface' : 'border-transparent'
-                  }`}
-                  title={`${c.name} (${c.sku})`}
-                >
-                  <div className="w-full h-full rounded-full" style={{ background: c.hex }} />
-                </button>
-              ))}
-            </div>
+            {blankId && (
+              <>
+                <div className="section-label">Color / variant</div>
+                {detailLoading && (
+                  <p className="text-body-sm text-on-surface-variant">Loading colors…</p>
+                )}
+                {!detailLoading && colors.length === 0 && (
+                  <p className="text-body-sm text-on-surface-variant">No colors on file for this product.</p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {colors.map((c) => (
+                    <button
+                      key={c.name}
+                      type="button"
+                      onClick={() => setColorName(c.name)}
+                      className={`w-10 h-10 rounded-full border-2 transition-colors ${
+                        colorName === c.name ? 'border-on-surface' : 'border-transparent'
+                      }`}
+                      title={c.name}
+                    >
+                      <div className="w-full h-full rounded-full" style={{ background: c.hex || '#cccccc' }} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -205,9 +309,9 @@ export default function CreateWizard({ onToast, onNavigate, initialCategory, ini
               <dt className="text-on-surface-variant">Category</dt>
               <dd className="font-medium">{category}</dd>
               <dt className="text-on-surface-variant">Blank</dt>
-              <dd className="font-medium">{BLANKS[blankKey]?.name || blankKey}</dd>
+              <dd className="font-medium">{selectedBlank?.name ?? '—'}</dd>
               <dt className="text-on-surface-variant">Color</dt>
-              <dd className="font-medium">{color.name}</dd>
+              <dd className="font-medium">{colorName ?? '—'}</dd>
             </dl>
           </>
         )}
@@ -228,7 +332,7 @@ export default function CreateWizard({ onToast, onNavigate, initialCategory, ini
             type="button"
             className="h-9 px-4 bg-primary text-white text-body-md font-semibold rounded hover:bg-primary-container flex items-center gap-1"
             onClick={next}
-            disabled={step === 1 && !category}
+            disabled={(step === 1 && !category) || (step === 2 && !blankId)}
           >
             Next
             <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
@@ -238,9 +342,10 @@ export default function CreateWizard({ onToast, onNavigate, initialCategory, ini
             type="button"
             className="h-9 px-4 bg-primary text-white text-body-md font-semibold rounded hover:bg-primary-container flex items-center gap-1"
             onClick={finish}
+            disabled={finishing || !blankId}
           >
             <span className="material-symbols-outlined text-[16px]">palette</span>
-            Start designing
+            {finishing ? 'Loading…' : 'Start designing'}
           </button>
         )}
       </div>

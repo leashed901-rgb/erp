@@ -3,7 +3,10 @@
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { adMutations, useAdCampaigns, useAdCreatives } from '@/hooks/useAdvertisingApi';
+import { fetchJson } from '@/hooks/useCrmApi';
+import type { AdCreative as AdCreativeDto } from '@/lib/adTypes';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -30,18 +33,34 @@ interface Creative {
   primary: string;
   cta: string;
   url: string;
+  imageUrl: string;
 }
 
-const CREATIVES: Creative[] = [
-  { id: 'CR-001', name: 'Fall hero — 1x1', type: 'Image', dimensions: '1080x1080', networks: ['Meta'], usedIn: 2, impressions: 842000, ctr: 2.1, roas: 4.26, status: 'Live', headline: 'Meet the fall capsule', primary: 'A considered collection built around what you asked for.', cta: 'Shop now', url: 'https://unsaid.app/fall' },
-  { id: 'CR-002', name: 'Fall hero — 4x5', type: 'Image', dimensions: '1080x1350', networks: ['Meta', 'Pinterest'], usedIn: 1, impressions: 412000, ctr: 1.8, roas: 3.94, status: 'Live', headline: 'Meet the fall capsule', primary: 'A considered collection built around what you asked for.', cta: 'Shop now', url: 'https://unsaid.app/fall' },
-  { id: 'CR-003', name: 'TikTok drop — vertical', type: 'Video', dimensions: '1080x1920 · 15s', networks: ['TikTok'], usedIn: 1, impressions: 1860000, ctr: 3.4, roas: 3.06, status: 'Live', headline: 'Behind the drop', primary: 'A 15s look at how the capsule came together.', cta: 'Learn more', url: 'https://unsaid.app/drop' },
-  { id: 'CR-004', name: 'Search text — brand', type: 'Text', dimensions: '1200x628', networks: ['Google'], usedIn: 1, impressions: 94000, ctr: 5.2, roas: 4.02, status: 'Live', headline: 'Unsaid — official site', primary: 'Free shipping on orders over $50.', cta: 'Learn more', url: 'https://unsaid.app' },
-  { id: 'CR-005', name: 'Holiday capsule teaser', type: 'Video', dimensions: '1080x1080 · 6s', networks: ['Meta'], usedIn: 0, impressions: 0, ctr: 0, roas: 0, status: 'In review', headline: 'Something cozy is coming', primary: 'A sneak peek before launch.', cta: 'Learn more', url: 'https://unsaid.app/holiday' },
-  { id: 'CR-006', name: 'Summer CTA', type: 'Image', dimensions: '1080x1080', networks: ['Meta'], usedIn: 1, impressions: 1240000, ctr: 1.9, roas: 3.08, status: 'Archived', headline: 'Last chance', primary: 'Summer clearance — final week.', cta: 'Shop now', url: 'https://unsaid.app/summer' },
-  { id: 'CR-007', name: 'Summer carousel', type: 'Carousel', dimensions: '1080x1080 x3', networks: ['Meta'], usedIn: 1, impressions: 682000, ctr: 1.6, roas: 2.84, status: 'Archived', headline: 'Three looks, one story', primary: 'Swipe through the summer edit.', cta: 'Shop now', url: 'https://unsaid.app/summer' },
-  { id: 'CR-008', name: 'Evergreen tote', type: 'Image', dimensions: '1080x1350', networks: ['Pinterest'], usedIn: 0, impressions: 0, ctr: 0, roas: 0, status: 'Draft', headline: 'The everyday tote', primary: 'Canvas, ready for anything.', cta: 'Shop now', url: 'https://unsaid.app/tote' },
-];
+
+/* Status bridge: ad_creatives.status is free text; the screen's
+   vocabulary is stored lowercase in the DB. */
+const statusToDb = (s: string) => (s === 'Live' || s === 'In review' ? 'active' : s === 'Archived' || s === 'Rejected' ? 'archived' : 'paused');
+const statusFromDb = (s: string) => (s === 'active' ? 'Live' : s === 'archived' ? 'Archived' : 'Draft');
+
+function toScreenCreative(dto: AdCreativeDto): Creative {
+  return {
+    id: dto.id,
+    name: dto.name || dto.headline || 'Creative',
+    type: dto.imageUrl || dto.assetUrl ? 'Image' : 'Text',
+    dimensions: dto.width && dto.height ? `${dto.width}x${dto.height}` : '—',
+    networks: [''],
+    usedIn: dto.campaignId ? 1 : 0,
+    impressions: 0,
+    ctr: 0,
+    roas: 0,
+    status: statusFromDb(dto.status || 'draft'),
+    headline: dto.headline || '',
+    primary: dto.body || '',
+    cta: dto.cta || '',
+    url: dto.clickUrl || '',
+    imageUrl: dto.imageUrl || dto.assetUrl || '',
+  };
+}
 
 /* ─── helpers (from HTML <script>) ─── */
 function pillFor(status: string) {
@@ -57,7 +76,15 @@ function iconFor(type: string) {
 
 export default function CreativesScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's `filters`, `editing`, `peekId`, etc.) ─── */
-  const [items, setItems] = useState<Creative[]>(CREATIVES);
+  const [items, setItems] = useState<Creative[]>([]);
+  const { creatives: apiCreatives, refresh: refreshCreatives } = useAdCreatives();
+  const { campaigns: apiCampaigns } = useAdCampaigns();
+  useEffect(() => {
+    setItems(apiCreatives.map(toScreenCreative));
+    // API creatives carry no network (not a column) — keep them visible.
+    setNetworks(prev => (prev.has('') ? prev : new Set([...prev, ''])));
+    setDraftNetworks(prev => (prev.has('') ? prev : new Set([...prev, ''])));
+  }, [apiCreatives]);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('All');
   const [types, setTypes] = useState<Set<string>>(new Set(TYPES as readonly string[]));
@@ -84,6 +111,29 @@ export default function CreativesScreen({ onToast }: MarketingScreenProps) {
   const [formUrl, setFormUrl] = useState('');
   const [formNetworks, setFormNetworks] = useState<Set<string>>(new Set(['Meta', 'TikTok']));
   const [assetFileName, setAssetFileName] = useState('');
+  // Catalog picker (module 6): creatives pull catalog items — picking a
+  // product fills the image, headline and name from the live product.
+  // The destination URL is left to the user: no storefront product URL
+  // pattern is verified in the codebase, so none is invented here.
+  const [catalogProducts, setCatalogProducts] = useState<{ id: string; name: string; slug: string; image: string | null }[]>([]);
+  const [formProductId, setFormProductId] = useState('');
+  const [formImageUrl, setFormImageUrl] = useState('');
+
+  async function loadCatalogProducts() {
+    if (catalogProducts.length) return;
+    const r = await fetchJson<{ data: { id: string; name: string; slug: string; image: string | null }[] }>('/api/products?limit=200');
+    const rows = (r.ok ? r.data?.data : undefined) || [];
+    setCatalogProducts(rows);
+  }
+
+  function pickCatalogProduct(id: string) {
+    setFormProductId(id);
+    const p = catalogProducts.find(x => x.id === id);
+    if (!p) { setFormImageUrl(''); return; }
+    setFormImageUrl(p.image || '');
+    if (!formName.trim()) setFormName(p.name);
+    if (!formHeadline.trim()) setFormHeadline(p.name);
+  }
 
   // preview modal
   const [previewCreative, setPreviewCreative] = useState<Creative | null>(null);
@@ -122,9 +172,12 @@ export default function CreativesScreen({ onToast }: MarketingScreenProps) {
     setFormPrimary(editing ? editing.primary : '');
     setFormCta(editing ? editing.cta : 'Shop now');
     setFormUrl(editing ? editing.url : '');
+    setFormImageUrl(editing ? editing.imageUrl : '');
+    setFormProductId('');
     setFormNetworks(editing ? new Set(editing.networks) : new Set(['Meta', 'TikTok']));
     setAssetFileName('');
     setDrawerOpen(true);
+    loadCatalogProducts();
     setPeekId(null);
     setRowMenuForId(null);
   }
@@ -152,23 +205,47 @@ export default function CreativesScreen({ onToast }: MarketingScreenProps) {
       primary: formPrimary,
       cta: formCta,
       url: formUrl,
+      imageUrl: formImageUrl,
     };
   }
-  function save() {
-    const c = collectCreative(); if (!c) return;
-    setItems(prev => {
-      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = c; return n; } return prev; }
-      return [c, ...prev];
-    });
+  async function persistCreative(): Promise<boolean> {
+    const c = collectCreative(); if (!c) return false;
+    const dims = /^(\d+)x(\d+)$/.exec(c.dimensions.trim());
+    const payload: Record<string, unknown> = {
+      name: c.name,
+      status: statusToDb(c.status),
+      headline: c.headline || null,
+      body: c.primary || null,
+      cta: c.cta || null,
+      clickUrl: c.url || null,
+      imageUrl: c.imageUrl || null,
+      width: dims ? Number(dims[1]) : 1080,
+      height: dims ? Number(dims[2]) : 1080,
+    };
+    try {
+      if (editingId) {
+        await adMutations.updateCreative(editingId, payload);
+      } else {
+        // ad_creatives.campaign_id is required — a library creative
+        // attaches to the tenant's first campaign.
+        const campaignId = apiCampaigns[0]?.id;
+        if (!campaignId) { onToast('Create a campaign first — creatives belong to a campaign.'); return false; }
+        await adMutations.createCreative({ ...payload, campaignId });
+      }
+      refreshCreatives();
+      return true;
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'Could not save the creative');
+      return false;
+    }
+  }
+  async function save() {
+    if (!(await persistCreative())) return;
     closeCreativeDrawer();
     onToast(editingId ? 'Creative updated' : 'Creative created');
   }
-  function saveAndNew() {
-    const c = collectCreative(); if (!c) return;
-    setItems(prev => {
-      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = c; return n; } return prev; }
-      return [c, ...prev];
-    });
+  async function saveAndNew() {
+    if (!(await persistCreative())) return;
     setEditingId(null);
     setFormName('');
     setFormHeadline('');
@@ -176,6 +253,12 @@ export default function CreativesScreen({ onToast }: MarketingScreenProps) {
     setFormUrl('');
     setFormDimensions('');
     onToast('Saved. New creative form ready.');
+  }
+
+  function setStatusViaApi(c: Creative, display: string, verb: string) {
+    adMutations.updateCreative(c.id, { status: statusToDb(display) })
+      .then(() => { setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: display } : x)); onToast(`${verb}: ${c.name}`); })
+      .catch((e) => onToast(e instanceof Error ? e.message : 'Could not update the creative'));
   }
 
   function nextId() { return 'CR-' + String(items.length + 1).padStart(3, '0'); }
@@ -188,17 +271,19 @@ export default function CreativesScreen({ onToast }: MarketingScreenProps) {
     switch (act) {
       case 'edit': openCreativeDrawer(c.id); break;
       case 'view': openPeek(c.id); break;
-      case 'duplicate':
-        setItems(prev => [duplicateCreative(c), ...prev]);
-        onToast(`Duplicated: ${c.name}`);
+      case 'duplicate': {
+        const srcDto = apiCreatives.find(d => d.id === c.id);
+        if (!srcDto) { onToast('Creative is still loading'); break; }
+        adMutations.createCreative({ campaignId: srcDto.campaignId, name: c.name + ' (copy)', status: 'draft', headline: srcDto.headline, body: srcDto.body, cta: srcDto.cta, clickUrl: srcDto.clickUrl, imageUrl: srcDto.imageUrl, width: srcDto.width, height: srcDto.height })
+          .then(() => { refreshCreatives(); onToast(`Duplicated: ${c.name}`); })
+          .catch((e) => onToast(e instanceof Error ? e.message : 'Could not duplicate'));
         break;
-      case 'publish': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'In review' } : x)); onToast(`Submitted: ${c.name}`); break;
-      case 'archive': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'Archived' } : x)); onToast(`Archived: ${c.name}`); break;
+      }
+      case 'publish': setStatusViaApi(c, 'In review', 'Submitted'); break;
+      case 'archive': setStatusViaApi(c, 'Archived', 'Archived'); break;
       case 'delete':
-        if (confirm(`Delete creative "${c.name}"?`)) {
-          setItems(prev => prev.filter(x => x.id !== c.id));
-          onToast(`Deleted: ${c.name}`);
-        }
+        // No delete in the schema — archiving is the terminal state.
+        if (confirm(`Delete creative "${c.name}"? It will be archived.`)) setStatusViaApi(c, 'Archived', 'Deleted');
         break;
     }
   }
@@ -207,25 +292,25 @@ export default function CreativesScreen({ onToast }: MarketingScreenProps) {
     if (act === 'close') { setSelected(new Set()); return; }
     const sel = [...selected];
     const n = sel.length;
-    if (act === 'publish') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'In review' } : c)); onToast(`Submitted ${n} creative(s)`); }
-    else if (act === 'archive') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'Archived' } : c)); onToast(`Archived ${n} creative(s)`); }
-    else if (act === 'duplicate') {
-      setItems(prev => {
-        const copies: Creative[] = [];
-        for (const id of sel) {
-          const c = prev.find(x => x.id === id);
-          if (c) copies.push({ ...c, id: 'CR-' + String(prev.length + copies.length + 1).padStart(3, '0'), name: c.name + ' (copy)', status: 'Draft', usedIn: 0, impressions: 0, ctr: 0, roas: 0 });
-        }
-        return [...copies, ...prev];
-      });
-      onToast(`Duplicated ${n} creative(s)`);
-    }
-    else if (act === 'delete') {
-      if (confirm(`Delete ${n} creative(s)?`)) {
-        setItems(prev => prev.filter(c => !sel.includes(c.id)));
-        onToast(`Deleted ${n} creative(s)`);
+    const statusFor: Record<string, string> = { publish: 'In review', archive: 'Archived', delete: 'Archived' };
+    (async () => {
+      try {
+        if (act === 'duplicate') {
+          for (const id of sel) {
+            const d = apiCreatives.find(x => x.id === id);
+            if (d) await adMutations.createCreative({ campaignId: d.campaignId, name: (d.name || 'Creative') + ' (copy)', status: 'draft', headline: d.headline, body: d.body, cta: d.cta, clickUrl: d.clickUrl, imageUrl: d.imageUrl, width: d.width, height: d.height });
+          }
+          onToast(`Duplicated ${n} creative(s)`);
+        } else if (statusFor[act]) {
+          if (act === 'delete' && !confirm(`Delete ${n} creative(s)? They will be archived.`)) return;
+          for (const id of sel) await adMutations.updateCreative(id, { status: statusToDb(statusFor[act]) });
+          onToast(`${act === 'publish' ? 'Submitted' : statusFor[act]} ${n} creative(s)`);
+        } else return;
+        refreshCreatives();
+      } catch (e) {
+        onToast(e instanceof Error ? e.message : 'Bulk action failed');
       }
-    }
+    })();
     setSelected(new Set());
   }
 
@@ -595,6 +680,16 @@ export default function CreativesScreen({ onToast }: MarketingScreenProps) {
                   <input type="file" id="assetInput" hidden accept="image/*,video/*" onChange={e => { const f = e.target.files?.[0]; if (f) setAssetFileName(`Selected: ${f.name} (${(f.size / 1024).toFixed(0)} KB)`); }} />
                 </label>
                 <div className="mt-2 text-[11px] text-on-surface-variant">{assetFileName}</div>
+                <div className="mt-3">
+                  <label className="field-label">Catalog product (optional)</label>
+                  <select className="field-input" value={formProductId} onChange={e => pickCatalogProduct(e.target.value)}>
+                    <option value="">No catalog product — upload or link above</option>
+                    {catalogProducts.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-[11px] text-on-surface-variant">Picking a product fills the image, headline and name from the live catalog.{formImageUrl ? ` Image: ${formImageUrl}` : ''}</div>
+                </div>
               </section>
 
               {/* Copy */}

@@ -4,58 +4,55 @@ import './expenses-bills.css';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { ExpensesBillsScreenProps } from './types';
 import { EBL_NAV } from './types';
+import { fetchJson } from '@/hooks/useCrmApi';
+import { exportToCsv } from '@/lib/csvExport';
+import { useChartOfAccounts, useBankAccounts, receiptMutations } from '@/hooks/useAccountingApi';
+import type { ReceiptDto } from '@/lib/acctTypes';
 
 /* ════════════════════════════════════════════════════════════════
    Data shapes (sourced 1:1 from the inline <script> in the HTML)
    ════════════════════════════════════════════════════════════════ */
 
+/* Data shapes — every row below is loaded from the real APIs:
+   bills from GET /api/accounting/bills, receipts from
+   GET /api/accounting/receipts, expenses from the Document Engine
+   list, vendors/parties from GET /api/parties. */
+
 interface ReceiptData {
   vendor: string;
   date: string;        // ISO yyyy-mm-dd
   amount: string;      // decimal like "142.50"
-  category: string;
-  account: string;
+  category: string;    // category ACCOUNT id (receipt create-expense needs it)
+  account: string;     // bank account id
 }
-
-const RECEIPT_DATA: Record<string, ReceiptData> = {
-  Staples: { vendor: 'Staples', date: '2026-10-30', amount: '142.50', category: 'Office supplies', account: 'Visa \u00B04421' },
-  FedEx:   { vendor: 'FedEx',   date: '2026-10-29', amount: '84.20',  category: 'Shipping',         account: 'Bank \u00B09910' },
-  Adobe:   { vendor: 'Adobe',   date: '2026-10-30', amount: '59.99',  category: 'Software',         account: 'Visa \u00B04421' },
-};
 
 interface BillData {
   vendor: string;
   no: string;
   date: string;        // ISO
-  due: string;        // ISO
-  balance: string;    // "$2,880.00"
-  doc: string;        // "PF-9211.pdf"
+  due: string;         // ISO
+  balance: string;     // "$2,880.00"
+  doc: string;
 }
-
-const BILL_DATA: Record<string, BillData> = {
-  Printful: { vendor: 'Printful', no: 'PF-9211', date: '2026-10-11', due: '2026-11-10', balance: '$2,880.00', doc: 'PF-9211.pdf' },
-  Gelato:   { vendor: 'Gelato',   no: 'GL-4402', date: '2026-10-16', due: '2026-11-15', balance: '$1,200.00', doc: 'GL-4402.pdf' },
-  Printify: { vendor: 'Printify', no: 'PR-3388', date: '2026-09-30', due: '2026-10-30', balance: '$640.00',   doc: 'PR-3388.pdf' },
-};
 
 type BillStatus = 'For review' | 'Unpaid' | 'Overdue';
 
 interface BillRow {
+  id: string;
+  vendorId: string;
   vendor: string;
   no: string;
   due: string;        // display "11/10/2026"
-  amount: string;    // display "$2,880.00"
+  dueISO: string;
+  dateISO: string;
+  amount: string;    // display "$2,880.00" (open balance)
+  open: number;
   status: BillStatus;
   overdue?: boolean;
 }
 
-const INITIAL_BILLS: BillRow[] = [
-  { vendor: 'Printful', no: 'PF-9211', due: '11/10/2026', amount: '$2,880.00', status: 'For review' },
-  { vendor: 'Gelato',   no: 'GL-4402', due: '11/15/2026', amount: '$1,200.00', status: 'Unpaid' },
-  { vendor: 'Printify', no: 'PR-3388', due: '10/30/2026', amount: '$640.00',   status: 'Overdue', overdue: true },
-];
-
 interface PayBillRow {
+  id: string;
   vendor: string;
   billNo: string;
   due: string;
@@ -64,12 +61,6 @@ interface PayBillRow {
   checked: boolean;
   payment: string;     // input value with commas "2,880.00"
 }
-
-const INITIAL_PAY_BILLS: PayBillRow[] = [
-  { vendor: 'Printful', billNo: 'PF-9211', due: '11/10/2026', amount: '$2,880.00', checked: false, payment: '2,880.00' },
-  { vendor: 'Gelato',   billNo: 'GL-4402', due: '11/15/2026', amount: '$1,200.00', checked: false, payment: '1,200.00' },
-  { vendor: 'Printify', billNo: 'PR-3388', due: '10/30/2026', amount: '$640.00',   overdue: true, checked: false, payment: '640.00' },
-];
 
 /* Helper: format a numeric string with comma-separated integer part */
 function formatWithCommas(input: string): string {
@@ -104,49 +95,118 @@ export default function ExpensesBillsOverview({
   onCreate,
   onOpenCreateFlyout,
 }: ExpensesBillsScreenProps) {
-  // REAL data from acct_ap_bills via the Document Engine API
+  // REAL data: bills (accounting DTO), receipts inbox, expenses
+  // (Document Engine), parties (vendor counts / 1099).
   const [bills, setBills] = useState<BillRow[]>([]);
   const [payBills, setPayBills] = useState<PayBillRow[]>([]);
+  const [receiptRows, setReceiptRows] = useState<ReceiptDto[]>([]);
+  const [expenseRows, setExpenseRows] = useState<{ id: string; title: string; sub: string; amount: number; posted: boolean; needsReceipt: boolean }[]>([]);
+  const [vendorAgg, setVendorAgg] = useState<{ name: string; bills: number; open: number; overdue: number; total: number }[]>([]);
+  const [partyStats, setPartyStats] = useState({ vendors: 0, vendorsWithOpen: 0, pending1099: 0 });
+  const [expensesMtd, setExpensesMtd] = useState({ total: 0, paymentsThisYear: 0 });
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { accounts: coaAccounts } = useChartOfAccounts();
+  const { bankAccounts } = useBankAccounts();
+  const refresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/v1/documents?type=Bill')
-      .then(r => r.json())
-      .then(json => {
-        if (cancelled) return;
-        const billRows: BillRow[] = (json.data || []).map((d: Record<string, unknown>) => {
-          const due = String(d.due_date || d.bill_date || '');
-          const overdue = due ? new Date(due) < new Date() : false;
-          const status: BillStatus = overdue ? 'Overdue' : 'Unpaid';
+    (async () => {
+      const [billRes, receiptRes, expenseRes, partyRes] = await Promise.all([
+        fetchJson<{ data: Record<string, unknown>[] }>('/api/accounting/bills'),
+        fetchJson<{ data: ReceiptDto[] }>('/api/accounting/receipts'),
+        fetchJson<{ data: Record<string, unknown>[] }>('/api/v1/documents?type=Expense'),
+        fetchJson<{ data: Record<string, unknown>[] }>('/api/parties'),
+      ]);
+      if (cancelled) return;
+      const today = new Date().toISOString().slice(0, 10);
+
+      const billDtos = billRes.ok ? billRes.data.data || [] : [];
+      const mapped: BillRow[] = billDtos
+        .filter(d => String(d.status) !== 'void')
+        .map(d => {
+          const open = Math.max(0, Number(d.total || 0) - Number(d.amountPaid || 0));
+          const dueISO = String(d.dueDate || '');
+          const overdue = open > 0 && !!dueISO && dueISO < today && String(d.status) !== 'paid';
+          const status: BillStatus = (String(d.approvalStatus) === 'pending' || String(d.status) === 'draft')
+            ? 'For review'
+            : overdue ? 'Overdue' : 'Unpaid';
           return {
-            vendor: String(d.vendor_id || '—').slice(0, 8),
-            no: String(d.bill_number || ''),
-            due: isoToUS(due),
-            amount: `$${Number(d.open_balance || d.total || 0).toFixed(2)}`,
+            id: String(d.id),
+            vendorId: String(d.vendorId || ''),
+            vendor: String(d.vendorName || 'Vendor'),
+            no: String(d.billNumber || ''),
+            due: isoToUS(dueISO),
+            dueISO,
+            dateISO: String(d.billDate || ''),
+            amount: `$${open.toFixed(2)}`,
+            open,
             status,
             overdue,
           };
         });
-        setBills(billRows);
-        const payRows: PayBillRow[] = (json.data || [])
-          .filter((d: Record<string, unknown>) => Number(d.open_balance || 0) > 0)
-          .map((d: Record<string, unknown>) => {
-            const due = String(d.due_date || d.bill_date || '');
-            return {
-              vendor: String(d.vendor_id || '—').slice(0, 8),
-              billNo: String(d.bill_number || ''),
-              due: isoToUS(due),
-              amount: `$${Number(d.open_balance || 0).toFixed(2)}`,
-              overdue: due ? new Date(due) < new Date() : false,
-              checked: false,
-              payment: Number(d.open_balance || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
-            };
-          });
-        setPayBills(payRows);
-      })
-      .catch(() => {});
+      const dueBills = mapped.filter(b => b.open > 0 || b.status === 'For review');
+      setBills(dueBills);
+      setPayBills(prev => mapped.filter(b => b.open > 0).map(d => {
+        const keep = prev.find(x => x.id === d.id);
+        return {
+          id: d.id,
+          vendor: d.vendor,
+          billNo: d.no,
+          due: d.due,
+          amount: d.amount,
+          overdue: d.overdue,
+          checked: keep?.checked ?? false,
+          payment: keep?.payment ?? d.open.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+        };
+      }));
+
+      // Vendor aggregation over ALL bills (incl. paid)
+      const agg = new Map<string, { name: string; bills: number; open: number; overdue: number; total: number }>();
+      for (const d of billDtos) {
+        if (String(d.status) === 'void') continue;
+        const name = String(d.vendorName || 'Vendor');
+        const cur = agg.get(name) || { name, bills: 0, open: 0, overdue: 0, total: 0 };
+        const open = Math.max(0, Number(d.total || 0) - Number(d.amountPaid || 0));
+        cur.bills++;
+        cur.total += Number(d.total || 0);
+        if (open > 0) {
+          cur.open++;
+          if (String(d.dueDate || '') < today && String(d.status) !== 'paid') cur.overdue++;
+        }
+        agg.set(name, cur);
+      }
+      setVendorAgg([...agg.values()].sort((a, b) => b.total - a.total).slice(0, 5));
+
+      setReceiptRows(receiptRes.ok ? (receiptRes.data.data || []).filter(r => r.rawStatus !== 'processed') : []);
+
+      const parties = partyRes.ok ? partyRes.data.data || [] : [];
+      const vendorParties = parties.filter(x => ((x.roles as string[]) || []).some(r => ['vendor', 'supplier'].includes(r)));
+      const partyName = new Map(parties.map(x => [String(x.id), String(x.displayName || x.name || '')]));
+      setPartyStats({
+        vendors: vendorParties.length,
+        vendorsWithOpen: new Set(mapped.filter(b => b.open > 0).map(b => b.vendorId)).size,
+        pending1099: vendorParties.filter(x => x.is1099 && !x.w9Received).length,
+      });
+
+      const spends = expenseRes.ok ? expenseRes.data.data || [] : [];
+      const monthPrefix = today.slice(0, 7);
+      const mtd = spends.filter(s => String(s.payment_date || '').startsWith(monthPrefix)).reduce((sum, s) => sum + Number(s.total || 0), 0);
+      setExpensesMtd({
+        total: mtd,
+        paymentsThisYear: billDtos.filter(d => String(d.status) === 'paid' && String(d.billDate || '').startsWith(today.slice(0, 4))).length,
+      });
+      setExpenseRows(spends.slice(0, 5).map(s => ({
+        id: String(s.id),
+        title: String(s.payee_name || partyName.get(String(s.payee_vendor_id || '')) || s.ref_no || 'Expense'),
+        sub: `${isoToUS(String(s.payment_date || '').slice(0, 10))} · ${String(s.status || '')}`,
+        amount: Number(s.total || 0),
+        posted: String(s.status) === 'posted',
+        needsReceipt: !s.inbox_id,
+      })));
+    })();
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshKey]);
 
   /* ── Toast ── */
   const [toastMsg, setToastMsg] = useState('');
@@ -157,16 +217,16 @@ export default function ExpensesBillsOverview({
     toastTimer.current = window.setTimeout(() => setToastMsg(''), 1800);
   }, []);
 
-  /* ── Receipts inbox (local sample for the OCR capture panel) ── */
-  const [receipts, setReceipts] = useState<string[]>(['Staples', 'FedEx', 'Adobe']);
+  /* ── Receipts inbox (real rows from /api/accounting/receipts) ── */
   const [receiptOpen, setReceiptOpen] = useState(false);
-  const [currentReceipt, setCurrentReceipt] = useState<string | null>(null);
+  const [currentReceipt, setCurrentReceipt] = useState<ReceiptDto | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [rcForm, setRcForm] = useState<{ vendor: string; date: string; amount: string; category: string; account: string }>({
     vendor: '', date: '', amount: '', category: '', account: '',
   });
 
   /* ── Bills due table ── */
-  const [billsState, setBillsState] = useState<BillRow[]>(bills);
+  const billsState = bills;
 
   /* ── Bill drawer ── */
   const [billOpen, setBillOpen] = useState(false);
@@ -177,11 +237,12 @@ export default function ExpensesBillsOverview({
 
   /* ── Pay bills drawer ── */
   const [payBillsOpen, setPayBillsOpen] = useState(false);
-  const [payBillsState, setPayBillsState] = useState<PayBillRow[]>(payBills);
+  const payBillsState = payBills;
+  const setPayBillsState = setPayBills;
 
   /* ── Row ⋯ menu ── */
   const [rowMenuOpen, setRowMenuOpen] = useState(false);
-  const [rowMenuVendor, setRowMenuVendor] = useState<string | null>(null);
+  const [rowMenuBillId, setRowMenuBillId] = useState<string | null>(null);
   const [rowMenuPos, setRowMenuPos] = useState<{ top: number; left: number } | null>(null);
   const rowMenuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const rowMenuElRef = useRef<HTMLDivElement | null>(null);
@@ -232,17 +293,31 @@ export default function ExpensesBillsOverview({
     showToast('Forwarding address copied');
   }, [showToast]);
 
-  /* [data-upload-receipt] */
+  /* [data-upload-receipt] — real intake: sha256 + POST /api/accounting/receipts */
   const handleUploadReceipt = useCallback(() => {
-    showToast('Upload receipt — file picker opens');
-  }, [showToast]);
+    fileInputRef.current?.click();
+  }, []);
 
-  /* Receipt row click → open receipt drawer */
-  const openReceiptDrawer = useCallback((vendor: string) => {
-    const d = RECEIPT_DATA[vendor];
-    if (!d) return;
-    setCurrentReceipt(vendor);
-    setRcForm({ vendor: d.vendor, date: d.date, amount: d.amount, category: d.category, account: d.account });
+  const handleReceiptFile = useCallback(async (file: File) => {
+    const buf = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    const sha256 = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+    const res = await receiptMutations.intake({ fileName: file.name, sha256, sizeBytes: file.size, mimeType: file.type || undefined, source: 'upload' });
+    if (!res.ok) { showToast(res.error || 'Receipt intake failed'); return; }
+    showToast(`Receipt ${file.name} added to the inbox`);
+    refresh();
+  }, [showToast, refresh]);
+
+  /* Receipt row click → open receipt drawer with the real DTO */
+  const openReceiptDrawer = useCallback((receipt: ReceiptDto) => {
+    setCurrentReceipt(receipt);
+    setRcForm({
+      vendor: receipt.vendorName || '',
+      date: receipt.date || '',
+      amount: receipt.amount != null ? String(receipt.amount) : '',
+      category: receipt.categoryAccountId || '',
+      account: receipt.paymentAccountId || '',
+    });
     setReceiptOpen(true);
   }, []);
 
@@ -250,59 +325,88 @@ export default function ExpensesBillsOverview({
 
   /* [data-rc-view-original] */
   const handleRcViewOriginal = useCallback(() => {
-    showToast('Opening original receipt image');
+    showToast('Original receipt files are stored with the receipt record — preview is not available here');
   }, [showToast]);
 
-  /* [data-rc-create-expense] */
-  const handleRcCreateExpense = useCallback(() => {
-    if (currentReceipt) {
-      setReceipts(prev => prev.filter(v => v !== currentReceipt));
-    }
+  /* [data-rc-create-expense] — POST /api/accounting/receipts/[id]/create-expense */
+  const handleRcCreateExpense = useCallback(async () => {
+    if (!currentReceipt) return;
+    const total = parseAmount(rcForm.amount);
+    if (!rcForm.category) { showToast('Pick a category account first'); return; }
+    if (!rcForm.account) { showToast('Pick the paid-from account first'); return; }
+    if (!total) { showToast('Enter the receipt amount first'); return; }
+    const res = await receiptMutations.createExpense(currentReceipt.id, {
+      categoryAccountId: rcForm.category,
+      bankAccountId: rcForm.account,
+      vendorName: rcForm.vendor || undefined,
+      date: rcForm.date || undefined,
+      total,
+    });
+    if (!res.ok) { showToast(res.error || 'Create expense failed'); return; }
     showToast('Expense created from receipt');
     setReceiptOpen(false);
-  }, [currentReceipt, showToast]);
+    refresh();
+  }, [currentReceipt, rcForm, showToast, refresh]);
 
-  /* [data-rc-create-bill] */
-  const handleRcCreateBill = useCallback(() => {
-    showToast('Bill created from receipt');
-    if (currentReceipt) {
-      setReceipts(prev => prev.filter(v => v !== currentReceipt));
-    }
+  /* [data-rc-create-bill] — POST /api/accounting/receipts/[id]/create-bill */
+  const handleRcCreateBill = useCallback(async () => {
+    if (!currentReceipt) return;
+    const total = parseAmount(rcForm.amount);
+    if (!rcForm.vendor.trim()) { showToast('Enter the vendor first'); return; }
+    if (!total) { showToast('Enter the receipt amount first'); return; }
+    const res = await receiptMutations.createBill(currentReceipt.id, {
+      vendorName: rcForm.vendor.trim(),
+      date: rcForm.date || undefined,
+      total,
+    });
+    if (!res.ok) { showToast(res.error || 'Create bill failed'); return; }
+    showToast(`Bill ${res.data?.billNumber || ''} created from receipt`);
     setReceiptOpen(false);
-  }, [currentReceipt, showToast]);
+    refresh();
+  }, [currentReceipt, rcForm, showToast, refresh]);
 
   /* Bill drawer */
-  const openBillDrawer = useCallback((vendor: string) => {
-    const d = BILL_DATA[vendor];
-    if (!d) return;
-    setCurrentBill(vendor);
-    setBillForm({ vendor: d.vendor, no: d.no, date: d.date, due: d.due, balance: d.balance, doc: d.doc });
+  const openBillDrawer = useCallback((billId: string) => {
+    const b = bills.find(x => x.id === billId);
+    if (!b) return;
+    setCurrentBill(billId);
+    setBillForm({ vendor: b.vendor, no: b.no, date: b.dateISO, due: b.dueISO, balance: b.amount, doc: b.no });
     setBillOpen(true);
-  }, []);
+  }, [bills]);
   const closeBillDrawer = useCallback(() => setBillOpen(false), []);
 
-  /* [data-bill-save] */
-  const handleBillSave = useCallback(() => {
-    setBillOpen(false);
+  /* [data-bill-save] — PATCH the real bill's dates */
+  const handleBillSave = useCallback(async () => {
+    if (!currentBill) return;
+    const res = await fetchJson(`/api/v1/documents/${currentBill}?type=Bill`, {
+      method: 'PATCH',
+      body: JSON.stringify({ bill_date: billForm.date || undefined, due_date: billForm.due || undefined }),
+    });
+    if (!res.ok) { showToast((res as { error?: string }).error || 'Bill could not be saved'); return; }
     showToast('Bill saved');
-  }, [showToast]);
+    setBillOpen(false);
+    refresh();
+  }, [currentBill, billForm, showToast, refresh]);
 
   /* [data-bill-print] */
   const handleBillPrint = useCallback(() => {
-    showToast('Printing bill');
-  }, [showToast]);
-
-  /* [data-bill-schedule] */
-  const handleBillSchedule = useCallback(() => {
-    setBillOpen(false);
-    setPayBillsOpen(true);
+    window.print();
   }, []);
 
+  /* [data-bill-schedule] — save, then open Pay bills with this bill checked */
+  const handleBillSchedule = useCallback(async () => {
+    await handleBillSave();
+    if (currentBill) {
+      setPayBillsState(prev => prev.map(r => r.id === currentBill ? { ...r, checked: true } : r));
+    }
+    setPayBillsOpen(true);
+  }, [handleBillSave, currentBill]);
+
   /* Bill row click — opens drawer unless target is a button/input */
-  const handleBillRowClick = useCallback((vendor: string, e: React.MouseEvent<HTMLTableRowElement>) => {
+  const handleBillRowClick = useCallback((billId: string, e: React.MouseEvent<HTMLTableRowElement>) => {
     const target = e.target as HTMLElement;
     if (target.closest('input,button')) return;
-    openBillDrawer(vendor);
+    openBillDrawer(billId);
   }, [openBillDrawer]);
 
   /* Pay bills drawer */
@@ -327,22 +431,28 @@ export default function ExpensesBillsOverview({
     setPayBillsState(prev => prev.map((r, i) => i === idx ? { ...r, payment: formatted } : r));
   }, []);
 
-  /* [data-pay-submit] — records real payments via store.recordPayment */
-  const handlePaySubmit = useCallback(() => {
+  /* [data-pay-submit] — real payments via POST /api/v1/documents/[id]/pay.
+     The toast reports only what the API actually paid. */
+  const handlePaySubmit = useCallback(async () => {
+    const selected = payBillsState.filter(r => r.checked);
     let paidCount = 0;
     let paidTotal = 0;
-    for (const row of payBillsState) {
-      if (!row.checked) continue;
-      const doc = null;
-      if (!doc) continue;
+    let failed = 0;
+    for (const row of selected) {
       const amount = parseAmount(row.payment);
-      onToast(`Paid ${amount} via Check`);
-      paidCount++;
-      paidTotal += amount;
+      if (!amount) { failed++; continue; }
+      const res = await fetchJson(`/api/v1/documents/${row.id}/pay?type=Bill`, {
+        method: 'POST',
+        body: JSON.stringify({ amount }),
+      });
+      if (res.ok) { paidCount++; paidTotal += amount; }
+      else failed++;
     }
     setPayBillsOpen(false);
-    showToast(`Paid ${paidCount} bill${paidCount !== 1 ? 's' : ''} totaling $${paidTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-  }, [payBillsState, store, showToast]);
+    refresh();
+    if (failed) showToast(`Paid ${paidCount} bill${paidCount !== 1 ? 's' : ''} totaling $${paidTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — ${failed} failed`);
+    else showToast(`Paid ${paidCount} bill${paidCount !== 1 ? 's' : ''} totaling $${paidTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  }, [payBillsState, showToast, refresh]);
 
   /* Total + count computed live */
   const payTotal = payBillsState.filter(r => r.checked).reduce((acc, r) => ({ total: acc.total + parseAmount(r.payment), count: acc.count + 1 }), { total: 0, count: 0 });
@@ -351,46 +461,58 @@ export default function ExpensesBillsOverview({
   const paySubmitDisabled = payTotal.count === 0;
 
   /* Row ⋯ menu — open */
-  const openRowMenu = useCallback((vendor: string, e: React.MouseEvent<HTMLButtonElement>) => {
+  const openRowMenu = useCallback((billId: string, e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     const btn = e.currentTarget;
     const r = btn.getBoundingClientRect();
     const top = r.bottom + 4;
     const left = Math.min(r.right - 220, window.innerWidth - 240);
-    setRowMenuVendor(vendor);
+    setRowMenuBillId(billId);
     setRowMenuPos({ top, left });
     setRowMenuOpen(true);
   }, []);
 
-  /* Row ⋯ menu — actions */
-  const handleRowMenuAction = useCallback((action: string) => {
+  /* Row ⋯ menu — actions (approve / void hit the real bill) */
+  const handleRowMenuAction = useCallback(async (action: string) => {
     setRowMenuOpen(false);
-    const vendor = rowMenuVendor;
-    if (!vendor) return;
+    const billId = rowMenuBillId;
+    if (!billId) return;
+    const bill = bills.find(b => b.id === billId);
     switch (action) {
       case 'view':
       case 'edit':
-        openBillDrawer(vendor);
+        openBillDrawer(billId);
         break;
       case 'attach':
-        showToast(`Attach document to ${vendor} bill`);
+        showToast('Attach receipts from the Receipts inbox — use Attach on the bill there');
         break;
       case 'schedule':
-        setPayBillsOpen(true);
-        break;
       case 'pay-now':
+        setPayBillsState(prev => prev.map(r => r.id === billId ? { ...r, checked: true } : r));
         setPayBillsOpen(true);
         break;
-      case 'mark-review':
-        setBillsState(prev => prev.map(b => b.vendor === vendor ? { ...b, status: 'Unpaid' as BillStatus, overdue: false } : b));
-        showToast(`${vendor} bill marked as reviewed`);
+      case 'mark-review': {
+        const res = await fetchJson(`/api/v1/documents/${billId}?type=Bill`, {
+          method: 'PATCH',
+          body: JSON.stringify({ approval_status: 'approved', status: 'open' }),
+        });
+        if (!res.ok) { showToast((res as { error?: string }).error || 'Could not mark reviewed'); return; }
+        showToast(`${bill?.vendor || 'Bill'} marked as reviewed`);
+        refresh();
         break;
-      case 'void':
-        setBillsState(prev => prev.filter(b => b.vendor !== vendor));
-        showToast(`${vendor} bill voided`);
+      }
+      case 'void': {
+        const res = await fetchJson(`/api/v1/documents/${billId}?type=Bill`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'void' }),
+        });
+        if (!res.ok) { showToast((res as { error?: string }).error || 'Could not void the bill'); return; }
+        showToast(`${bill?.vendor || 'Bill'} voided`);
+        refresh();
         break;
+      }
     }
-  }, [rowMenuVendor, openBillDrawer, showToast]);
+  }, [rowMenuBillId, bills, openBillDrawer, showToast, refresh]);
 
   /* [data-expense] row click */
   const handleExpenseClick = useCallback((name: string) => {
@@ -431,23 +553,27 @@ export default function ExpensesBillsOverview({
 
   /* [data-date-range] */
   const handleDateRange = useCallback(() => {
-    showToast('Date range picker');
+    showToast('This overview always shows current data — date filtering lives on the Bills screen');
   }, [showToast]);
 
   /* [data-export] */
   const handleExport = useCallback(() => {
-    showToast('Export expenses overview');
-  }, [showToast]);
+    exportToCsv(
+      billsState.map(b => ({ vendor: b.vendor, billNo: b.no, due: b.dueISO, open: b.open.toFixed(2), status: b.status })),
+      [{ key: 'vendor', label: 'Vendor' }, { key: 'billNo', label: 'Bill no.' }, { key: 'due', label: 'Due' }, { key: 'open', label: 'Open balance' }, { key: 'status', label: 'Status' }],
+      'bills-overview.csv'
+    );
+  }, [billsState]);
 
   /* [data-1099-prep] */
   const handle1099Prep = useCallback(() => {
-    showToast('1099 preparation workflow — 6 vendors');
-  }, [showToast]);
+    onNavigate('finance', '1099s');
+  }, [onNavigate]);
 
   /* [data-attach-receipt] */
   const handleAttachReceipt = useCallback(() => {
-    showToast('Attach receipt to Staples expense');
-  }, [showToast]);
+    handleGoto('receipts');
+  }, [handleGoto]);
 
   /* Silent-emit onToast when a local toast fires (so shell can also surface if desired) */
   useEffect(() => {
@@ -500,17 +626,17 @@ export default function ExpensesBillsOverview({
           </div>
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">Expenses MTD</div>
-            <div className="eb-kpi-val">${"0.00"}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">{0} payments this year</div>
+            <div className="eb-kpi-val">${expensesMtd.total.toFixed(2)}</div>
+            <div className="text-[11px] text-on-surface-variant mt-1">{expensesMtd.paymentsThisYear} paid bills this year</div>
           </div>
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">Active vendors</div>
-            <div className="eb-kpi-val">{0}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">{0} with open balances</div>
+            <div className="eb-kpi-val">{partyStats.vendors}</div>
+            <div className="text-[11px] text-on-surface-variant mt-1">{partyStats.vendorsWithOpen} with open balances</div>
           </div>
           <div className="eb-kpi-card">
             <div className="eb-kpi-label">1099 pending</div>
-            <div className="eb-kpi-val">{0}</div>
+            <div className="eb-kpi-val">{partyStats.pending1099}</div>
             <div className="text-[11px] text-tertiary mt-1">Due Jan 31, {new Date().getFullYear() + 1}</div>
           </div>
         </div>
@@ -545,7 +671,7 @@ export default function ExpensesBillsOverview({
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-headline-sm">Bills due</h2>
-                <p className="text-[11px] text-on-surface-variant mt-0.5">3 open bills · $4,080.00 total</p>
+                <p className="text-[11px] text-on-surface-variant mt-0.5">{billsState.length} open bills · ${billsState.reduce((s, b) => s + b.open, 0).toFixed(2)} total</p>
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" className="h-7 px-2 border border-surface-dim rounded text-[11px] font-semibold hover:bg-surface-container-low flex items-center gap-1" onClick={handleBillsTab}>
@@ -570,9 +696,9 @@ export default function ExpensesBillsOverview({
               <tbody className="divide-y divide-surface-dim">
                 {billsState.map(b => (
                   <tr
-                    key={b.vendor}
+                    key={b.id}
                     className="hover:bg-surface-container-low cursor-pointer bill-row"
-                    onClick={(e) => handleBillRowClick(b.vendor, e)}
+                    onClick={(e) => handleBillRowClick(b.id, e)}
                   >
                     <td className="px-4 py-2 font-medium">{b.vendor}</td>
                     <td className="px-4 py-2 text-on-surface-variant">{b.no}</td>
@@ -595,19 +721,22 @@ export default function ExpensesBillsOverview({
                       <button
                         type="button"
                         className="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center"
-                        ref={el => { rowMenuBtnRefs.current[b.vendor] = el; }}
-                        onClick={(e) => openRowMenu(b.vendor, e)}
+                        ref={el => { rowMenuBtnRefs.current[b.id] = el; }}
+                        onClick={(e) => openRowMenu(b.id, e)}
                       >
                         <span className="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span>
                       </button>
                     </td>
                   </tr>
                 ))}
+                {billsState.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-6 text-center text-on-surface-variant">No open bills.</td></tr>
+                )}
               </tbody>
             </table>
             <div className="border-t border-surface-dim px-5 py-2 flex items-center justify-between bg-surface-container-low">
-              <span className="text-[11px] text-on-surface-variant">3 open bills · 1 overdue</span>
-              <span className="text-body-sm font-semibold tabular-nums">$4,720.00 total</span>
+              <span className="text-[11px] text-on-surface-variant">{billsState.length} open bills · {billsState.filter(b => b.overdue).length} overdue</span>
+              <span className="text-body-sm font-semibold tabular-nums">${billsState.reduce((s, b) => s + b.open, 0).toFixed(2)} total</span>
             </div>
           </div>
 
@@ -616,7 +745,7 @@ export default function ExpensesBillsOverview({
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-headline-sm">Receipts inbox</h2>
-                <p className="text-[11px] text-on-surface-variant mt-0.5">{receipts.length} for review</p>
+                <p className="text-[11px] text-on-surface-variant mt-0.5">{receiptRows.filter(r => r.status === 'review').length} for review</p>
               </div>
               <button type="button" className="text-[11px] font-semibold text-primary hover:underline" onClick={() => handleGoto('receipts')}>View all</button>
             </div>
@@ -629,26 +758,26 @@ export default function ExpensesBillsOverview({
               <button type="button" className="h-7 px-2 border border-dashed border-surface-dim rounded text-[11px] text-primary font-semibold hover:bg-surface-container-low flex items-center gap-1" onClick={handleUploadReceipt}>
                 <span className="material-symbols-outlined text-[14px]">upload</span>
               </button>
+              <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleReceiptFile(f); e.target.value = ''; }} />
             </div>
             <div className="border-t border-surface-dim">
-              {receipts.map(vendor => {
-                const d = RECEIPT_DATA[vendor];
-                if (!d) return null;
-                return (
+              {receiptRows.map(r => (
                   <div
-                    key={vendor}
+                    key={r.id}
                     className="flex items-center gap-2.5 px-5 py-2.5 hover:bg-surface-container-low cursor-pointer"
-                    onClick={() => openReceiptDrawer(vendor)}
+                    onClick={() => openReceiptDrawer(r)}
                   >
                     <div className="receipt-thumb"></div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-body-sm font-medium truncate">{vendor} · {d.category}</div>
-                      <div className="text-[11px] text-on-surface-variant">{isoToUS(d.date)} · ${d.amount}</div>
+                      <div className="text-body-sm font-medium truncate">{r.vendorName || r.fileName || 'Receipt'}{r.categoryLabel ? ` · ${r.categoryLabel}` : ''}</div>
+                      <div className="text-[11px] text-on-surface-variant">{isoToUS((r.date || '').slice(0, 10))} · ${r.amount != null ? Number(r.amount).toFixed(2) : '—'}</div>
                     </div>
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-tertiary/15 text-tertiary">New</span>
+                    {r.rawStatus === 'uploaded' && <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-tertiary/15 text-tertiary">New</span>}
                   </div>
-                );
-              })}
+              ))}
+              {receiptRows.length === 0 && (
+                <div className="px-5 py-4 text-[12px] text-on-surface-variant">No receipts waiting for review.</div>
+              )}
             </div>
           </div>
         </div>
@@ -660,41 +789,28 @@ export default function ExpensesBillsOverview({
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div>
                 <h2 className="text-headline-sm">Recent expense transactions</h2>
-                <p className="text-[11px] text-on-surface-variant mt-0.5">Last 7 days · 3 expenses · $286.69</p>
+                <p className="text-[11px] text-on-surface-variant mt-0.5">{expenseRows.length} expenses · ${expenseRows.reduce((s, r) => s + r.amount, 0).toFixed(2)}</p>
               </div>
               <button type="button" className="text-[11px] font-semibold text-primary hover:underline" onClick={() => handleGoto('expenses')}>View all</button>
             </div>
             <div className="divide-y divide-surface-dim">
-              <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-container-low cursor-pointer" onClick={() => handleExpenseClick('Adobe')}>
-                <span className="material-symbols-outlined text-[18px] text-qb-maroon">credit_card</span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Adobe · Creative Cloud</div>
-                  <div className="text-[11px] text-on-surface-variant">10/30/2026 · Software · Visa •4421</div>
+              {expenseRows.map(r => (
+                <div key={r.id} className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-container-low cursor-pointer" onClick={() => handleGoto('expenses')}>
+                  <span className="material-symbols-outlined text-[18px] text-qb-maroon">credit_card</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-body-sm font-medium truncate">{r.title}</div>
+                    <div className="text-[11px] text-on-surface-variant">{r.sub}</div>
+                  </div>
+                  <div className="text-body-sm font-semibold tabular-nums">${r.amount.toFixed(2)}</div>
+                  <span className="material-symbols-outlined text-[14px] text-secondary">{r.posted ? 'check_circle' : 'pending'}</span>
                 </div>
-                <div className="text-body-sm font-semibold tabular-nums">$59.99</div>
-                <span className="material-symbols-outlined text-[14px] text-secondary">check_circle</span>
-              </div>
-              <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-container-low cursor-pointer" onClick={() => handleExpenseClick('FedEx')}>
-                <span className="material-symbols-outlined text-[18px] text-qb-maroon">credit_card</span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">FedEx · Ground shipping</div>
-                  <div className="text-[11px] text-on-surface-variant">10/29/2026 · Shipping · Bank •9910</div>
-                </div>
-                <div className="text-body-sm font-semibold tabular-nums">$84.20</div>
-                <span className="material-symbols-outlined text-[14px] text-secondary">check_circle</span>
-              </div>
-              <div className="flex items-center gap-3 px-5 py-2.5 hover:bg-surface-container-low cursor-pointer" onClick={() => handleExpenseClick('Staples')}>
-                <span className="material-symbols-outlined text-[18px] text-qb-maroon">credit_card</span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Staples · Office supplies</div>
-                  <div className="text-[11px] text-on-surface-variant">10/30/2026 · Office supplies · Visa •4421</div>
-                </div>
-                <div className="text-body-sm font-semibold tabular-nums">$142.50</div>
-                <span className="material-symbols-outlined text-[14px] text-tertiary">pending</span>
-              </div>
+              ))}
+              {expenseRows.length === 0 && (
+                <div className="px-5 py-4 text-[12px] text-on-surface-variant">No expenses recorded yet.</div>
+              )}
             </div>
             <div className="border-t border-surface-dim px-5 py-2 bg-surface-container-low flex items-center justify-between">
-              <span className="text-[11px] text-on-surface-variant">1 needs receipt</span>
+              <span className="text-[11px] text-on-surface-variant">{expenseRows.filter(r => r.needsReceipt).length} needs receipt</span>
               <button type="button" className="text-[11px] font-semibold text-primary hover:underline" onClick={handleAttachReceipt}>Attach receipt</button>
             </div>
           </div>
@@ -706,70 +822,31 @@ export default function ExpensesBillsOverview({
               <button type="button" className="text-[11px] text-primary font-semibold hover:underline" onClick={() => handleGoto('vendors')}>View all</button>
             </div>
             <div>
-              <div className="vendor-row">
-                <div className="vendor-avatar bg-qb-blue">P</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Printful</div>
-                  <div className="text-[11px] text-on-surface-variant">8 bills · 3 open</div>
+              {vendorAgg.map((v, i) => (
+                <div key={v.name} className="vendor-row">
+                  <div className={`vendor-avatar ${['bg-qb-blue', 'bg-qb-green', 'bg-qb-maroon', 'bg-qb-teal', 'bg-qb-navy'][i % 5]}`}>{(v.name[0] || '?').toUpperCase()}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-body-sm font-medium truncate">{v.name}</div>
+                    <div className="text-[11px] text-on-surface-variant">{v.bills} bills · {v.open} open{v.overdue ? ` · ${v.overdue} overdue` : ''}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-body-sm font-semibold tabular-nums ${v.overdue ? 'text-error' : ''}`}>${v.total.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                    <div className="text-[10px] text-on-surface-variant">YTD</div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-body-sm font-semibold tabular-nums">$12,410</div>
-                  <div className="text-[10px] text-on-surface-variant">YTD</div>
-                </div>
-              </div>
-              <div className="vendor-row">
-                <div className="vendor-avatar bg-qb-green">G</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Gelato</div>
-                  <div className="text-[11px] text-on-surface-variant">4 bills · 1 open</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-body-sm font-semibold tabular-nums">$6,240</div>
-                  <div className="text-[10px] text-on-surface-variant">YTD</div>
-                </div>
-              </div>
-              <div className="vendor-row">
-                <div className="vendor-avatar bg-qb-maroon">P</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Printify</div>
-                  <div className="text-[11px] text-on-surface-variant">3 bills · 1 overdue</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-body-sm font-semibold tabular-nums text-error">$4,180</div>
-                  <div className="text-[10px] text-on-surface-variant">YTD</div>
-                </div>
-              </div>
-              <div className="vendor-row">
-                <div className="vendor-avatar bg-qb-teal">A</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Adobe</div>
-                  <div className="text-[11px] text-on-surface-variant">12 bills · 0 open</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-body-sm font-semibold tabular-nums">$719.88</div>
-                  <div className="text-[10px] text-on-surface-variant">YTD</div>
-                </div>
-              </div>
-              <div className="vendor-row">
-                <div className="vendor-avatar bg-qb-navy">S</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-body-sm font-medium truncate">Staples</div>
-                  <div className="text-[11px] text-on-surface-variant">9 bills · 0 open</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-body-sm font-semibold tabular-nums">$1,418</div>
-                  <div className="text-[10px] text-on-surface-variant">YTD</div>
-                </div>
-              </div>
+              ))}
+              {vendorAgg.length === 0 && (
+                <div className="text-[12px] text-on-surface-variant py-2">No vendor bills yet.</div>
+              )}
             </div>
 
-            {/* 1099 nudge */}
+            {/* 1099 nudge — count from the real vendor records */}
             <div className="mt-4 bg-error-container/40 border border-error/30 rounded-lg p-3">
               <div className="flex items-center gap-2 mb-1">
                 <span className="material-symbols-outlined text-[16px] text-error">warning</span>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-on-error-container">1099-NEC deadline</span>
               </div>
-              <p className="text-[11px] text-on-error-container mb-2">6 vendors need 1099s by Jan 31, 2027. Ensure W-9s are on file.</p>
+              <p className="text-[11px] text-on-error-container mb-2">{partyStats.pending1099} vendor{partyStats.pending1099 === 1 ? '' : 's'} need 1099s by Jan 31, {new Date().getFullYear() + 1}. Ensure W-9s are on file.</p>
               <button type="button" className="h-7 px-2.5 border border-error rounded text-[11px] font-semibold text-error hover:bg-error-container/60" onClick={handle1099Prep}>
                 Prepare 1099s
               </button>
@@ -806,7 +883,7 @@ export default function ExpensesBillsOverview({
           <div className="flex items-center gap-2 min-w-0">
             <span className="material-symbols-outlined text-[20px] text-primary">receipt_long</span>
             <div className="min-w-0">
-              <div className="text-headline-sm truncate">{currentReceipt ? `Receipt — ${currentReceipt}` : 'Receipt'}</div>
+              <div className="text-headline-sm truncate">{currentReceipt ? `Receipt — ${currentReceipt.vendorName || currentReceipt.fileName || 'Receipt'}` : 'Receipt'}</div>
               <div className="text-[11px] text-on-surface-variant">For review</div>
             </div>
           </div>
@@ -818,9 +895,9 @@ export default function ExpensesBillsOverview({
           <div className="bg-surface-container-low rounded-lg p-3 flex items-center gap-3">
             <div className="receipt-thumb" style={{ width: 48, height: 56 }}></div>
             <div className="min-w-0 flex-1">
-              <div className="text-body-md font-semibold truncate">{currentReceipt ?? '—'}</div>
+              <div className="text-body-md font-semibold truncate">{currentReceipt?.vendorName || currentReceipt?.fileName || '—'}</div>
               <div className="text-[11px] text-on-surface-variant">
-                {currentReceipt ? `${rcForm.date} · $${rcForm.amount} · ${rcForm.category}` : '—'}
+                {currentReceipt ? `${rcForm.date} · $${rcForm.amount}` : '—'}
               </div>
             </div>
             <button type="button" className="h-7 px-2 border border-surface-dim rounded text-[11px] font-semibold hover:bg-white flex items-center gap-1" onClick={handleRcViewOriginal}>
@@ -844,26 +921,24 @@ export default function ExpensesBillsOverview({
           <div>
             <label className="field-label">Category</label>
             <select className="field-input" value={rcForm.category} onChange={e => setRcForm(f => ({ ...f, category: e.target.value }))}>
-              <option>Office supplies</option>
-              <option>Shipping</option>
-              <option>Software</option>
-              <option>Advertising</option>
-              <option>Meals &amp; entertainment</option>
-              <option>Travel</option>
-              <option>Ask My Accountant</option>
+              <option value="">Select a category account…</option>
+              {coaAccounts.filter(a => a.type === 'Expense').map(a => (
+                <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+              ))}
             </select>
           </div>
           <div>
             <label className="field-label">Paid from</label>
             <select className="field-input" value={rcForm.account} onChange={e => setRcForm(f => ({ ...f, account: e.target.value }))}>
-              <option>Visa •4421</option>
-              <option>Bank •9910</option>
-              <option>Amex •2103</option>
+              <option value="">Select an account…</option>
+              {bankAccounts.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
             </select>
           </div>
           <div className="bg-qb-blue/5 border border-qb-blue/30 rounded-lg p-3 text-[11px] text-qb-blue flex items-start gap-2">
             <span className="material-symbols-outlined text-[16px] mt-0.5">auto_awesome</span>
-            <div>Fields auto-filled from OCR. Verify the amount matches the receipt before creating.</div>
+            <div>{currentReceipt?.extractionStatus ? 'Fields auto-filled from OCR. Verify the amount matches the receipt before creating.' : 'Enter the receipt details, then create an expense or a bill.'}</div>
           </div>
         </div>
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
@@ -892,7 +967,7 @@ export default function ExpensesBillsOverview({
           <div className="flex items-center gap-2 min-w-0">
             <span className="material-symbols-outlined text-[20px] text-primary">description</span>
             <div className="min-w-0">
-              <div className="text-headline-sm truncate">{currentBill ? `Bill — ${currentBill}` : 'Bill'}</div>
+              <div className="text-headline-sm truncate">{currentBill ? `Bill — ${billForm.vendor}` : 'Bill'}</div>
               <div className="text-[11px] text-on-surface-variant">{billForm.no ? `${billForm.no} · ${billForm.balance}` : '—'}</div>
             </div>
           </div>
@@ -1018,14 +1093,15 @@ export default function ExpensesBillsOverview({
         <div className="grid grid-cols-3 border-b border-surface-dim bg-surface-container-low">
           <div className="p-3 border-r border-surface-dim">
             <label className="field-label">Payment account</label>
-            <select className="field-input" defaultValue="Chase •9910 · $84,210.40">
-              <option>Chase •9910 · $84,210.40</option>
-              <option>Visa •4421 · $2,180.00</option>
+            <select className="field-input">
+              {bankAccounts.map(a => (
+                <option key={a.id} value={a.id}>{a.name} · ${a.balance.toFixed(2)}</option>
+              ))}
             </select>
           </div>
           <div className="p-3 border-r border-surface-dim">
             <label className="field-label">Payment date</label>
-            <input className="field-input" type="date" defaultValue="2026-11-08" />
+            <input className="field-input" type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
           </div>
           <div className="p-3">
             <label className="field-label">Starting check no.</label>

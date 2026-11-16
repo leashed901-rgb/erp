@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/rules-of-hooks */
 import { useEffect, useMemo, useState } from 'react';
 import type { DomainKey } from '@/data/shellData';
 import { useDesignCanvas } from '@/lib/designCanvasStore';

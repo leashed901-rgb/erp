@@ -216,13 +216,100 @@ export default function DocumentEngine(props: DocumentEngineProps) {
   return <DocumentEngineInner key={`${props.type || 'Invoice'}:${props.documentId || 'new'}`} {...props} />;
 }
 
+/* ─── Database-backed documents ───
+   The platform store only holds session-created documents. A real
+   invoice/bill opened from a list lives in the database, not the store —
+   opening it used to render a BLANK new-document form (INV-1004) with
+   amount paid 0, which is how a posted + paid invoice's amount paid got
+   "wiped" in the user's view. These helpers map a GET
+   /api/v1/documents/[id]?type=…&include=lines row back into the engine's
+   Document shape so the real numbers render and the real row's verbs run. */
+
+const DB_STATUS_TO_DISPLAY: Record<string, string> = {
+  draft: 'Draft', sent: 'Sent', open: 'Unpaid', partially_paid: 'Unpaid',
+  paid: 'Paid', void: 'Void', overdue: 'Overdue', posted: 'Posted',
+  accepted: 'Converted', declined: 'Declined', expired: 'Closed',
+  converted: 'Converted', approved: 'Approved', fulfilled: 'Closed',
+  confirmed: 'Open', received: 'Received', shipped: 'Shipped',
+  delivered: 'Delivered', pending: 'Pending', closed: 'Closed',
+};
+
+function mapDbDocument(type: DocumentType, row: Record<string, unknown>, rawLines: Record<string, unknown>[]): Document {
+  const num = (v: unknown) => Number(v) || 0;
+  const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v));
+  const number = str(row.invoice_number || row.bill_number || row.estimate_number || row.order_number || row.po_number || row.receipt_number || '');
+  const partyId = str(row.customer_id || row.vendor_id || row.supplier_id || row.party_id || '');
+  const date = str(row.invoice_date || row.bill_date || row.estimate_date || row.order_date || row.receipt_date || '').slice(0, 10);
+  const dueDate = str(row.due_date || row.expiry_date || '').slice(0, 10);
+  const total = num(row.total);
+  const amountPaid = num(row.amount_paid);
+  const amountCredited = num(row.amount_credited);
+  let status = DB_STATUS_TO_DISPLAY[str(row.status).toLowerCase()] || 'Draft';
+  // Bills carry their review state separately from the ledger status.
+  if (type === 'Bill' && str(row.approval_status)) {
+    status = str(row.approval_status).toLowerCase() === 'approved' ? 'Approved' : 'ForReview';
+    if (str(row.status).toLowerCase() === 'paid') status = 'Paid';
+  }
+  const lines: DocumentLine[] = rawLines.map((l, i) => {
+    const qty = num(l.quantity ?? l.qty) || 1;
+    const rate = num(l.unit_price ?? l.unit_cost ?? l.rate);
+    const amount = num(l.line_subtotal ?? l.line_total ?? qty * rate);
+    const taxAmount = num(l.tax_amount ?? l.taxAmount);
+    return {
+      id: `L${i + 1}`,
+      itemId: (l.item_id as string) || (l.service_id as string) || null,
+      skuId: (l.sku as string) || (l.sku_id as string) || null,
+      description: str(l.description),
+      qty,
+      rate,
+      amount,
+      taxRate: amount > 0 ? Math.round((taxAmount / amount) * 10000) / 100 : 0,
+      account: str(l.expense_account_id || l.revenue_account_id || ''),
+      tags: [],
+    };
+  });
+  return {
+    id: str(row.id),
+    type,
+    number,
+    partyId,
+    status: status as Document['status'],
+    date: date || new Date().toISOString().slice(0, 10),
+    dueDate,
+    lines: lines.length > 0 ? lines : [{ id: 'L1', itemId: null, description: '', qty: 1, rate: 0, amount: 0, taxRate: 0, account: '', tags: [] }],
+    subtotal: num(row.subtotal),
+    tax: num(row.tax_total),
+    shipping: 0,
+    total,
+    amountPaid,
+    balance: total - amountPaid - amountCredited,
+    memo: str(row.memo || ''),
+    notes: str(row.notes || ''),
+    tags: [],
+    attachments: [],
+    orderId: null,
+    poId: null,
+    channelId: null,
+    createdBy: str(row.created_by || ''),
+    createdAt: str(row.created_at || ''),
+    updatedAt: str(row.updated_at || ''),
+    activity: [],
+  };
+}
+
 function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, partyId: prefillPartyId, activeTab, onSelectTab, onOpenDocument }: DocumentEngineProps) {
   // Use the config-driven DocumentDef (spec §B.4.4)
   const def = DOCUMENT_DEFS[type] || DOCUMENT_DEFS.Invoice;
   const config = def;
   const store = usePlatformStore();
 
-  const existing = documentId ? store.getDocument(documentId) : null;
+  const storeDoc = documentId ? store.getDocument(documentId) : null;
+  // Database-backed document: the store never holds real rows, so a
+  // list-opened invoice/bill loads from the API instead of rendering
+  // as a blank new document (which wiped the amount paid from view).
+  const [dbDoc, setDbDoc] = useState<Document | null>(null);
+  const [dbStatus, setDbStatus] = useState<string | null>(null);
+  const existing = storeDoc || dbDoc;
   const isNew = !existing;
 
   // §1.3 Context Envelope — capture once at mount. Creating from a record
@@ -241,6 +328,39 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
   const [memo, setMemo] = useState(existing?.memo || '');
   const [notes, setNotes] = useState(existing?.notes || '');
   const [viewState, setViewState] = useState<'edit' | 'email' | 'payor' | 'pdf'>((activeTab as 'edit' | 'email' | 'payor' | 'pdf') || 'edit');
+
+  // Load a database-backed document when the store has no copy.
+  useEffect(() => {
+    if (!documentId || storeDoc || dbDoc) return;
+    let cancelled = false;
+    fetch(`/api/v1/documents/${documentId}?type=${type}&include=lines`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled || !j?.data) return;
+        setDbStatus(String((j.data as Record<string, unknown>).status || ''));
+        setDbDoc(mapDbDocument(type, j.data as Record<string, unknown>, (j.lines as Record<string, unknown>[]) || []));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, type, storeDoc]);
+
+  // Hydrate the form once from the loaded database row. Guarded so
+  // user edits after load are never clobbered by a re-render.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (!dbDoc || hydratedRef.current) return;
+    hydratedRef.current = true;
+    setNumber(dbDoc.number);
+    setPartyId(dbDoc.partyId);
+    setStatus(dbDoc.status);
+    setDate(dbDoc.date);
+    setDueDate(dbDoc.dueDate);
+    setLines(dbDoc.lines);
+    setShipping(dbDoc.shipping);
+    setMemo(dbDoc.memo);
+    setNotes(dbDoc.notes);
+  }, [dbDoc]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('Cash');
@@ -249,6 +369,29 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
   const [paySaving, setPaySaving] = useState(false);
   const [paymentLinkUrl, setPaymentLinkUrl] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState(false);
+
+  // ── Batch E: the money trail behind this document (link tables). ──
+  const [apps, setApps] = useState<{
+    receiptApplications?: { id: string; receiptNumber: string; receiptDate: string; appliedAmount: number }[];
+    creditMemoApplications?: { id: string; memoNumber: string; memoDate: string; amount: number; appliedOn: string }[];
+    paymentApplications?: { id: string; checkNumber: string | null; paymentDate: string | null; appliedAmount: number }[];
+    vendorCreditApplications?: { id: string; creditNumber: string; creditDate: string; amount: number; appliedOn: string }[];
+    collectionsCases?: { id: string; priority: string; status: string; reason: string | null; notes: string | null; nextActionAt: string | null }[];
+    availableCredits?: { id: string; number: string; date: string; total: number; remaining: number }[];
+  } | null>(null);
+  const [appsError, setAppsError] = useState<string | null>(null);
+  const [showCreditForm, setShowCreditForm] = useState(false);
+  const [showCaseForm, setShowCaseForm] = useState(false);
+
+  const loadApplications = async () => {
+    if (!existing || (type !== 'Invoice' && type !== 'Bill')) return;
+    const j = await fetch(`/api/v1/documents/${existing.id}/applications?type=${type}`).then((r) => r.json()).catch(() => null);
+    if (j?.error) { setAppsError(j.error.message || 'Applications load failed'); return; }
+    setApps(j?.data || null);
+    setAppsError(null);
+  };
+
+  useEffect(() => { void loadApplications(); }, [existing?.id]);
 
   // §1.3: "On Order #1042 → Create → Invoice: party, lines, channel, and
   // order_id are prefilled and linked."
@@ -310,11 +453,51 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
     };
     try {
       if (existing) {
-        store.updateDocument(existing.id, docData);
-        store.recalcDocument(existing.id);
-        await persistToDb(false);
-        onToast(`${config.label} saved`);
-        if (!andNew) { onClose?.(); }
+        if (dbDoc) {
+          // Database-backed document: PATCH the header (and lines while
+          // still a draft). amount_paid is never sent — the receive flow
+          // owns it, so saving can never zero a payment out. No POST
+          // here: persistToDb always creates a NEW row.
+          const isDraft = dbStatus === 'draft';
+          const patchBody: Record<string, unknown> = {
+            due_date: dueDate || null,
+            notes: notes || memo || null,
+          };
+          // Bills carry memo; invoices carry notes, not memo.
+          if (type === 'Bill') patchBody.memo = memo || null;
+          if (isDraft) {
+            patchBody.lines = lines.filter((l) => l.description.trim()).map((l) => ({
+              description: l.description,
+              quantity: l.qty,
+              unitPrice: String(l.rate),
+              totalPrice: String(l.amount),
+              taxAmount: (l.amount * l.taxRate) / 100,
+              sku_id: l.skuId || null,
+              itemId: l.itemId || null,
+            }));
+            patchBody.subtotal = subtotal;
+            patchBody.tax_total = Math.round(tax * 100) / 100;
+            patchBody.total = total;
+          }
+          const res = await fetch(`/api/v1/documents/${existing.id}?type=${type}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patchBody),
+          });
+          if (!res.ok) {
+            const json = await res.json().catch(() => ({}));
+            onToast(json?.error?.message || 'Failed to save — check required fields');
+            return;
+          }
+          onToast(`${config.label} saved`);
+          if (!andNew) { onClose?.(); }
+        } else {
+          store.updateDocument(existing.id, docData);
+          store.recalcDocument(existing.id);
+          await persistToDb(false);
+          onToast(`${config.label} saved`);
+          if (!andNew) { onClose?.(); }
+        }
       } else {
         // Persist to the database FIRST. Only add to the store if the
         // DB write succeeds — otherwise the invoice lives only in
@@ -369,6 +552,10 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
             quantity: l.qty,
             unitPrice: String(l.rate),
             totalPrice: String(l.amount),
+            // The SKU is what receiving and COGS resolve on — without it
+            // PO lines save with sku_id NULL and can never be received.
+            sku_id: l.skuId || null,
+            itemId: l.itemId || null,
           })),
         }),
       });
@@ -422,6 +609,17 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
    *  the invoice flipped to Paid. No modal, no method selection. The full
    *  take-payment modal is for when you need to record the method, ref,
    *  deposit account, etc. */
+  /** Re-read a database-backed document after a verb (receive, send, …)
+   *  so the displayed amount paid / balance follows the real row. */
+  async function refreshDbDoc() {
+    if (!dbDoc) return;
+    const j = await fetch(`/api/v1/documents/${dbDoc.id}?type=${type}&include=lines`).then((r) => r.json()).catch(() => null);
+    if (j?.data) {
+      setDbStatus(String((j.data as Record<string, unknown>).status || ''));
+      setDbDoc(mapDbDocument(type, j.data as Record<string, unknown>, (j.lines as Record<string, unknown>[]) || []));
+    }
+  }
+
   function markAsPaid() {
     if (!existing) { onToast('Save the document first'); return; }
     // Call the Document Engine receive endpoint — creates an acct_ar_receipts
@@ -431,6 +629,7 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount: existing.balance, method: 'cash' }),
     }).then(r => r.json()).then(() => {
+      void refreshDbDoc();
       onToast(`${config.label} ${existing.number} marked paid`);
     }).catch(() => {
       // Fallback to store update
@@ -521,6 +720,7 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
         const json = await res.json();
         // Update store for instant UI
         store.recordPayment(existing.id, amount, payMethod, 'Checking');
+        await refreshDbDoc();
         onToast(`Payment of $${amount.toFixed(2)} recorded via ${payMethod}`);
       }
       window.dispatchEvent(new CustomEvent('document-saved', { detail: { type, partyId } }));
@@ -543,7 +743,7 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
       onToast('Generating PDF…');
       const { pdf } = await import('@react-pdf/renderer');
       const { InvoicePdf } = await import('./InvoicePdf');
-      const blob = await pdf(<InvoicePdf doc={existing} party={party} />).toBlob();
+      const blob = await pdf(<InvoicePdf doc={existing} party={party ?? null} />).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -649,8 +849,8 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
                           <LineItemSearch
                             line={line}
                             costBased={type === 'Bill' || type === 'PurchaseOrder' || type === 'VendorCredit'}
-                            onPick={item => updateLine(idx, { itemId: item.id, description: item.name, rate: type === 'Bill' || type === 'PurchaseOrder' || type === 'VendorCredit' ? item.cost : item.price })}
-                            onText={text => updateLine(idx, { description: text, itemId: null })}
+                            onPick={item => updateLine(idx, { itemId: item.id, skuId: item.skuId ?? null, description: item.name, rate: type === 'Bill' || type === 'PurchaseOrder' || type === 'VendorCredit' ? item.cost : item.price })}
+                            onText={text => updateLine(idx, { description: text, itemId: null, skuId: null })}
                           />
                         </td>
                         <td className="py-2 px-3"><input type="number" className="w-full border-0 bg-transparent text-[13px] text-right focus:outline-none focus:border-b focus:border-primary" value={line.qty} onChange={e => updateLine(idx, { qty: parseFloat(e.target.value) || 0 })} /></td>
@@ -696,6 +896,119 @@ function DocumentEngineInner({ type = 'Invoice', documentId, onToast, onClose, p
                         <span className="text-on-surface-variant ml-auto">{a.actor}</span>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Payments & credits — the AR/AP link tables (Batch E) */}
+                {existing && (type === 'Invoice' || type === 'Bill') && (
+                  <div className="mt-8 border-t border-surface-dim pt-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-[13px] font-bold">Payments &amp; credits</h3>
+                      <div className="flex gap-2">
+                        {(apps?.availableCredits?.length || 0) > 0 && (
+                          <button type="button" className="h-7 px-3 border border-surface-dim rounded text-[12px] font-semibold hover:bg-surface-container-low" onClick={() => { setShowCreditForm(!showCreditForm); setShowCaseForm(false); }}>
+                            {showCreditForm ? 'Cancel' : `Apply a credit (${apps!.availableCredits!.length})`}
+                          </button>
+                        )}
+                        {type === 'Invoice' && balance > 0 && (
+                          <button type="button" className="h-7 px-3 border border-surface-dim rounded text-[12px] font-semibold hover:bg-surface-container-low" onClick={() => { setShowCaseForm(!showCaseForm); setShowCreditForm(false); }}>
+                            {showCaseForm ? 'Cancel' : 'Open collections case'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {appsError && <div className="text-[12px] text-error mb-2">{appsError}</div>}
+                    {apps === null ? (
+                      <div className="text-[12px] text-on-surface-variant">Loading…</div>
+                    ) : (
+                      <div className="space-y-1 text-[12px]">
+                        {(apps.receiptApplications || []).map((a) => (
+                          <div key={a.id} className="flex justify-between py-1 border-b border-surface-dim/50"><span>Receipt {a.receiptNumber} · {a.receiptDate}</span><span className="tabular-nums font-medium">${a.appliedAmount.toFixed(2)}</span></div>
+                        ))}
+                        {(apps.creditMemoApplications || []).map((a) => (
+                          <div key={a.id} className="flex justify-between py-1 border-b border-surface-dim/50"><span>Credit memo {a.memoNumber} · applied {a.appliedOn}</span><span className="tabular-nums font-medium">−${a.amount.toFixed(2)}</span></div>
+                        ))}
+                        {(apps.paymentApplications || []).map((a) => (
+                          <div key={a.id} className="flex justify-between py-1 border-b border-surface-dim/50"><span>Payment {a.checkNumber ? `check #${a.checkNumber}` : 'no check no.'}{a.paymentDate ? ` · ${a.paymentDate}` : ''}</span><span className="tabular-nums font-medium">${a.appliedAmount.toFixed(2)}</span></div>
+                        ))}
+                        {(apps.vendorCreditApplications || []).map((a) => (
+                          <div key={a.id} className="flex justify-between py-1 border-b border-surface-dim/50"><span>Vendor credit {a.creditNumber} · applied {a.appliedOn}</span><span className="tabular-nums font-medium">−${a.amount.toFixed(2)}</span></div>
+                        ))}
+                        {(apps.collectionsCases || []).map((c) => (
+                          <div key={c.id} className="flex justify-between py-1 border-b border-surface-dim/50">
+                            <span>Collections case · {c.priority} · {c.status}{c.reason ? ` — ${c.reason}` : ''}</span>
+                            {c.status === 'open' && (
+                              <button type="button" className="text-primary font-semibold hover:underline" onClick={async () => {
+                                const res = await fetch(`/api/collections-cases/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'in_progress' }) });
+                                if (!res.ok) { onToast('Case update failed'); return; }
+                                await loadApplications();
+                                onToast('Collections case moved to in progress');
+                              }}>Start work</button>
+                            )}
+                          </div>
+                        ))}
+                        {!apps.receiptApplications?.length && !apps.creditMemoApplications?.length && !apps.paymentApplications?.length && !apps.vendorCreditApplications?.length && !apps.collectionsCases?.length && (
+                          <div className="text-on-surface-variant py-1">No payments, credits or collections cases on this {type.toLowerCase()} yet.</div>
+                        )}
+                      </div>
+                    )}
+                    {showCreditForm && (apps?.availableCredits?.length || 0) > 0 && (
+                      <form
+                        className="mt-3 flex items-end gap-2"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const fd = new FormData(e.currentTarget);
+                          const res = await fetch(`/api/v1/documents/${existing.id}/apply-credit?type=${type}`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ creditId: String(fd.get('creditId') || ''), amount: Number(fd.get('amount') || 0) }),
+                          });
+                          const j = await res.json().catch(() => null);
+                          if (!res.ok || j?.error) { onToast(j?.error?.message || 'Apply credit failed'); return; }
+                          setShowCreditForm(false);
+                          await loadApplications();
+                          onToast(`Credit applied — $${Number(fd.get('amount') || 0).toFixed(2)}`);
+                        }}
+                      >
+                        <select name="creditId" required className="field-input" style={{ height: 32, flex: 1 }}>
+                          {apps!.availableCredits!.map((c) => (<option key={c.id} value={c.id}>{c.number} — ${c.remaining.toFixed(2)} available</option>))}
+                        </select>
+                        <input name="amount" type="number" step="0.01" min="0.01" required placeholder="Amount $" className="field-input" style={{ height: 32, width: 120 }} />
+                        <button type="submit" className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container">Apply</button>
+                      </form>
+                    )}
+                    {showCaseForm && type === 'Invoice' && (
+                      <form
+                        className="mt-3 space-y-2"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const fd = new FormData(e.currentTarget);
+                          const res = await fetch(`/api/v1/documents/${existing.id}/collections-case`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              priority: String(fd.get('priority') || 'medium'),
+                              reason: String(fd.get('reason') || ''),
+                              notes: String(fd.get('notes') || ''),
+                              disputeAmount: Number(fd.get('disputeAmount') || 0),
+                            }),
+                          });
+                          const j = await res.json().catch(() => null);
+                          if (!res.ok || j?.error) { onToast(j?.error?.message || 'Collections case failed'); return; }
+                          setShowCaseForm(false);
+                          await loadApplications();
+                          onToast('Collections case opened');
+                        }}
+                      >
+                        <div className="flex gap-2">
+                          <select name="priority" defaultValue="medium" className="field-input" style={{ height: 32, width: 130 }}>
+                            <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option>
+                          </select>
+                          <input name="reason" required placeholder="Reason" className="field-input" style={{ height: 32, flex: 1 }} />
+                          <input name="disputeAmount" type="number" step="0.01" min="0" defaultValue={0} placeholder="Disputed $" className="field-input" style={{ height: 32, width: 110 }} />
+                        </div>
+                        <input name="notes" placeholder="Notes (optional)" className="field-input" style={{ height: 32, width: '100%' }} />
+                        <button type="submit" className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container">Open case</button>
+                      </form>
+                    )}
                   </div>
                 )}
               </div>
@@ -872,9 +1185,55 @@ function LineItemSearch({ line, costBased, onPick, onText }: {
   onPick: (item: Item) => void;
   onText: (text: string) => void;
 }) {
-  const items = usePlatformStore(s => s.items);
+  // Real item master: GET /api/inventory-items (acct_items). The picker
+  // used to read usePlatformStore items — seed data — so a picked line
+  // carried a fake id and no SKU, and the saved PO/sales-order line had
+  // sku_id NULL (unreceivable, no COGS). Only stocked/purchasable items
+  // are offered here; free text stays valid for Blank/Service lines.
+  const [items, setItems] = useState<Item[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/inventory-items?limit=500')
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        const rows = (j?.data ?? []) as Record<string, unknown>[];
+        setItems(rows
+          .filter((r) => r.isActive !== false)
+          .map((r) => ({
+            id: String(r.id),
+            name: String(r.name ?? ''),
+            sku: String((r.skuLabel as string) || (r.sku as string) || ''),
+            skuId: (r.skuId as string) || null,
+            type: 'Product' as const,
+            category: String((r.classificationName as string) || ''),
+            status: 'Published' as const,
+            price: Number(r.salesPrice ?? 0),
+            cost: Number(r.purchaseCost ?? r.lastUnitCost ?? 0),
+            description: String(r.name ?? ''),
+            incomeAccount: String((r.incomeAccountId as string) || ''),
+            expenseAccount: String((r.expenseAccountId as string) || ''),
+            taxable: Boolean(r.taxable),
+            trackInventory: true,
+            fulfillmentType: 'Stock' as const,
+            stockOnHand: Number(r.onHand ?? 0),
+            reorderPoint: Number(r.reorderPoint ?? 0),
+            supplierId: (r.preferredVendorId as string) || null,
+            designId: null,
+            channels: [],
+            image: '',
+            tags: [],
+            updated: String((r.createdAt as string) || ''),
+            _isSold: Boolean(r.isSold),
+            _isPurchased: Boolean(r.isPurchased),
+          } as Item & { _isSold: boolean; _isPurchased: boolean })));
+      })
+      .catch(() => { /* picker falls back to free text */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -885,7 +1244,14 @@ function LineItemSearch({ line, costBased, onPick, onText }: {
 
   const q = line.description.toLowerCase().trim();
   const matches = q
-    ? items.filter(i => (i.name + ' ' + i.sku + ' ' + i.category).toLowerCase().includes(q)).slice(0, 6)
+    ? items
+        .filter((i) => {
+          const ext = i as Item & { _isSold?: boolean; _isPurchased?: boolean };
+          if (costBased && ext._isPurchased === false) return false;
+          if (!costBased && ext._isSold === false) return false;
+          return (i.name + ' ' + i.sku + ' ' + i.category).toLowerCase().includes(q);
+        })
+        .slice(0, 6)
     : [];
 
   return (

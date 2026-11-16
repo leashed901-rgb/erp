@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/refs */
 'use client';
 
 /**
@@ -156,9 +155,9 @@ export default function KonvaStage({
   // is a no-op when no drag is active, so a double fire with the stage
   // handler (pointerup then mouseup) is harmless.
   const onStageUpRef = useRef(onStageUp);
-  
+  onStageUpRef.current = onStageUp;
   useEffect(() => {
-    onStageUpRef.current = onStageUp; const up = () => onStageUpRef.current();
+    const up = () => onStageUpRef.current();
     window.addEventListener('pointerup', up);
     window.addEventListener('mouseup', up);
     return () => {

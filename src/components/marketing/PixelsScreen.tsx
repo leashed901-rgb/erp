@@ -4,6 +4,7 @@
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAdEvents, usePixels, pixelMutations, type AdPixel } from '@/hooks/useAdvertisingApi';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -20,58 +21,8 @@ interface PixelEvent {
   valueField?: string;
 }
 
-interface Pixel {
-  id: string;
-  name: string;
-  network: string;
-  pixelId: string;
-  install: string;
-  status: string;
-  events24: number;
-  events30: number;
-  lastEvent: string | null;
-  events: PixelEvent[];
-}
+type Pixel = AdPixel;
 
-const INITIAL_PIXELS: Pixel[] = [
-  { id: 'PX-101', name: 'Meta Pixel — Storefront', network: 'Meta', pixelId: '1029XXXX4471', install: 'Script in <head>', status: 'Live',
-    events24: 1240, events30: 38420, lastEvent: '2026-11-03T09:42:11',
-    events: [
-      { name: 'PageView', kind: 'standard' },
-      { name: 'ViewContent', kind: 'standard' },
-      { name: 'AddToCart', kind: 'standard' },
-      { name: 'InitiateCheckout', kind: 'standard' },
-      { name: 'Purchase', kind: 'standard', valueField: 'value' },
-    ] },
-  { id: 'PX-102', name: 'TikTok Pixel — Storefront', network: 'TikTok', pixelId: 'C4XXXXT9', install: 'Script in <head>', status: 'Live',
-    events24: 412, events30: 9821, lastEvent: '2026-11-03T09:40:02',
-    events: [
-      { name: 'Pageview', kind: 'standard' },
-      { name: 'ViewContent', kind: 'standard' },
-      { name: 'AddToCart', kind: 'standard' },
-      { name: 'CompletePayment', kind: 'standard', valueField: 'value' },
-    ] },
-  { id: 'PX-103', name: 'Google Ads tag', network: 'GoogleAds', pixelId: 'AW-XXXXXX', install: 'GTM container', status: 'Live',
-    events24: 588, events30: 14620, lastEvent: '2026-11-03T09:39:55',
-    events: [
-      { name: 'page_view', kind: 'standard' },
-      { name: 'view_item', kind: 'standard' },
-      { name: 'add_to_cart', kind: 'standard' },
-      { name: 'purchase', kind: 'standard', valueField: 'value' },
-    ] },
-  { id: 'PX-104', name: 'Pinterest Tag', network: 'Pinterest', pixelId: '2617XXXX', install: 'Script in <head>', status: 'Paused',
-    events24: 0, events30: 2140, lastEvent: '2026-10-28T14:10:00',
-    events: [
-      { name: 'PageVisit', kind: 'standard' },
-      { name: 'AddToCart', kind: 'standard' },
-      { name: 'Checkout', kind: 'standard' },
-    ] },
-  { id: 'PX-105', name: 'Server-side events (CAPI)', network: 'Meta', pixelId: 'CAPI-XXXX', install: 'Server-side (CAPI / Events API)', status: 'Error',
-    events24: 0, events30: 0, lastEvent: null,
-    events: [
-      { name: 'Purchase', kind: 'standard', valueField: 'value' },
-    ] },
-];
 
 interface RecentEvent {
   at: string;
@@ -82,18 +33,6 @@ interface RecentEvent {
   err?: string;
 }
 
-const INITIAL_EVENTS: RecentEvent[] = [
-  { at: '2026-11-03T09:42:11', pixel: 'PX-101', event: 'PageView', value: null, ok: true },
-  { at: '2026-11-03T09:41:52', pixel: 'PX-103', event: 'view_item', value: null, ok: true },
-  { at: '2026-11-03T09:41:31', pixel: 'PX-101', event: 'AddToCart', value: 18.00, ok: true },
-  { at: '2026-11-03T09:41:02', pixel: 'PX-102', event: 'AddToCart', value: 24.00, ok: true },
-  { at: '2026-11-03T09:40:02', pixel: 'PX-102', event: 'ViewContent', value: null, ok: true },
-  { at: '2026-11-03T09:39:55', pixel: 'PX-103', event: 'page_view', value: null, ok: true },
-  { at: '2026-11-03T09:39:21', pixel: 'PX-101', event: 'Purchase', value: 58.00, ok: true },
-  { at: '2026-11-03T09:38:40', pixel: 'PX-103', event: 'purchase', value: 58.00, ok: true },
-  { at: '2026-11-03T09:37:12', pixel: 'PX-105', event: 'Purchase', value: null, ok: false, err: 'Server-side token expired' },
-  { at: '2026-11-03T09:36:09', pixel: 'PX-101', event: 'InitiateCheckout', value: null, ok: true },
-];
 
 interface SavedView {
   id: string;
@@ -103,10 +42,6 @@ interface SavedView {
   networks: string[];
 }
 
-const INITIAL_SAVED_VIEWS: SavedView[] = [
-  { id: 'sv-1', name: 'Live Meta', tab: 'Live', q: '', networks: ['Meta'] },
-  { id: 'sv-2', name: 'Error pixels', tab: 'Error', q: '', networks: [...NETWORKS] },
-];
 
 interface DestMeta { title: string; body: string; route: string; }
 
@@ -196,13 +131,26 @@ function pill(status: string) {
   const kind = status === 'Live' ? 'ok' : status === 'Paused' ? 'warn' : 'bad';
   return <span className={`pill ${kind}`}>{status}</span>;
 }
-function nowIso(): string { return new Date().toISOString(); }
 
 export default function PixelsScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's `filters`, `editing`, `peekId`, etc.) ─── */
-  const [items, setItems] = useState<Pixel[]>(INITIAL_PIXELS);
-  const [events, setEvents] = useState<RecentEvent[]>(INITIAL_EVENTS);
-  const [savedViews, setSavedViews] = useState<SavedView[]>(INITIAL_SAVED_VIEWS);
+  // Pixel definitions are tenant configuration stored server-side
+  // (policy_settings via /api/advertising/pixels); their stats and the
+  // recent-events feed both come from the real ad_events stream.
+  const { pixels: items, refresh: refreshPixels } = usePixels();
+  const [events, setEvents] = useState<RecentEvent[]>([]);
+  const { events: apiEvents, refresh: refreshEvents } = useAdEvents();
+  useEffect(() => {
+    if (!apiEvents.length) return;
+    setEvents(apiEvents.map(e => ({
+      at: e.eventTime,
+      pixel: e.trackingId || e.campaignId || '—',
+      event: e.eventType,
+      value: null,
+      ok: true,
+    })));
+  }, [apiEvents]);
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('All');
   const [networks, setNetworks] = useState<Set<string>>(new Set(NETWORKS as readonly string[]));
@@ -245,7 +193,7 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
     const ql = q.toLowerCase();
     const qOK = !ql || (p.id + ' ' + p.name + ' ' + p.network + ' ' + p.pixelId).toLowerCase().includes(ql);
     const tabOK = tab === 'All' || p.status === tab;
-    const netOK = networks.has(p.network);
+    const netOK = networks.has(p.network) || !(NETWORKS as readonly string[]).includes(p.network);
     return qOK && tabOK && netOK;
   }), [items, q, tab, networks]);
 
@@ -295,34 +243,23 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
   }
 
   function runSelftest(p: Pixel) {
+    // A self-test here checks what the platform can actually verify:
+    // the saved definition, the events observed for this tracking id
+    // in ad_events, and how recent the last one is. No synthetic event
+    // is fabricated.
     clearSelftestTimers();
+    const ageMs = p.lastEvent ? Date.now() - new Date(p.lastEvent).getTime() : Infinity;
     setSelftestSteps([
-      { text: 'running…', badge: 'pending' },
-      { text: 'waiting…', badge: 'pending' },
-      { text: 'waiting…', badge: 'pending' },
+      p.defined
+        ? { text: '✓ definition stored', badge: 'ok' }
+        : { text: '✗ observed only — no saved definition', badge: 'bad' },
+      p.events30 > 0
+        ? { text: `✓ ${p.events30} event(s) in 30d`, badge: 'ok' }
+        : { text: '✗ no events observed in 30d', badge: 'bad' },
+      ageMs < 7 * 86400000
+        ? { text: '✓ active within 7 days', badge: 'ok' }
+        : { text: '✗ no event in the last 7 days', badge: 'bad' },
     ]);
-    selftestTimersRef.current.push(window.setTimeout(() => {
-      setSelftestSteps(s => [{ text: '✓ reachable', badge: 'ok' }, s[1], s[2]]);
-      selftestTimersRef.current.push(window.setTimeout(() => {
-        if (p.status === 'Error') {
-          setSelftestSteps([
-            { text: '✓ reachable', badge: 'ok' },
-            { text: '✗ rejected', badge: 'bad' },
-            { text: '✗ not delivered', badge: 'bad' },
-          ]);
-          const now = nowIso();
-          setEvents(prev => [{ at: now, pixel: p.id, event: 'PageView', value: null, ok: false, err: 'Self-test rejected — check install' }, ...prev].slice(0, 20));
-        } else {
-          setSelftestSteps(s => [s[0], { text: '✓ fired', badge: 'ok' }, s[2]]);
-          selftestTimersRef.current.push(window.setTimeout(() => {
-            setSelftestSteps(s => [s[0], s[1], { text: '✓ acknowledged', badge: 'ok' }]);
-            const now = nowIso();
-            setItems(prev => prev.map(x => x.id === p.id ? { ...x, events24: x.events24 + 1, events30: x.events30 + 1, lastEvent: now } : x));
-            setEvents(prev => [{ at: now, pixel: p.id, event: 'PageView', value: null, ok: true }, ...prev].slice(0, 20));
-          }, 500));
-        }
-      }, 400));
-    }, 300));
   }
 
   function openSelftest(id: string) {
@@ -349,12 +286,21 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
       case 'view': openPeek(p.id); break;
       case 'selftest': openSelftest(p.id); break;
       case 'snippet': copySnippet(p); break;
-      case 'pause': setItems(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Paused' } : x)); onToast(`Paused: ${p.name}`); break;
-      case 'resume': setItems(prev => prev.map(x => x.id === p.id ? { ...x, status: 'Live' } : x)); onToast(`Resumed: ${p.name}`); break;
+      case 'pause':
+      case 'resume': {
+        if (!p.defined) { onToast('Observed from the event stream — save a definition before changing status'); break; }
+        const status = act === 'pause' ? 'Paused' : 'Live';
+        void pixelMutations.update(p.id, { status })
+          .then(() => { void refreshPixels(); onToast(`${status === 'Paused' ? 'Paused' : 'Resumed'}: ${p.name}`); })
+          .catch((e) => onToast(e instanceof Error ? e.message : 'Status change failed'));
+        break;
+      }
       case 'delete':
+        if (!p.defined) { onToast('Observed rows come from the event stream and cannot be deleted'); break; }
         if (confirm(`Delete pixel "${p.name}"?`)) {
-          setItems(prev => prev.filter(x => x.id !== p.id));
-          onToast(`Deleted: ${p.name}`);
+          void pixelMutations.remove(p.id)
+            .then(() => { void refreshPixels(); onToast(`Deleted: ${p.name}`); })
+            .catch((e) => onToast(e instanceof Error ? e.message : 'Delete failed'));
         }
         break;
     }
@@ -362,18 +308,25 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
 
   function bulkAction(act: string) {
     if (act === 'close') { setSelected(new Set()); return; }
-    const sel = [...selected];
+    const sel = items.filter(p => selected.has(p.id));
     const n = sel.length;
-    if (act === 'pause') { setItems(prev => prev.map(p => sel.includes(p.id) ? { ...p, status: 'Paused' } : p)); onToast(`Paused ${n} pixel(s)`); }
-    else if (act === 'resume') { setItems(prev => prev.map(p => sel.includes(p.id) ? { ...p, status: 'Live' } : p)); onToast(`Resumed ${n} pixel(s)`); }
-    else if (act === 'selftest') {
-      if (sel.length) openSelftest(sel[sel.length - 1]);
+    if (act === 'selftest') {
+      if (sel.length) openSelftest(sel[sel.length - 1].id);
       onToast(`Running self-test on ${n} pixel(s)`);
+      return;
     }
-    else if (act === 'delete') {
-      if (confirm(`Delete ${n} pixel(s)?`)) {
-        setItems(prev => prev.filter(p => !sel.includes(p.id)));
-        onToast(`Deleted ${n} pixel(s)`);
+    const defined = sel.filter(p => p.defined);
+    if (!defined.length) { onToast('Selected rows are observed from the event stream — nothing to change'); setSelected(new Set()); return; }
+    if (act === 'pause' || act === 'resume') {
+      const status = act === 'pause' ? 'Paused' : 'Live';
+      void Promise.all(defined.map(p => pixelMutations.update(p.id, { status })))
+        .then(() => { void refreshPixels(); onToast(`${status === 'Paused' ? 'Paused' : 'Resumed'} ${defined.length} pixel(s)`); })
+        .catch((e) => onToast(e instanceof Error ? e.message : 'Bulk status change failed'));
+    } else if (act === 'delete') {
+      if (confirm(`Delete ${defined.length} pixel(s)?`)) {
+        void Promise.all(defined.map(p => pixelMutations.remove(p.id)))
+          .then(() => { void refreshPixels(); onToast(`Deleted ${defined.length} pixel(s)`); })
+          .catch((e) => onToast(e instanceof Error ? e.message : 'Bulk delete failed'));
       }
     }
     setSelected(new Set());
@@ -426,7 +379,8 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
     if (!id) { onToast('Pixel ID is required'); return null; }
     const e = editingId ? itemsRef.current.find(p => p.id === editingId) : null;
     return {
-      id: e ? e.id : 'PX-' + String(itemsRef.current.length + 101).slice(-3),
+      id: e ? e.id : '',
+      defined: e ? e.defined : false,
       name,
       network: formNetwork,
       pixelId: id,
@@ -438,21 +392,30 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
       events: draftEvents.map(ev => ({ ...ev })),
     };
   }
-  function save() {
+  function defBody(p: Pixel) {
+    return { name: p.name, network: p.network, pixelId: p.pixelId, install: p.install, status: p.status, events: p.events };
+  }
+  async function persistPixel(p: Pixel): Promise<boolean> {
+    try {
+      const editing = editingId ? itemsRef.current.find(x => x.id === editingId) : null;
+      if (editing && editing.defined) await pixelMutations.update(editing.id, defBody(p));
+      else await pixelMutations.create(defBody(p));
+      await refreshPixels();
+      return true;
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'Save failed');
+      return false;
+    }
+  }
+  async function save() {
     const p = collectPixel(); if (!p) return;
-    setItems(prev => {
-      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = p; return n; } return prev; }
-      return [p, ...prev];
-    });
+    if (!(await persistPixel(p))) return;
     closePxDrawer();
     onToast(editingId ? 'Pixel updated' : 'Pixel created');
   }
-  function saveAndNew() {
+  async function saveAndNew() {
     const p = collectPixel(); if (!p) return;
-    setItems(prev => {
-      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = p; return n; } return prev; }
-      return [p, ...prev];
-    });
+    if (!(await persistPixel(p))) return;
     setEditingId(null);
     setFormName('');
     setFormId('');
@@ -465,7 +428,7 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
 
   function handleExportEvents() {
     const exportRows = events.map(ev => {
-      const p = items.find(x => x.id === ev.pixel);
+      const p = items.find(x => x.pixelId === ev.pixel);
       return {
         at: ev.at,
         pixel: ev.pixel,
@@ -488,24 +451,12 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
     onToast('Exported events CSV');
   }
 
-  /* ─── effects: synthetic stream + flash reset + cleanup ─── */
+  /* ─── effects: live polling of the real event stream + cleanup ─── */
   useEffect(() => {
-    const t = window.setInterval(() => {
-      if (!streamRef.current) return;
-      const live = itemsRef.current.filter(p => p.status === 'Live');
-      if (!live.length) return;
-      const p = live[Math.floor(Math.random() * live.length)];
-      const ev = p.events[Math.floor(Math.random() * p.events.length)];
-      const value = ev.valueField ? Math.round((10 + Math.random() * 90) * 100) / 100 : null;
-      const now = nowIso();
-      setEvents(prev => [{ at: now, pixel: p.id, event: ev.name, value, ok: true }, ...prev].slice(0, 20));
-      setItems(prev => prev.map(x => x.id === p.id ? { ...x, events24: x.events24 + 1, events30: x.events30 + 1, lastEvent: now } : x));
-      setFlashNewest(true);
-      const isPurchase = /purchase|completepayment|add_to_cart|addtocart/i.test(ev.name);
-      if (isPurchase && value != null) onToast(`${p.name} fired ${ev.name} · $${value.toFixed(2)}`);
-    }, 3000);
+    if (!streamToggle) return;
+    const t = window.setInterval(() => { void refreshEvents(); void refreshPixels(); }, 15000);
     return () => clearInterval(t);
-  }, [onToast]);
+  }, [streamToggle, refreshEvents, refreshPixels]);
 
   useEffect(() => {
     if (!flashNewest) return;
@@ -763,14 +714,14 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
         <div className="flex items-center justify-between px-5 py-3 border-b border-surface-dim">
           <div>
             <h2 className="text-headline-sm">Recent events</h2>
-            <div className="text-[11px] text-on-surface-variant">Live stream from the webhook. New events appear automatically while the page is open.</div>
+            <div className="text-[11px] text-on-surface-variant">The platform's recorded ad_events stream. Refreshes automatically while the page is open.</div>
           </div>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1 text-[11px] text-on-surface-variant">
               <input type="checkbox" className="row-check" checked={streamToggle} onChange={e => setStreamToggle(e.target.checked)} />
-              Auto-refresh (3s)
+              Auto-refresh
             </label>
-            <button className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1" onClick={() => { setFlashNewest(false); onToast('Events refreshed'); }}>
+            <button className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1" onClick={() => { void refreshEvents(); void refreshPixels(); onToast('Events refreshed'); }}>
               <span className="material-symbols-outlined text-[14px]">refresh</span>Refresh
             </button>
           </div>
@@ -779,7 +730,7 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
           {events.length === 0 ? (
             <div className="text-[11px] text-on-surface-variant">No events received yet.</div>
           ) : events.slice(0, 20).map((ev, idx) => {
-            const p = items.find(x => x.id === ev.pixel);
+            const p = items.find(x => x.pixelId === ev.pixel);
             const pixelName = p ? p.name : ev.pixel;
             return (
               <div key={ev.at + ':' + idx} className={`event-row ${flashNewest && idx === 0 ? 'new-flash' : ''}`}>
@@ -979,19 +930,19 @@ export default function PixelsScreen({ onToast }: MarketingScreenProps) {
               <h3 className="text-headline-sm">Self-test</h3>
               <button className="w-7 h-7 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => { setSelftestOpen(false); clearSelftestTimers(); }}><span className="material-symbols-outlined text-[18px]">close</span></button>
             </div>
-            <p className="text-body-sm text-on-surface-variant mb-3">Sending a synthetic <span className="code-mono">PageView</span> to <span className="font-semibold text-on-surface">{selftestPixelName}</span>…</p>
+            <p className="text-body-sm text-on-surface-variant mb-3">Checking <span className="font-semibold text-on-surface">{selftestPixelName}</span> against its saved definition and the recorded event stream…</p>
             <div className="space-y-2">
               <div className="p-3 rounded border border-outline-variant bg-surface-container-low text-body-sm">
-                <div className="flex items-center justify-between mb-1"><span className="text-on-surface-variant">Step 1 — reachability</span><span className={`selftest-badge ${selftestSteps[0].badge}`}>{selftestSteps[0].text}</span></div>
-                <div className="text-[11px] text-on-surface-variant">Contacting {selftestPixel ? netLabel(selftestPixel.network) : ''} endpoint for {selftestPixel ? selftestPixel.pixelId : ''}</div>
+                <div className="flex items-center justify-between mb-1"><span className="text-on-surface-variant">Step 1 — definition</span><span className={`selftest-badge ${selftestSteps[0].badge}`}>{selftestSteps[0].text}</span></div>
+                <div className="text-[11px] text-on-surface-variant">A saved pixel definition on file for {selftestPixel ? selftestPixel.pixelId : ''}</div>
               </div>
               <div className="p-3 rounded border border-outline-variant bg-surface-container-low text-body-sm">
-                <div className="flex items-center justify-between mb-1"><span className="text-on-surface-variant">Step 2 — synthetic event</span><span className={`selftest-badge ${selftestSteps[1].badge}`}>{selftestSteps[1].text}</span></div>
-                <div className="text-[11px] text-on-surface-variant">Sending <span className="code-mono">PageView</span></div>
+                <div className="flex items-center justify-between mb-1"><span className="text-on-surface-variant">Step 2 — events observed</span><span className={`selftest-badge ${selftestSteps[1].badge}`}>{selftestSteps[1].text}</span></div>
+                <div className="text-[11px] text-on-surface-variant">Events recorded for this tracking id in the last 30 days</div>
               </div>
               <div className="p-3 rounded border border-outline-variant bg-surface-container-low text-body-sm">
-                <div className="flex items-center justify-between mb-1"><span className="text-on-surface-variant">Step 3 — delivery</span><span className={`selftest-badge ${selftestSteps[2].badge}`}>{selftestSteps[2].text}</span></div>
-                <div className="text-[11px] text-on-surface-variant">Confirming the event was accepted by the network</div>
+                <div className="flex items-center justify-between mb-1"><span className="text-on-surface-variant">Step 3 — recent activity</span><span className={`selftest-badge ${selftestSteps[2].badge}`}>{selftestSteps[2].text}</span></div>
+                <div className="text-[11px] text-on-surface-variant">Most recent recorded event is within the last 7 days</div>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">

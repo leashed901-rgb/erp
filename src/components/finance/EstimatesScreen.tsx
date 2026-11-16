@@ -3,6 +3,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 
 import { exportToCsv } from '@/lib/csvExport';
+import { useDocuments, createDocument, updateDocument, documentVerb } from '@/hooks/useDocuments';
+import { useParties } from '@/hooks/useCrmApi';
+import type { DocumentLine } from '@/lib/contracts';
 import DocumentEngine from '../DocumentEngine';
 import styles from './EstimatesScreen.module.css';
 
@@ -50,15 +53,27 @@ const avatarClassFor = (key: string) => {
   return AVATAR_CLASSES[hash % AVATAR_CLASSES.length];
 };
 
-/* Store statuses for Estimates: Draft | Sent | Converted | Declined | Closed */
-const fromStoreStatus = (s: DocumentStatus): EstimateItem['status'] => {
-  if (s === 'Draft' || s === 'Sent' || s === 'Declined' || s === 'Converted') return s;
-  if (s === 'Closed') return 'Accepted';
+/* acct_estimates.status values: draft | sent | accepted | declined | expired | converted.
+   A sent estimate the customer opened (viewed_at set) shows as Viewed. */
+const fromDbStatus = (s: string, viewedAt?: unknown): EstimateItem['status'] => {
+  if (s === 'sent' && viewedAt) return 'Viewed';
+  if (s === 'draft') return 'Draft';
+  if (s === 'sent') return 'Sent';
+  if (s === 'accepted') return 'Accepted';
+  if (s === 'declined') return 'Declined';
+  if (s === 'expired') return 'Expired';
+  if (s === 'converted') return 'Converted';
   return 'Draft';
 };
 
-const toStoreStatus = (s: EstimateItem['status']): DocumentStatus =>
-  s === 'Viewed' ? 'Sent' : s === 'Accepted' || s === 'Expired' ? 'Closed' : s;
+const toDbStatus = (s: EstimateItem['status']): string =>
+  s === 'Viewed' ? 'sent'
+  : s === 'Accepted' ? 'accepted'
+  : s === 'Expired' ? 'expired'
+  : s === 'Declined' ? 'declined'
+  : s === 'Converted' ? 'converted'
+  : s === 'Sent' ? 'sent'
+  : 'draft';
 
 /* ISO (YYYY-MM-DD) → MM/DD/YYYY for display; blank → em dash */
 const fmtDate = (iso: string) => {
@@ -127,44 +142,51 @@ export default function EstimatesScreen({
   // Document page (§1.5) — row open/edit renders the shared DocumentEngine
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  /* Single source of truth: estimates are derived from the shared store */
-  const estimates = (() => {
-    return []
-      .filter((d) => d.type === 'Estimate')
-      .map((doc): EstimateItem => {
-        const party = null;
-        const convertedInvoiceNo =
-          doc.status === 'Converted'
-            ? [].find(
-                (d) =>
-                  d.type === 'Invoice' &&
-                  d.activity.some((a) => a.text.includes(`Converted from Estimate ${doc.number}`))
-              )?.number
-            : undefined;
+  /* Single source of truth: estimates are live rows from acct_estimates
+     via the Document Engine API (useDocuments) — not the platformStore. */
+  const { data: estimateRows, refresh: refreshEstimates } = useDocuments('Estimate');
+  const { data: parties } = useParties('Customer');
+  const partyById = useMemo(
+    () => new Map((parties || []).map((p) => [p.id, p])),
+    [parties],
+  );
+
+  const estimates: EstimateItem[] = useMemo(
+    () =>
+      (estimateRows || []).map((d): EstimateItem => {
+        const partyId = String(d.customer_id || '');
+        const party = partyById.get(partyId);
+        const dbStatus = String(d.status || 'draft');
+        const status = fromDbStatus(dbStatus, d.viewed_at);
+        const rawLines = Array.isArray(d.lines) ? (d.lines as Record<string, unknown>[]) : [];
         return {
-          id: doc.id,
-          no: doc.number,
-          customer: party?.name || '—',
+          id: String(d.id),
+          no: String(d.estimate_number || d.number || ''),
+          customer: party?.name || partyId.slice(0, 8) || '—',
           email: party?.email || '',
           avatarLetter: (party?.name || '?').charAt(0).toUpperCase(),
-          avatarClass: avatarClassFor(doc.partyId || doc.id),
-          sentDate: doc.status === 'Draft' ? '' : doc.date,
-          expiryDate: doc.dueDate,
-          amount: doc.total,
-          status: fromStoreStatus(doc.status),
-          convertedInvoiceNo,
-          lines: doc.lines.map((l) => ({
-            id: l.id,
-            desc: l.description,
-            qty: l.qty,
-            rate: l.rate,
+          avatarClass: avatarClassFor(partyId || String(d.id)),
+          sentDate: status === 'Draft' ? '' : String(d.estimate_date || d.issue_date || ''),
+          expiryDate: String(d.expiry_date || ''),
+          amount: Number(d.total || 0),
+          status,
+          convertedInvoiceNo:
+            status === 'Converted' && d.converted_invoice_id
+              ? String(d.converted_invoice_id).slice(0, 8)
+              : undefined,
+          lines: rawLines.map((l, i) => ({
+            id: String(l.id || `l${i + 1}`),
+            desc: String(l.description || ''),
+            qty: Number(l.quantity ?? l.qty) || 0,
+            rate: Number(l.unit_price ?? l.rate) || 0,
           })),
-          note: doc.notes,
-          partyId: doc.partyId,
-          activity: doc.activity,
+          note: String(d.notes || ''),
+          partyId,
+          activity: [],
         };
-      });
-  })();
+      }),
+    [estimateRows, partyById],
+  );
 
   // KPI strip — computed from the derived rows
   const openEstimates = estimates.filter((e) => e.status === 'Sent' || e.status === 'Viewed');
@@ -217,17 +239,25 @@ export default function EstimatesScreen({
     );
   };
 
-  const handleBulkAction = (action: string) => {
+  const handleBulkAction = async (action: string) => {
     const count = selectedIds.length;
     if (action === 'delete') {
-      selectedIds.forEach((id) => onToast('Deleted'));
+      await Promise.all(
+        selectedIds.map((id) =>
+          fetch(`/api/v1/documents/${id}?type=Estimate`, { method: 'DELETE' }).catch(() => {}),
+        ),
+      );
       setSelectedIds([]);
+      refreshEstimates();
       onToast?.(`Deleted ${count} estimate(s)`);
       return;
     }
     if (action === 'convert') {
-      selectedIds.forEach((id) => null(id, 'Invoice'));
+      await Promise.all(
+        selectedIds.map((id) => documentVerb('Estimate', id, 'convert').catch(() => {})),
+      );
       setSelectedIds([]);
+      refreshEstimates();
       onToast?.(`Converted ${count} estimate(s) to invoice`);
       return;
     }
@@ -240,7 +270,7 @@ export default function EstimatesScreen({
     if (est) {
       setEditingEst({ ...est });
     } else {
-      const defaultParty = null('Customer')[0];
+      const defaultParty = parties?.[0];
       setEditingEst({
         id: `est-${Date.now()}`,
         no: `EST-${estimates.length + 1001}`,
@@ -263,71 +293,71 @@ export default function EstimatesScreen({
     setDrawerOpen(true);
   };
 
-  // Store writes — add / update the estimate behind the drawer form
-  const addEstimateToStore = (est: EstimateItem): string => {
+  // API writes — create / update the estimate in acct_estimates via the
+  // Document Engine API. Returns the new row id on create.
+  const addEstimateToStore = async (est: EstimateItem): Promise<string> => {
     const lineTotal = est.lines.reduce((acc, l) => acc + l.qty * l.rate, 0);
-    const fallbackParty = null('Customer')[0];
-    return fetch('/api/v1/documents', { method: 'POST' }).catch(() => {}); void ({
-      type: 'Estimate',
+    const { data, error } = await createDocument('Estimate', {
       number: est.no,
-      partyId: est.partyId || fallbackParty?.id || '',
-      status: toStoreStatus(est.status),
+      partyId: est.partyId || '',
+      status: toDbStatus(est.status),
       date: est.sentDate || todayISO(),
-      dueDate: est.expiryDate,
-      lines: toDocLines(est.lines),
+      expiryDate: est.expiryDate || null,
       subtotal: lineTotal,
-      tax: 0,
-      shipping: 0,
       total: lineTotal,
-      amountPaid: 0,
-      balance: lineTotal,
-      memo: '',
-      notes: est.note || '',
-      tags: [],
-      attachments: [],
-      orderId: null,
-      poId: null,
-      channelId: null,
-      createdBy: 'Current user',
+      notes: est.note || null,
+      lines: toDocLines(est.lines),
     });
+    if (error || !data) {
+      onToast?.(`Save failed: ${error || 'unknown error'}`);
+      return '';
+    }
+    refreshEstimates();
+    return String((data as Record<string, unknown>).id || '');
   };
 
-  const updateEstimateInStore = (est: EstimateItem) => {
+  const updateEstimateInStore = async (est: EstimateItem) => {
     const lineTotal = est.lines.reduce((acc, l) => acc + l.qty * l.rate, 0);
-    null(est.id, {
-      number: est.no,
-      status: toStoreStatus(est.status),
-      date: est.sentDate || todayISO(),
-      dueDate: est.expiryDate,
-      lines: toDocLines(est.lines),
+    const { error } = await updateDocument('Estimate', est.id, {
+      estimate_number: est.no,
+      status: toDbStatus(est.status),
+      estimate_date: est.sentDate || todayISO(),
+      expiry_date: est.expiryDate || null,
       subtotal: lineTotal,
-      tax: 0,
       total: lineTotal,
-      balance: lineTotal,
       notes: est.note || '',
+      lines: toDocLines(est.lines),
     });
+    if (error) onToast?.(`Save failed: ${error}`);
+    else refreshEstimates();
   };
 
-  const persistEditingEstimate = (status?: EstimateItem['status']): EstimateItem | null => {
+  const persistEditingEstimate = async (status?: EstimateItem['status']): Promise<EstimateItem | null> => {
     if (!editingEst) return null;
     const lineTotal = editingEst.lines.reduce((acc, l) => acc + l.qty * l.rate, 0);
     const updated: EstimateItem =
       status && status !== editingEst.status ? { ...editingEst, status } : { ...editingEst };
     updated.amount = lineTotal;
-    if (null) updateEstimateInStore(updated);
-    else addEstimateToStore(updated);
+    // Fresh drawer drafts carry a client id (est-<timestamp>); live rows
+    // carry a DB uuid. Create the former, update the latter.
+    if (updated.id.startsWith('est-')) {
+      const newId = await addEstimateToStore(updated);
+      if (newId) updated.id = newId;
+    } else {
+      await updateEstimateInStore(updated);
+    }
     return updated;
   };
 
-  const handleDrawerSave = () => {
-    const updated = persistEditingEstimate();
+  const handleDrawerSave = async () => {
+    const updated = await persistEditingEstimate();
     if (!updated) return;
     setDrawerOpen(false);
     onToast?.(`Estimate ${updated.no} saved`);
   };
 
-  const handleDrawerSend = () => {
-    const updated = persistEditingEstimate('Sent');
+  const handleDrawerSend = async () => {
+    const updated = await persistEditingEstimate('Sent');
     if (!updated) return;
     setDrawerOpen(false);
     onToast?.(`Estimate ${updated.no} sent to customer`);
@@ -338,21 +368,29 @@ export default function EstimatesScreen({
     setConvertModalOpen(true);
   };
 
-  const handleConfirmConvert = () => {
+  const handleConfirmConvert = async () => {
     if (!convertTargetEst) return;
     let targetId = convertTargetEst.id;
-    if (!null) {
+    if (targetId.startsWith('est-')) {
       // Convert pressed from the create drawer — persist the draft first
-      targetId = addEstimateToStore({ ...convertTargetEst, status: 'Draft' });
+      targetId = await addEstimateToStore({ ...convertTargetEst, status: 'Draft' });
+      if (!targetId) {
+        setConvertModalOpen(false);
+        return;
+      }
     }
-    const newInvoiceId = null(targetId, 'Invoice');
-    const invoiceNo = newInvoiceId ? null?.number : undefined;
+    // Registry action estimate.convert → RPC acct_convert_estimate
+    const res = await documentVerb('Estimate', targetId, 'convert');
+    const invoiceId = (res.data as Record<string, unknown> | undefined)?.id;
+    refreshEstimates();
     setConvertModalOpen(false);
     setDrawerOpen(false);
     onToast?.(
-      invoiceNo
-        ? `Estimate ${convertTargetEst.no} converted to invoice ${invoiceNo}`
-        : 'Converted to invoice'
+      invoiceId
+        ? `Estimate ${convertTargetEst.no} converted to invoice`
+        : res.error
+          ? `Convert failed: ${res.error}`
+          : 'Converted to invoice',
     );
   };
 
@@ -368,7 +406,7 @@ export default function EstimatesScreen({
     setMenuOpen(true);
   };
 
-  const handleRowMenuAction = (action: string) => {
+  const handleRowMenuAction = async (action: string) => {
     if (!activeMenuEst) return;
     const est = activeMenuEst;
     setMenuOpen(false);
@@ -379,15 +417,28 @@ export default function EstimatesScreen({
         setEditingId(est.id);
         break;
       case 'duplicate': {
-        const newId = onToast('Duplicated');
-        if (newId) onToast?.(`Duplicated estimate ${est.no}`);
+        const { data } = await createDocument('Estimate', {
+          partyId: est.partyId,
+          status: 'draft',
+          date: todayISO(),
+          expiryDate: est.expiryDate || null,
+          subtotal: est.amount,
+          total: est.amount,
+          notes: est.note || null,
+          lines: toDocLines(est.lines),
+        });
+        refreshEstimates();
+        if (data) onToast?.(`Duplicated estimate ${est.no}`);
         break;
       }
-      case 'send':
-        onToast('Status updated');
-        onToast?.(`Sent estimate ${est.no}`);
+      case 'send': {
+        const res = await documentVerb('Estimate', est.id, 'send');
+        refreshEstimates();
+        onToast?.(res.error ? `Send failed: ${res.error}` : `Sent estimate ${est.no}`);
         break;
+      }
       case 'remind':
+        await fetch(`/api/v1/documents/${est.id}/send?type=Estimate&remind=1`, { method: 'POST' }).catch(() => {});
         onToast?.(`Reminder sent for estimate ${est.no}`);
         break;
       case 'print':
@@ -396,16 +447,21 @@ export default function EstimatesScreen({
       case 'convert':
         handlePromptConvert(est);
         break;
-      case 'mark-accepted':
-        onToast('Status updated');
+      case 'mark-accepted': {
+        await updateDocument('Estimate', est.id, { status: 'accepted' });
+        refreshEstimates();
         onToast?.(`Estimate ${est.no} marked accepted`);
         break;
-      case 'mark-declined':
-        onToast('Status updated');
+      }
+      case 'mark-declined': {
+        await updateDocument('Estimate', est.id, { status: 'declined' });
+        refreshEstimates();
         onToast?.(`Estimate ${est.no} marked declined`);
         break;
+      }
       case 'delete':
-        onToast('Deleted');
+        await fetch(`/api/v1/documents/${est.id}?type=Estimate`, { method: 'DELETE' }).catch(() => {});
+        refreshEstimates();
         onToast?.(`Deleted estimate ${est.no}`);
         break;
     }

@@ -10,15 +10,21 @@
  *   - Card     → a product card the user authored
  *   - Store    → an attached store/channel
  *
- * Sources:
- *   - Published designs: useDesignCanvas.published (the Studio's publish action)
- *   - Saved templates:  useDesignCanvas.savedTemplates (authored designs)
- *   - Saved images:      useDesignCanvas.savedImages (authored assets)
- *   - Stores:            a small seeded list (channels) — would be API-sourced
- *                        in production.
+ * Sources — all real, loaded on mount (no seeded lists, no localStorage):
+ *   - Published designs: listDesigns({ status: 'published' }) → designs +
+ *     design_publications
+ *   - Saved templates:   store.savedTemplates (listDesigns template:true)
+ *   - Saved images:      store.savedImages (design_assets via listAssets)
+ *   - Stores:            listStores() → commerce_order_channels
+ *
+ * Row actions are real: Open in studio (openStudio + navigate), Preview
+ * (preview view for designs, the image URL for assets), Publish (opens the
+ * design in the preview screen where the 3-step publish modal lives),
+ * Unpublish (POST /api/v1/designs/:id/unpublish — archives publications).
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDesignCanvas } from '@/lib/designCanvasStore';
+import { listDesigns, listStores, unpublishDesign, type DesignListItem, type StoreRow } from '@/lib/podApi';
 import { exportToCsv } from '@/lib/csvExport';
 import type { DomainKey } from '@/data/shellData';
 
@@ -39,16 +45,15 @@ interface MyProductRow {
   variants: number;
   price: number | null;
   publishedAt: string | null;
+  /** The designs row behind a Listing/Card row (absent for Store rows). */
+  designId?: string;
+  /** The design_assets row behind an image Card row. */
+  assetId?: string;
+  /** Signed preview URL for an image Card row. */
+  assetUrl?: string;
+  /** True when this Card row is an asset (not a template design). */
+  isAsset?: boolean;
 }
-
-// Seeded stores — attached sales channels. In production this would come from
-// an /api/stores endpoint.
-const STORES = [
-  { id: 'store-tiktok', name: 'TikTok Shop', status: 'Live', variants: 12, price: 34 },
-  { id: 'store-etsy', name: 'Etsy', status: 'Live', variants: 8, price: 28 },
-  { id: 'store-amazon', name: 'Amazon', status: 'Syncing', variants: 15, price: 32 },
-  { id: 'store-shopify', name: 'Shopify', status: 'Live', variants: 24, price: 40 },
-];
 
 const money = (n: number | null) =>
   n == null ? '—' : `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -69,31 +74,56 @@ function kindIcon(kind: RowKind): string {
 }
 
 export default function MyProductsTable({ onToast, onNavigate }: MyProductsTableProps) {
-  // Defensive: the store should always provide arrays, but a stale bundle
-  // or missing field must never crash the page.
-  const published = useDesignCanvas((s) => s.published) ?? [];
   const savedTemplates = useDesignCanvas((s) => s.savedTemplates) ?? [];
   const savedImages = useDesignCanvas((s) => s.savedImages) ?? [];
+  const librariesStatus = useDesignCanvas((s) => s.savedLibrariesStatus);
+  const loadSavedLibraries = useDesignCanvas((s) => s.loadSavedLibraries);
+
+  const [published, setPublished] = useState<DesignListItem[]>([]);
+  const [stores, setStores] = useState<StoreRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [pub, st] = await Promise.all([
+        listDesigns({ status: 'published', limit: 100 }),
+        listStores(),
+      ]);
+      setPublished(pub.items);
+      setStores(st.items);
+      await loadSavedLibraries();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Could not load my products.');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadSavedLibraries]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   // Build the row set — published designs become Listings, saved templates
-  // become Cards, saved images become Cards, stores are the seeded list.
+  // become Cards, saved images become Cards, stores come from the API.
   const rows: MyProductRow[] = useMemo(() => {
     const r: MyProductRow[] = [];
-    // Published designs → Listings
     for (const p of published) {
       r.push({
         id: p.id,
         kind: 'Listing',
         name: p.name,
-        brand: p.brand,
-        store: 'Shopify',
-        status: 'Live',
-        variants: p.sizes.length,
-        price: null,
-        publishedAt: p.publishedAt,
+        brand: p.product_type ?? 'Design',
+        store: p.publications.length > 0 ? `${p.publications.length} publication${p.publications.length === 1 ? '' : 's'}` : '—',
+        status: p.publications.some((x) => x.status === 'published') ? 'Live' : 'Draft',
+        variants: p.publications.length,
+        price: p.retail_price,
+        publishedAt: p.updated_at,
+        designId: p.id,
       });
     }
-    // Saved templates → Product cards
     for (const t of savedTemplates) {
       r.push({
         id: t.id,
@@ -105,38 +135,40 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
         variants: 0,
         price: null,
         publishedAt: t.createdAt,
+        designId: t.id,
       });
     }
-    // Saved images → Product cards
     for (const img of savedImages) {
       r.push({
         id: img.id,
         kind: 'Card',
         name: img.name,
-        brand: img.origin === 'ai' ? 'AI generated' : 'Upload',
+        brand: img.origin === 'ai' ? 'AI generated' : img.origin === 'inspiration' ? 'Wikimedia Commons' : 'Upload',
         store: '—',
         status: 'Draft',
         variants: 0,
         price: null,
         publishedAt: img.createdAt,
+        assetId: img.id,
+        assetUrl: img.src || undefined,
+        isAsset: true,
       });
     }
-    // Stores
-    for (const s of STORES) {
+    for (const s of stores) {
       r.push({
         id: s.id,
         kind: 'Store',
         name: s.name,
         brand: '—',
         store: s.name,
-        status: s.status as MyProductRow['status'],
-        variants: s.variants,
-        price: s.price,
+        status: s.active ? 'Live' : 'Draft',
+        variants: s.liveProducts,
+        price: null,
         publishedAt: null,
       });
     }
     return r;
-  }, [published, savedTemplates, savedImages]);
+  }, [published, savedTemplates, savedImages, stores]);
 
   const [tab, setTab] = useState<RowKind | 'All'>('All');
   const [search, setSearch] = useState('');
@@ -173,23 +205,56 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
     else setSelected(new Set(filtered.map((r) => r.id)));
   }
 
-  function handleRowAction(row: MyProductRow, action: string) {
+  async function openInStudio(row: MyProductRow, view: 'design' | 'preview') {
+    if (!row.designId) return;
+    try {
+      await useDesignCanvas.getState().openStudio({ entry: 'catalog', designId: row.designId, view });
+      onNavigate('design', view === 'preview' ? 'design-preview' : 'new-design');
+    } catch {
+      onToast('Could not open that design.');
+    }
+  }
+
+  async function handleRowAction(row: MyProductRow, action: string) {
     setRowMenuForId(null);
     if (action === 'design') {
-      onNavigate('design', 'new-design');
-      onToast(`Opening "${row.name}" in the studio.`);
+      if (row.kind === 'Store') {
+        onNavigate('design', 'studio-my-stores');
+        return;
+      }
+      if (row.isAsset) {
+        if (row.assetUrl) window.open(row.assetUrl, '_blank', 'noopener');
+        else onToast('No preview file for that image.');
+        return;
+      }
+      await openInStudio(row, 'design');
     } else if (action === 'preview') {
-      useDesignCanvas.getState().saveToCollection({ name: `${row.name} — preview`, kind: 'preview' });
-      onToast(`Preview saved to Collection.`);
+      if (row.isAsset) {
+        if (row.assetUrl) window.open(row.assetUrl, '_blank', 'noopener');
+        else onToast('No preview file for that image.');
+        return;
+      }
+      // Preview IS the publish entry: the 3-step publish modal lives there.
+      await openInStudio(row, 'preview');
     } else if (action === 'publish') {
-      onToast(`"${row.name}" publish flow started.`);
+      // Publish happens in the preview screen's modal (price + channels).
+      await openInStudio(row, 'preview');
+      onToast(`"${row.name}" — set the price and channels in the publish modal.`);
     } else if (action === 'unpublish') {
-      onToast(`"${row.name}" moved to draft.`);
+      if (!row.designId) return;
+      try {
+        const res = await unpublishDesign(row.designId);
+        onToast(`"${row.name}" unpublished — ${res.archivedPublications} publication(s) archived.`);
+        await load();
+      } catch (e) {
+        onToast(e instanceof Error ? e.message : 'Could not unpublish.');
+      }
     }
   }
 
   function handleExport() {
-    exportToCsv(filtered.map((r) => ({
+    const source = selected.size > 0 ? rows.filter((r) => selected.has(r.id)) : filtered;
+    exportToCsv(source.map((r) => ({
       name: r.name, kind: r.kind, brand: r.brand, store: r.store,
       status: r.status, variants: r.variants, price: r.price ?? '',
       published: r.publishedAt?.slice(0, 10) ?? '',
@@ -199,7 +264,7 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
       { key: 'status', label: 'Status' }, { key: 'variants', label: 'Variants' },
       { key: 'price', label: 'Price' }, { key: 'published', label: 'Published' },
     ], 'my-products');
-    onToast(`Exported ${filtered.length} rows`);
+    onToast(`Exported ${source.length} rows`);
   }
 
   return (
@@ -270,6 +335,17 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
         </div>
       </div>
 
+      {loading && <p className="text-body-sm text-on-surface-variant py-4">Loading my products…</p>}
+      {loadError && (
+        <p className="text-body-sm py-4 text-red-700">
+          {loadError}{' '}
+          <button className="underline" onClick={() => void load()}>Retry</button>
+        </p>
+      )}
+      {librariesStatus === 'error' && (
+        <p className="text-body-sm py-2 text-red-700">Saved templates/images could not load — published listings and stores below are still live.</p>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-xl border border-surface-dim overflow-hidden flex-1 flex flex-col">
         <div className="overflow-auto flex-1">
@@ -294,7 +370,7 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
                 </td></tr>
               ) : (
                 filtered.map((row) => (
-                  <tr key={row.id} className="hover:bg-surface-container-low cursor-pointer" onClick={() => handleRowAction(row, 'design')}>
+                  <tr key={row.id} className="hover:bg-surface-container-low cursor-pointer" onClick={() => void handleRowAction(row, 'design')}>
                     <td className="px-3 py-2" onClick={(e) => { e.stopPropagation(); }}>
                       <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row.id)} />
                     </td>
@@ -304,7 +380,7 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
                           <span className="material-symbols-outlined text-[15px] text-on-surface-variant">{kindIcon(row.kind)}</span>
                         </div>
                         <div className="min-w-0">
-                          <button className="font-medium truncate text-left hover:text-primary hover:underline" onClick={(e) => { e.stopPropagation(); handleRowAction(row, 'design'); }}>
+                          <button className="font-medium truncate text-left hover:text-primary hover:underline" onClick={(e) => { e.stopPropagation(); void handleRowAction(row, 'design'); }}>
                             {row.name}
                           </button>
                           <div className="text-[11px] text-on-surface-variant truncate">{row.brand}</div>
@@ -333,22 +409,26 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
                       {rowMenuForId === row.id && (
                         <div className="row-menu open" style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, minWidth: 210 }} onClick={(e) => e.stopPropagation()}>
                           <div className="menu-header">{row.name}</div>
-                          <button onClick={() => handleRowAction(row, 'design')}>
-                            <span className="material-symbols-outlined">palette</span>Open in studio
-                          </button>
-                          <button onClick={() => handleRowAction(row, 'preview')}>
-                            <span className="material-symbols-outlined">visibility</span>Preview
-                          </button>
-                          <div className="sep"></div>
-                          {row.status === 'Live' ? (
-                            <button onClick={() => handleRowAction(row, 'unpublish')}>
-                              <span className="material-symbols-outlined">unpublished</span>Unpublish
-                            </button>
-                          ) : (
-                            <button onClick={() => handleRowAction(row, 'publish')}>
-                              <span className="material-symbols-outlined">publish</span>Publish to listing
+                          {row.kind !== 'Store' && (
+                            <button onClick={() => void handleRowAction(row, 'design')}>
+                              <span className="material-symbols-outlined">palette</span>Open in studio
                             </button>
                           )}
+                          {row.kind !== 'Store' && (
+                            <button onClick={() => void handleRowAction(row, 'preview')}>
+                              <span className="material-symbols-outlined">visibility</span>Preview
+                            </button>
+                          )}
+                          <div className="sep"></div>
+                          {row.kind !== 'Store' && !row.isAsset && row.status === 'Live' ? (
+                            <button onClick={() => void handleRowAction(row, 'unpublish')}>
+                              <span className="material-symbols-outlined">unpublished</span>Unpublish
+                            </button>
+                          ) : row.kind !== 'Store' && !row.isAsset ? (
+                            <button onClick={() => void handleRowAction(row, 'publish')}>
+                              <span className="material-symbols-outlined">publish</span>Publish to listing
+                            </button>
+                          ) : null}
                         </div>
                       )}
                     </td>
@@ -365,8 +445,8 @@ export default function MyProductsTable({ onToast, onNavigate }: MyProductsTable
           {selected.size > 0 && (
             <div className="flex items-center gap-2">
               <span>{selected.size} selected</span>
-              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => { [...selected].forEach((id) => handleRowAction(rows.find((r) => r.id === id)!, 'publish')); setSelected(new Set()); }}>
-                Publish all
+              <button className="h-6 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={handleExport}>
+                Export selected
               </button>
             </div>
           )}

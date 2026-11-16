@@ -5,7 +5,7 @@
    DATA: unified /api/parties (Supabase: crm_customers + acct_vendors +
    suppliers + crm_leads). Cache-first — renders instantly, refreshes in
    the background, hits Supabase only when the user saves. */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 import { useParties, fetchJson, type UnifiedParty } from '@/hooks/useCrmApi';
 import PartyFormDrawer from './PartyFormDrawer';
@@ -28,21 +28,43 @@ const ALL_ROLES = ['Customer', 'Vendor', 'Supplier', 'Seller', 'Contact', 'Lead'
 interface Party {
   id: string; source: string; name: string; email: string; phone: string;
   roles: string[]; balance: number; added: string; address: string;
+  // Doc 07 vendor fields (from the /api/parties enrichment):
+  w9: 'on' | 'off' | 'pending' | 'missing' | 'na';
+  is1099: boolean;
+  w9Received: boolean;
+  ytdPaid: number;
+  isActive: boolean;
+  vendorKind: string | null;
 }
 
 /* Map the unified Supabase shape to the render shape (roles capitalized
    so every `roles.includes('Customer')` check keeps working). */
 function toParty(p: UnifiedParty): Party {
+  const roles = p.roles.map(r => r.charAt(0).toUpperCase() + r.slice(1));
+  const isPaySide = roles.some(r => r === 'Vendor' || r === 'Supplier' || r === 'Contractor');
+  let w9: Party['w9'] = 'na';
+  if (isPaySide) {
+    if (p.contractorW9Status === 'Completed' || p.w9Received) w9 = 'on';
+    else if (p.contractorW9Status === 'Invited') w9 = 'pending';
+    else if (roles.includes('Contractor')) w9 = 'missing';
+    else if (p.is1099 || p.track1099) w9 = 'off';
+  }
   return {
     id: p.id,
     source: p.source,
     name: p.name,
     email: p.email || '',
     phone: p.phone || '',
-    roles: p.roles.map(r => r.charAt(0).toUpperCase() + r.slice(1)),
+    roles,
     balance: p.balance,
     added: (p.addedAt || '').slice(0, 10),
     address: [p.company !== p.name ? p.company : null, p.city, p.state].filter(Boolean).join(', '),
+    w9,
+    is1099: p.is1099 || !!p.track1099,
+    w9Received: p.w9Received,
+    ytdPaid: p.ytdPaid || 0,
+    isActive: p.isActive !== false,
+    vendorKind: p.vendorKind || null,
   };
 }
 
@@ -65,12 +87,75 @@ function avatarClass(roles: string[]) {
   return '';
 }
 
+/* Doc 07 — W-9 / 1099 pills for pay-side parties. */
+function renderW9(p: Party) {
+  if (p.w9 === 'na') return <span className="text-[11px] text-on-surface-variant">—</span>;
+  if (p.w9 === 'on') {
+    return (
+      <span className="pill role" style={{ background: '#e6f4ea', color: '#137333' }}>
+        <span className="material-symbols-outlined text-[10px]">check</span> On file
+      </span>
+    );
+  }
+  if (p.w9 === 'pending') {
+    return (
+      <span className="pill role" style={{ background: '#fef7e0', color: '#b06000' }}>
+        <span className="material-symbols-outlined text-[10px]">schedule</span> Requested
+      </span>
+    );
+  }
+  return (
+    <span className="pill role" style={{ background: '#fce8e6', color: '#a50e0e' }}>
+      <span className="material-symbols-outlined text-[10px]">warning</span> Missing
+    </span>
+  );
+}
+
+function render1099(p: Party) {
+  if (!p.roles.some(r => r === 'Vendor' || r === 'Supplier' || r === 'Contractor')) {
+    return <span className="text-[11px] text-on-surface-variant">—</span>;
+  }
+  if (p.is1099 && p.w9Received) {
+    return (
+      <span className="text-[11px] text-secondary flex items-center gap-1">
+        <span className="material-symbols-outlined text-[12px]">check_circle</span>Eligible
+      </span>
+    );
+  }
+  if (p.is1099) {
+    return (
+      <span className="text-[11px] text-error flex items-center gap-1">
+        <span className="material-symbols-outlined text-[12px]">error</span>Blocked — no W-9
+      </span>
+    );
+  }
+  return (
+    <span className="text-[11px] text-on-surface-variant flex items-center gap-1">
+      <span className="material-symbols-outlined text-[12px]">remove</span>Not eligible
+    </span>
+  );
+}
+
+function isPaySide(p: Party) {
+  return p.roles.some(r => r === 'Vendor' || r === 'Supplier' || r === 'Contractor');
+}
+
 export default function ContactsParties({ onToast, onNavigate, initialRole, onCreate }: ContactsPartiesProps) {
   /* Unified party list from Supabase — cache-first: first render is instant
      (cached or empty), data fills in from the background refresh. */
   const { data: rawParties, refresh } = useParties();
   const items: Party[] = useMemo(() => rawParties.map(toParty), [rawParties]);
-  const [savedViews, setSavedViews] = useState<SavedView[]>(INITIAL_VIEWS);
+  // Saved views persist in localStorage — they survive a reload.
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => {
+    try {
+      const raw = localStorage.getItem('contacts-parties-saved-views');
+      if (raw) return JSON.parse(raw) as SavedView[];
+    } catch { /* fall through to defaults */ }
+    return INITIAL_VIEWS;
+  });
+  useEffect(() => {
+    try { localStorage.setItem('contacts-parties-saved-views', JSON.stringify(savedViews)); } catch { /* storage unavailable */ }
+  }, [savedViews]);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState(initialRole ? (initialRole + 's') : 'All');
   const [roles, setRoles] = useState<Set<string>>(new Set(initialRole ? [initialRole] : ALL_ROLES));
@@ -89,9 +174,19 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
   // REAL pagination — rows per page + page index drive the table slice.
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
-  // REAL customize — column visibility for the parties table.
-  const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set(['roles', 'contact', 'balance', 'added']));
+  // REAL customize — column visibility for the parties table. The vendor
+  // columns (W-9, 1099, YTD paid) are on by default on the Vendors /
+  // Suppliers screens, off elsewhere.
+  const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set(
+    initialRole === 'Vendor' || initialRole === 'Supplier'
+      ? ['roles', 'contact', 'balance', 'added', 'w9', '1099', 'ytd']
+      : ['roles', 'contact', 'balance', 'added'],
+  ));
   const [colsMenuOpen, setColsMenuOpen] = useState(false);
+  // Archived parties are hidden by default; the toggle shows them greyed.
+  const [showArchived, setShowArchived] = useState(false);
+  // W-9 panel (doc 07) — invite state + on-file state for one vendor.
+  const [w9Panel, setW9Panel] = useState<{ party: Party; invite: Record<string, unknown> | null; w9ReceivedAt: string | null; loading: boolean } | null>(null);
   // REAL merge — modal over the current selection.
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergePrimary, setMergePrimary] = useState<string | null>(null);
@@ -110,8 +205,10 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
       tabOK = p.roles.includes(targetRole) || p.roles.includes(tab);
     }
     const roleOK = p.roles.some(r => roles.has(r));
-    return qOK && tabOK && roleOK;
-  }), [items, q, tab, roles]);
+    // Archived parties stay hidden unless the toggle is on.
+    const archivedOK = showArchived || p.isActive;
+    return qOK && tabOK && roleOK && archivedOK;
+  }), [items, q, tab, roles, showArchived]);
 
   // REAL pagination over the filtered rows.
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -178,6 +275,58 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
         const res = await fetchJson(`/api/parties/${p.id}?source=${p.source}`, { method: 'DELETE' });
         onToast(res.ok ? `Archived: ${p.name}` : `Archive failed: ${res.error}`);
         refresh();
+        break;
+      }
+      case 'restore': {
+        const res = await fetchJson(`/api/parties/${p.id}?source=${p.source}`, { method: 'PATCH', body: JSON.stringify({ is_active: true }) });
+        onToast(res.ok ? `Restored: ${p.name}` : `Restore failed: ${res.error}`);
+        refresh();
+        break;
+      }
+      // ── Doc 07 vendor actions ──
+      case 'request-w9': {
+        const res = await fetchJson(`/api/parties/${p.id}/invite-w9`, { method: 'POST', body: JSON.stringify({}) });
+        onToast(res.ok ? `W-9 invite sent to ${p.name}` : `W-9 invite failed: ${res.error}`);
+        refresh();
+        break;
+      }
+      case 'view-w9': {
+        setW9Panel({ party: p, invite: null, w9ReceivedAt: null, loading: true });
+        const res = await fetchJson(`/api/parties/${p.id}/invite-w9`);
+        if (res.ok) {
+          const d = res.data as { invite?: Record<string, unknown> | null; w9_received_at?: string | null };
+          setW9Panel({ party: p, invite: d.invite || null, w9ReceivedAt: d.w9_received_at || null, loading: false });
+        } else {
+          setW9Panel(null);
+          onToast(`Could not load W-9 status: ${res.error}`);
+        }
+        break;
+      }
+      case 'mark-w9': {
+        const res = await fetchJson(`/api/parties/${p.id}?source=${p.source}`, { method: 'PATCH', body: JSON.stringify({ w9_received: true }) });
+        onToast(res.ok ? `W-9 marked on file for ${p.name}` : `Update failed: ${res.error}`);
+        refresh();
+        break;
+      }
+      case 'toggle-1099': {
+        const res = await fetchJson(`/api/parties/${p.id}?source=${p.source}`, { method: 'PATCH', body: JSON.stringify({ is1099: !p.is1099 }) });
+        onToast(res.ok ? `${p.name} ${p.is1099 ? 'removed from' : 'marked for'} 1099` : `Update failed: ${res.error}`);
+        refresh();
+        break;
+      }
+      case 'view-bills': {
+        // BillsScreen filters by the 8-char vendor id prefix — hand it
+        // over so the list opens already filtered to this vendor.
+        try { sessionStorage.setItem('bills.vendorFilter', p.id.slice(0, 8)); } catch { /* no storage */ }
+        onNavigate?.('finance', 'bills');
+        break;
+      }
+      case 'create-bill': {
+        onCreate?.('Bill', { partyName: p.name, partyId: p.id, source: p.source, email: p.email || null });
+        break;
+      }
+      case 'pay-bills': {
+        onNavigate?.('finance', 'bill-payments');
         break;
       }
     }
@@ -298,7 +447,7 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
             {colsMenuOpen && (
               <div className="row-menu open" style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, minWidth: 190, zIndex: 60 }} onClick={e => e.stopPropagation()}>
                 <div className="menu-header">Table columns</div>
-                {[{ k: 'roles', label: 'Roles' }, { k: 'contact', label: 'Contact' }, { k: 'balance', label: 'Open balance' }, { k: 'added', label: 'Added' }].map(c => (
+                {[{ k: 'roles', label: 'Roles' }, { k: 'contact', label: 'Contact' }, { k: 'balance', label: 'Open balance' }, { k: 'added', label: 'Added' }, { k: 'w9', label: 'W-9 status' }, { k: '1099', label: '1099' }, { k: 'ytd', label: 'YTD paid' }].map(c => (
                   <button key={c.k} onClick={() => setVisibleCols(prev => { const n = new Set(prev); if (n.has(c.k)) n.delete(c.k); else n.add(c.k); return n; })}>
                     <span className="material-symbols-outlined">{visibleCols.has(c.k) ? 'check_box' : 'check_box_outline_blank'}</span>{c.label}
                   </button>
@@ -421,6 +570,10 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
           <button className={`h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1 ${filtersActive ? '' : 'hidden-imp'}`} onClick={clearAllFilters}>
             <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>Clear all
           </button>
+          <label className="h-7 px-2 flex items-center gap-1.5 text-label-sm text-on-surface-variant cursor-pointer select-none">
+            <input type="checkbox" className="row-check" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />
+            Show archived
+          </label>
           <span className="ml-auto text-[11px] text-on-surface-variant">{filtered.length} of {items.length}</span>
         </div>
 
@@ -457,13 +610,16 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
                 {visibleCols.has('roles') && <th className="px-3 py-2">Roles</th>}
                 {visibleCols.has('contact') && <th className="px-3 py-2">Contact</th>}
                 {visibleCols.has('balance') && <th className="px-3 py-2 text-right">Open balance</th>}
+                {visibleCols.has('w9') && <th className="px-3 py-2">W-9</th>}
+                {visibleCols.has('1099') && <th className="px-3 py-2">1099</th>}
+                {visibleCols.has('ytd') && <th className="px-3 py-2 text-right">YTD paid</th>}
                 {visibleCols.has('added') && <th className="px-3 py-2">Added</th>}
                 <th className="w-10 px-2 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-dim">
               {paged.map(p => (
-                <tr key={p.id} className="hover:bg-surface-container-low cursor-pointer" onClick={() => openPeek(p.id)}>
+                <tr key={p.id} className="hover:bg-surface-container-low cursor-pointer" style={{ opacity: p.isActive ? 1 : 0.45 }} onClick={() => openPeek(p.id)}>
                   <td className="px-3 py-2"><input type="checkbox" className="row-check" checked={selected.has(p.id)} onClick={e => e.stopPropagation()} onChange={() => toggleRow(p.id)} /></td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-3 min-w-0">
@@ -480,6 +636,9 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
                     <div className="text-[11px] text-on-surface-variant">{p.phone}</div>
                   </td>}
                   {visibleCols.has('balance') && <td className={`px-3 py-2 text-right tabular-nums ${p.balance > 0 ? 'text-error' : p.balance < 0 ? 'text-qb-blue' : 'text-on-surface'}`}>{p.balance !== 0 ? fmt(p.balance) : '—'}</td>}
+                  {visibleCols.has('w9') && <td className="px-3 py-2">{renderW9(p)}</td>}
+                  {visibleCols.has('1099') && <td className="px-3 py-2">{render1099(p)}</td>}
+                  {visibleCols.has('ytd') && <td className="px-3 py-2 text-right tabular-nums">{p.ytdPaid > 0 ? fmt(p.ytdPaid) : '—'}</td>}
                   {visibleCols.has('added') && <td className="px-3 py-2 text-[11px]">{p.added}</td>}
                   <td className="px-2 py-2 text-right relative">
                     <button className="w-7 h-7 rounded border border-surface-dim hover:bg-surface-container flex items-center justify-center mx-auto" onClick={e => { e.stopPropagation(); setRowMenuForId(rowMenuForId === p.id ? null : p.id); }} title="Row actions"><span className="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button>
@@ -493,8 +652,31 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
                         <div className="sep"></div>
                         <div className="menu-header">Roles</div>
                         <button onClick={() => rowAction('add-role', p)}><span className="material-symbols-outlined">add</span>Add role…</button>
+                        {isPaySide(p) && (
+                          <>
+                            <div className="sep"></div>
+                            <div className="menu-header">Vendor</div>
+                            {p.w9 !== 'on' && p.roles.includes('Contractor') && (
+                              <button onClick={() => rowAction('request-w9', p)}><span className="material-symbols-outlined">badge</span>Request W-9…</button>
+                            )}
+                            {p.w9 === 'on' && (
+                              <button onClick={() => rowAction('view-w9', p)}><span className="material-symbols-outlined">description</span>View W-9 on file</button>
+                            )}
+                            {p.w9 !== 'on' && p.is1099 && !p.roles.includes('Contractor') && (
+                              <button onClick={() => rowAction('mark-w9', p)}><span className="material-symbols-outlined">check_circle</span>Mark W-9 received</button>
+                            )}
+                            <button onClick={() => rowAction('toggle-1099', p)}><span className="material-symbols-outlined">tune</span>{p.is1099 ? 'Disable 1099' : 'Enable 1099'}</button>
+                            <button onClick={() => rowAction('view-bills', p)}><span className="material-symbols-outlined">receipt_long</span>View bills</button>
+                            <button onClick={() => rowAction('create-bill', p)}><span className="material-symbols-outlined">description</span>Create bill</button>
+                            <button onClick={() => rowAction('pay-bills', p)}><span className="material-symbols-outlined">account_balance_wallet</span>Pay bills…</button>
+                          </>
+                        )}
                         <div className="sep"></div>
-                        <button className="danger" onClick={() => rowAction('archive', p)}><span className="material-symbols-outlined">archive</span>Archive</button>
+                        {!p.isActive ? (
+                          <button onClick={() => rowAction('restore', p)}><span className="material-symbols-outlined">restore</span>Restore</button>
+                        ) : (
+                          <button className="danger" onClick={() => rowAction('archive', p)}><span className="material-symbols-outlined">archive</span>Archive</button>
+                        )}
                       </div>
                     )}
                   </td>
@@ -563,6 +745,13 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
                 <div className="kv"><dt>Phone</dt><dd>{peek.phone}</dd></div>
                 <div className="kv"><dt>Address</dt><dd className="text-right">{peek.address}</dd></div>
                 <div className="kv"><dt>Open balance</dt><dd className={peek.balance > 0 ? 'text-error' : peek.balance < 0 ? 'text-qb-blue' : ''}>{peek.balance !== 0 ? fmt(peek.balance) : '—'}</dd></div>
+                {isPaySide(peek) && (
+                  <>
+                    <div className="kv"><dt>W-9</dt><dd>{renderW9(peek)}</dd></div>
+                    <div className="kv"><dt>1099</dt><dd>{render1099(peek)}</dd></div>
+                    <div className="kv"><dt>YTD paid</dt><dd>{peek.ytdPaid > 0 ? fmt(peek.ytdPaid) : '—'}</dd></div>
+                  </>
+                )}
                 <div className="kv"><dt>Added</dt><dd>{peek.added}</dd></div>
               </dl>
               <div className="mt-4 pt-3 border-t border-surface-dim grid grid-cols-2 gap-2">
@@ -642,6 +831,83 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
           </div>
         );
       })()}
+
+      {/* W-9 panel (doc 07) — invite state + on-file state for one vendor. */}
+      {w9Panel && (
+        <>
+          <div className="drawer-scrim open" onClick={() => setW9Panel(null)} />
+          <div className="peek open">
+            <div className="flex items-center justify-between px-4 h-12 border-b border-surface-dim bg-surface-container-low shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="material-symbols-outlined text-[18px] text-on-surface-variant">badge</span>
+                <span className="text-headline-sm truncate">W-9 — {w9Panel.party.name}</span>
+              </div>
+              <button className="w-7 h-7 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setW9Panel(null)}><span className="material-symbols-outlined text-[18px]">close</span></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 text-body-sm">
+              {w9Panel.loading ? (
+                <p className="text-on-surface-variant">Loading W-9 status…</p>
+              ) : (
+                <>
+                  <dl className="text-body-sm mb-4">
+                    <div className="kv"><dt>Status</dt><dd>{renderW9(w9Panel.party)}</dd></div>
+                    <div className="kv"><dt>1099 eligible</dt><dd>{w9Panel.party.is1099 ? 'Yes' : 'No'}</dd></div>
+                    {w9Panel.w9ReceivedAt && (
+                      <div className="kv"><dt>W-9 received</dt><dd>{w9Panel.w9ReceivedAt.slice(0, 10)}</dd></div>
+                    )}
+                    {w9Panel.invite && (
+                      <>
+                        <div className="kv"><dt>Invite sent to</dt><dd>{String(w9Panel.invite.email || '—')}</dd></div>
+                        <div className="kv"><dt>Sent</dt><dd>{String(w9Panel.invite.sent_at || '—').slice(0, 10)}</dd></div>
+                        <div className="kv"><dt>Invite status</dt><dd>{String(w9Panel.invite.status || '—')}</dd></div>
+                        <div className="kv"><dt>Expires</dt><dd>{String(w9Panel.invite.expires_at || '—').slice(0, 10)}</dd></div>
+                      </>
+                    )}
+                    {!w9Panel.invite && !w9Panel.w9ReceivedAt && (
+                      <div className="kv"><dt>Invite</dt><dd className="text-on-surface-variant">No invite sent yet</dd></div>
+                    )}
+                  </dl>
+                  <div className="mt-4 pt-3 border-t border-surface-dim grid grid-cols-2 gap-2">
+                    {w9Panel.party.roles.includes('Contractor') && !w9Panel.w9ReceivedAt && (
+                      <button
+                        className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center justify-center gap-1"
+                        onClick={async () => {
+                          const res = await fetchJson(`/api/parties/${w9Panel.party.id}/invite-w9`, { method: 'POST', body: JSON.stringify({}) });
+                          if (res.ok) {
+                            onToast(`W-9 invite sent to ${w9Panel.party.name}`);
+                            rowAction('view-w9', w9Panel.party);
+                            refresh();
+                          } else onToast(`W-9 invite failed: ${res.error}`);
+                        }}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">send</span>{w9Panel.invite ? 'Resend invite' : 'Send invite'}
+                      </button>
+                    )}
+                    {!w9Panel.w9ReceivedAt && (
+                      <button
+                        className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center justify-center gap-1"
+                        onClick={async () => {
+                          const res = await fetchJson(`/api/parties/${w9Panel.party.id}?source=${w9Panel.party.source}`, { method: 'PATCH', body: JSON.stringify({ w9_received: true }) });
+                          if (res.ok) {
+                            onToast(`W-9 marked on file for ${w9Panel.party.name}`);
+                            setW9Panel(null);
+                            refresh();
+                          } else onToast(`Update failed: ${res.error}`);
+                        }}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">check_circle</span>Mark received
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-on-surface-variant mt-3">
+                    Invite emails need a verified sending domain in Supabase (Settings &gt; Email) — until then the invite row is recorded and the pill flips to Requested.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Save view modal */}
       {saveViewOpen && (

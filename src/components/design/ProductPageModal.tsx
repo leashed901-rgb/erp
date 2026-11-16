@@ -1,3 +1,10 @@
+// @ts-nocheck — restored 2026-11-15 after deletion (see git f658a88).
+// Reference only: nothing mounts this file. It imports CATALOG_PRODUCTS /
+// SUPPLIERS / SupplierData / loadBlank from the old designCanvasStore API,
+// which was removed with the fake-data purge, so it does not compile
+// against the current store. Do NOT reintroduce those constants to make
+// it compile — rewire it to live blanks (listBlanks / loadBlankDetail)
+// if this modal is ever mounted again.
 'use client';
 
 /**

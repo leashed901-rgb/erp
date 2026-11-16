@@ -3,7 +3,10 @@
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSocialAccounts, useMediaAssets, socialMutations } from '@/hooks/useSocialApi';
+import { fetchJson } from '@/hooks/useCrmApi';
+import type { SocialAccount } from '@/lib/socialTypes';
 
 interface MarketingScreenProps {
   onToast: (msg: string) => void;
@@ -29,20 +32,6 @@ const APP_CONFIG = {
   },
 };
 
-/* API stub — integration points log to console (kept 1:1 with the HTML's API object). */
-const API = {
-  async request(path: string, options: { method?: string; body?: string } = {}) {
-    const url = APP_CONFIG.API_BASE + path;
-    console.info('[API integration point]', options.method || 'GET', url, options.body || '');
-    return { ok: true, demo: true, url };
-  },
-  createPost: (p: unknown) => API.request(APP_CONFIG.endpoints.posts, { method: 'POST', body: JSON.stringify(p) }),
-  uploadMedia: (f: { name: string }[]) => { console.info('[MEDIA UPLOAD integration point]', f); return API.request(APP_CONFIG.endpoints.media, { method: 'POST' }); },
-  publish: (p: unknown) => API.request(APP_CONFIG.endpoints.publish, { method: 'POST', body: JSON.stringify(p) }),
-  attachProduct: (id: string) => API.request(APP_CONFIG.endpoints.attachProduct(id), { method: 'POST' }),
-  attachCollection: (id: string) => API.request(APP_CONFIG.endpoints.attachCollection(id), { method: 'POST' }),
-  openStudio: (id: string) => API.request(APP_CONFIG.endpoints.designStudio(id), { method: 'POST' }),
-};
 
 /* ─── data (verbatim from HTML <script>) ─── */
 interface Channel {
@@ -53,34 +42,23 @@ interface Channel {
   letter: string;
 }
 
-const CHANNELS: Channel[] = [
-  { name: 'Instagram', handle: '@unsaidcompany', connected: true, kind: 'ig', letter: '◎' },
-  { name: 'Facebook', handle: 'Unsaid Company', connected: true, kind: 'fb', letter: 'f' },
-  { name: 'LinkedIn', handle: 'Unsaid Company', connected: true, kind: 'li', letter: 'in' },
-  { name: 'TikTok', handle: '@unsaidcompany', connected: true, kind: 'tt', letter: '♪' },
-  { name: 'YouTube', handle: 'Unsaid Company', connected: false, kind: 'yt', letter: '▶' },
-  { name: 'Pinterest', handle: 'Unsaid Company', connected: false, kind: 'pin', letter: 'p' },
-];
+const NET_DISPLAY: Record<string, { name: string; kind: Channel['kind']; letter: string }> = {
+  instagram: { name: 'Instagram', kind: 'ig', letter: '◎' },
+  facebook: { name: 'Facebook', kind: 'fb', letter: 'f' },
+  linkedin: { name: 'LinkedIn', kind: 'li', letter: 'in' },
+  tiktok: { name: 'TikTok', kind: 'tt', letter: '♪' },
+  youtube: { name: 'YouTube', kind: 'yt', letter: '▶' },
+  pinterest: { name: 'Pinterest', kind: 'pin', letter: 'p' },
+};
+const netKey = (display: string) => Object.keys(NET_DISPLAY).find(k => NET_DISPLAY[k].name === display) || display.toLowerCase();
+function accountToChannel(a: SocialAccount): Channel {
+  const d = NET_DISPLAY[a.network] || { name: a.network, kind: 'ig' as const, letter: '?' };
+  return { name: d.name, handle: a.handle || a.displayName || '', connected: a.status === 'connected', kind: d.kind, letter: d.letter };
+}
 
 interface AttachItem { id: string; label: string; meta: string; }
 type AttachType = 'product' | 'collection' | 'design';
 
-const ATTACH_DATA: Record<AttachType, AttachItem[]> = {
-  product: [
-    { id: 'TEE-001', label: 'Classic Tee', meta: 'TEE-001 · $24.00 · Printful' },
-    { id: 'TOTE-014', label: 'Canvas Tote', meta: 'TOTE-014 · $18.00 · Gelato' },
-    { id: 'MUG-003', label: 'Mug 11oz', meta: 'MUG-003 · $14.00 · Printify' },
-  ],
-  collection: [
-    { id: 'COL-FALL', label: 'Fall 2026 Drop', meta: '12 products · Instagram + TikTok' },
-    { id: 'COL-HOLIDAY', label: 'Holiday Capsule', meta: '8 products · multi-channel' },
-    { id: 'COL-CORE', label: 'Core Essentials', meta: '22 products · evergreen' },
-  ],
-  design: [
-    { id: 'DSG-001', label: 'Sunburst Tee design', meta: '2 variants · 1 product' },
-    { id: 'DSG-002', label: 'Minimal Tote art', meta: '1 variant · 1 product' },
-  ],
-};
 
 interface ComposerAttach {
   type: AttachType;
@@ -113,7 +91,32 @@ const ATTACH_ICON: Record<AttachType, string> = {
   design: 'palette',
 };
 
-export default function CreateContentScreen({ onToast }: MarketingScreenProps) {
+export default function CreateContentScreen({ onToast, onNavigate }: MarketingScreenProps) {
+  const { accounts: apiAccounts } = useSocialAccounts();
+  const { assets: apiAssets } = useMediaAssets();
+  const CHANNELS = useMemo(() => apiAccounts.map(accountToChannel), [apiAccounts]);
+  const [attachData, setAttachData] = useState<Record<AttachType, AttachItem[]>>({ product: [], collection: [], design: [] });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [productsRes, collectionsRes] = await Promise.all([
+        fetchJson<{ data: Record<string, unknown>[] }>('/api/products?limit=50'),
+        fetchJson<{ data: Record<string, unknown>[] }>('/api/v1/collections'),
+      ]);
+      if (cancelled) return;
+      const products = productsRes.ok ? (productsRes.data.data || []).map(p => ({
+        id: String(p.id), label: String(p.name || p.title || 'Product'), meta: String(p.slug || p.sku || ''),
+      })) : [];
+      const collections = collectionsRes.ok ? (collectionsRes.data.data || []).map(c => ({
+        id: String(c.id), label: String(c.name || c.title || 'Collection'), meta: c.product_count != null ? `${c.product_count} products` : '',
+      })) : [];
+      setAttachData(prev => ({ ...prev, product: products, collection: collections }));
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    setAttachData(prev => ({ ...prev, design: apiAssets.map(a => ({ id: a.id, label: a.storagePath.split('/').pop() || a.storagePath, meta: a.mimeType })) }));
+  }, [apiAssets]);
   /* ─── state (mirrors HTML's composer state vars) ─── */
   const [step, setStep] = useState(1);
   const [publishMode, setPublishMode] = useState<'schedule' | 'now'>('schedule');
@@ -153,7 +156,7 @@ export default function CreateContentScreen({ onToast }: MarketingScreenProps) {
   const previewAccount = CHANNELS.find(c => c.name === selectedChannels[0])?.handle || 'Your brand';
   const charCount = postCaption.length;
 
-  const attachList = useMemo(() => ATTACH_DATA[attachType] || [], [attachType]);
+  const attachList = useMemo(() => attachData[attachType] || [], [attachType]);
   const filteredAttachList = useMemo(() => {
     const q = attachSearch.trim().toLowerCase();
     if (!q) return attachList;
@@ -228,16 +231,33 @@ export default function CreateContentScreen({ onToast }: MarketingScreenProps) {
 
   async function submitPost() {
     const payload = collectPayload();
-    await API.createPost(payload);
-    await API.publish(payload);
-    onToast(payload.publishMode === 'now' ? 'Publish request prepared' : 'Schedule request prepared');
+    const res = await socialMutations.createPost({
+      caption: payload.caption,
+      title: payload.title,
+      channels: payload.channels.map(netKey),
+      scheduledAt: payload.publishMode === 'schedule' && payload.date ? `${payload.date}T${payload.time || '10:00'}` : null,
+      publishNow: payload.publishMode === 'now',
+      linkUrl: payload.link || undefined,
+      sourceType: payload.attach?.type || 'custom',
+      productUrl: payload.attach?.type === 'product' ? payload.attach.id : undefined,
+    });
+    if (!res.ok) { onToast('Could not save the post: ' + (res.error || 'unknown error')); return; }
+    onToast(payload.publishMode === 'now' ? 'Post queued for publishing' : 'Post scheduled');
     setDirty(false);
     setSubmitted(true);
   }
 
-  function doSaveDraft() {
+  async function doSaveDraft() {
     const p = collectPayload();
-    void API.createPost({ ...p, status: 'draft' });
+    const res = await socialMutations.createPost({
+      caption: p.caption || 'Untitled draft',
+      title: p.title,
+      channels: p.channels.map(netKey),
+      linkUrl: p.link || undefined,
+      sourceType: p.attach?.type || 'custom',
+      productUrl: p.attach?.type === 'product' ? p.attach.id : undefined,
+    });
+    if (!res.ok) { onToast('Could not save the draft: ' + (res.error || '')); return; }
     onToast('Draft saved');
     setDirty(false);
   }
@@ -284,7 +304,9 @@ export default function CreateContentScreen({ onToast }: MarketingScreenProps) {
       url: f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined,
     }));
     setMediaFiles(prev => [...prev, ...added]);
-    void API.uploadMedia(added);
+    for (const f of added) {
+      void socialMutations.createAsset({ storagePath: f.name, mimeType: f.type || 'application/octet-stream', sizeBytes: f.size });
+    }
     markDirty();
   }
   function removeMedia(i: number) {
@@ -316,13 +338,11 @@ export default function CreateContentScreen({ onToast }: MarketingScreenProps) {
     if (attachType === 'design') {
       setComposerAttach(target);
       setDesignDrawerOpen(true);
-      void API.openStudio(target.id);
       setAttachModalOpen(false);
       markDirty();
       return;
     }
-    if (attachType === 'product') void API.attachProduct(target.id);
-    else void API.attachCollection(target.id);
+    /* The attachment is recorded on the post when it is submitted. */
     setComposerAttach(target);
     setAttachModalOpen(false);
     markDirty();
@@ -342,12 +362,12 @@ export default function CreateContentScreen({ onToast }: MarketingScreenProps) {
   }
 
   function confirmOtherCreate() {
-    const url = otherCreateLabel === 'Newsletter' ? APP_CONFIG.endpoints.newsletter
-      : otherCreateLabel === 'Campaign' ? APP_CONFIG.endpoints.campaign
-      : APP_CONFIG.endpoints.discount;
-    void API.request(url, { method: 'POST' });
-    onToast('Opened ' + otherCreateLabel + ' create surface');
+    const target = otherCreateLabel === 'Newsletter' ? 'mkt-newsletter'
+      : otherCreateLabel === 'Campaign' ? 'mkt-campaigns'
+      : 'mkt-promotions';
     setOtherCreateOpen(false);
+    if (onNavigate) onNavigate('marketing', target);
+    else onToast('Opened ' + otherCreateLabel + ' create surface');
   }
 
   const firstMediaIsImage = mediaFiles[0]?.type.startsWith('image/') && !!mediaFiles[0]?.url;

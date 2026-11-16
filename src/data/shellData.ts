@@ -154,13 +154,26 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
           { id: 'mkt-publishing-overview', label: 'Publishing Overview', type: 'overview' },
           { id: 'mkt-create-content', label: 'Create Content', type: 'wizard' },
           { id: 'mkt-oversight', label: 'Oversight', type: 'list' },
+        ],
+      },
+      // Distribution Channels — its own top-level group. Distribution channels
+      // (Shopify, TikTok Shop, Etsy, Amazon, etc.) are NOT social publishing
+      // channels. They're commerce storefronts/marketplaces where products are
+      // listed and sold. They deserve their own header.
+      {
+        name: 'Distribution Channels',
+        icon: 'storefront',
+        bg: 'bg-qb-teal',
+        screens: [
           { id: 'ecommerce', label: 'Channels', type: 'list' },
+          { id: 'mkt-channel-health', label: 'Channel Health', type: 'list' },
+          { id: 'mkt-channel-sync', label: 'Sync Queue', type: 'list' },
         ],
       },
       {
         name: 'Promotions',
         icon: 'sell',
-        bg: 'bg-qb-teal',
+        bg: 'bg-qb-maroon',
         screens: [
           { id: 'mkt-promotions', label: 'Promotions & Discounts', type: 'list' },
         ],
@@ -168,7 +181,7 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
       {
         name: 'Newsletter',
         icon: 'mail',
-        bg: 'bg-qb-maroon',
+        bg: 'bg-qb-green',
         screens: [
           { id: 'mkt-newsletter', label: 'Newsletter Campaigns', type: 'list' },
         ],
@@ -176,7 +189,7 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
       {
         name: 'Automation',
         icon: 'bolt',
-        bg: 'bg-qb-green',
+        bg: 'bg-primary',
         screens: [
           { id: 'mkt-automation', label: 'Automation', type: 'list' },
         ],
@@ -184,7 +197,7 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
       {
         name: 'Advertising',
         icon: 'campaign',
-        bg: 'bg-primary',
+        bg: 'bg-error',
         screens: [
           { id: 'mkt-adcenter', label: 'Ad Center', type: 'overview' },
           { id: 'mkt-campaigns', label: 'Campaigns', type: 'list' },

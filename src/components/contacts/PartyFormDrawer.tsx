@@ -19,8 +19,6 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { usePlatformMutations, useParty, fetchJson } from '@/hooks/useCrmApi';
-import { usePlatformStore } from '@/lib/platformStore';
-import { supabaseRecordToStoreParty, type SupabasePartyRecord } from '@/lib/partyMirror';
 
 /* Roles in the data model. 'Contact' has no table — intentionally absent. */
 export const PARTY_ROLES = ['Customer', 'Vendor', 'Supplier', 'Seller', 'Lead'] as const;
@@ -358,19 +356,10 @@ export default function PartyFormDrawer({ open, editing, preselectRole, onClose,
           body: JSON.stringify(payload),
         });
         if (!res.ok) { onToast(`Save failed: ${res.error}`); return false; }
-        // Mirror the saved row into platformStore so the document-engine
-        // party pickers see the update immediately (Supabase stays the
-        // system of record — the store is a read-mirror).
-        const savedRow = (res.data as { data?: SupabasePartyRecord } | undefined)?.data;
-        if (savedRow?.id) {
-          usePlatformStore.getState().mirrorParties([
-            supabaseRecordToStoreParty({ ...savedRow, source: editing.source }),
-          ]);
-        }
         onSaved?.(c.name, 'updated');
         return true;
       } else {
-        const base: Record<string, unknown> = { role: roleKey, email: form.email || undefined, phone: form.phone || undefined };
+        const base: Record<string, unknown> & { role: string } = { role: roleKey, email: form.email || undefined, phone: form.phone || undefined };
         if (roleKey === 'customer') {
           Object.assign(base, {
             first_name: form.first || undefined,
@@ -421,14 +410,8 @@ export default function PartyFormDrawer({ open, editing, preselectRole, onClose,
             commission_rate: form.commissionRate !== '' ? Number(form.commissionRate) : undefined,
           });
         }
-        const res = await createParty(base);
+        const res = await createParty(base as Record<string, unknown> & { role: string });
         if (!res.ok) return false;
-        // Mirror the created row into platformStore (doc-engine pickers).
-        if (res.data?.id) {
-          usePlatformStore.getState().mirrorParties([
-            supabaseRecordToStoreParty(res.data as SupabasePartyRecord),
-          ]);
-        }
         onSaved?.(c.name, 'created');
         return true;
       }

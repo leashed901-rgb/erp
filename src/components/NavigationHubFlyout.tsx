@@ -183,6 +183,7 @@ export default function NavigationHubFlyout({
 
   const handleQuickLaunch = (item: (typeof QUICK_LAUNCH)[number]) => {
     onClose();
+    const label = item.label.replace('+ ', '');
     if (item.key === 'konva') {
       onNavigate('design', 'new-design');
     } else if (item.key === 'invoice') {
@@ -194,7 +195,7 @@ export default function NavigationHubFlyout({
     } else if (item.key === 'ticket') {
       if (onCreate) onCreate('Ticket'); else onToast('Quick launch → Log Support Ticket');
     } else {
-      onToast(`Quick launch → ${item.label.replace('+ ', '')}`);
+      onToast(`Quick launch → ${label}`);
     }
   };
 

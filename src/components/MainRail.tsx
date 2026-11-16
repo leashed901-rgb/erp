@@ -15,6 +15,8 @@ interface MainRailProps {
   bookmarksCount?: number;
   favoritesOpen?: boolean;
   onToggleFavorites?: () => void;
+  /** Live unread notification count for the Inbox rail item. */
+  inboxBadge?: number;
 }
 
 // Pinned utility items (bottom section). These are the persistent quick-access
@@ -23,7 +25,7 @@ interface MainRailProps {
 const PINNED_UTIL: { id: string; icon: string; label: string; badge?: number }[] = [
   { id: 'tasks', icon: 'calendar_month', label: 'Tasks / calendar' },
   { id: 'favorites', icon: 'bookmark', label: 'Bookmarks' },
-  { id: 'inbox', icon: 'mail', label: 'Inbox / notifications', badge: 4 },
+  { id: 'inbox', icon: 'mail', label: 'Inbox / notifications' },
   { id: 'reports', icon: 'bar_chart', label: 'Reports' },
 ];
 
@@ -37,6 +39,7 @@ export default function MainRail({
   bookmarksCount = 0,
   favoritesOpen = false,
   onToggleFavorites,
+  inboxBadge,
 }: MainRailProps) {
   return (
     <aside className={styles.rail}>
@@ -129,9 +132,13 @@ export default function MainRail({
                 {isDualPin && pinCount > 0 && (
                   <span className={styles.starBadge}>{pinCount}</span>
                 )}
-                {item.badge != null && !isDualPin && (
-                  <span className={styles.inboxBadge}>{item.badge}</span>
-                )}
+                {item.id === 'inbox'
+                  ? !!inboxBadge && inboxBadge > 0 && (
+                      <span className={styles.inboxBadge}>{inboxBadge}</span>
+                    )
+                  : item.badge != null && !isDualPin && (
+                      <span className={styles.inboxBadge}>{item.badge}</span>
+                    )}
               </button>
             );
           })}

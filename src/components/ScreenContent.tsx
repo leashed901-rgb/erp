@@ -77,6 +77,7 @@ import ConversationInbox from './queue/ConversationInbox';
 import AppointmentsScreen from './contacts/AppointmentsScreen';
 import CustomersSupabase from './contacts/CustomersSupabase';
 import LeadsPipelineSupabase from './contacts/LeadsPipelineSupabase';
+import DealsWorkbench from './contacts/DealsWorkbench';
 import StatementsScreen from './contacts/StatementsScreen';
 import OrdersOverview from './orders/OrdersOverview';
 import OrdersList from './orders/OrdersList';
@@ -3050,6 +3051,10 @@ function TabScreenRenderer({
 
   if (screenId === 'leads') {
     return <LeadsPipelineSupabase onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+
+  if (screenId === 'deals') {
+    return <DealsWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'appointments') {

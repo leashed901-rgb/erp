@@ -390,6 +390,10 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-teal',
         screens: [
           { id: 'orders', label: 'Orders', type: 'list' },
+          // Action-opened detail screen (hidden from the sidebar; opened by
+          // clicking a row in Orders, just like seller-profile opens from
+          // Sellers and PartyProfile opens from Parties).
+          { id: 'order-detail', label: 'Order Detail', type: 'list', hidden: true },
         ],
       },
       {

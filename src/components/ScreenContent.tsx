@@ -81,6 +81,7 @@ import DealsWorkbench from './contacts/DealsWorkbench';
 import StatementsScreen from './contacts/StatementsScreen';
 import OrdersOverview from './orders/OrdersOverview';
 import OrdersList from './orders/OrdersList';
+import OrderDetailPage from './orders/OrderDetailPage';
 import PurchaseOrders from './orders/PurchaseOrders';
 import ReturnsClaims from './orders/ReturnsClaims';
 import FulfillmentQueue from './orders/FulfillmentQueue';
@@ -2830,6 +2831,9 @@ function TabScreenRenderer({
         return <FulfillmentQueue {...ordersProps} />;
       case 'batch-slips':
         return <BatchSlips {...ordersProps} />;
+      case 'order-detail':
+        // Full order detail page — opened by clicking a row in Orders.
+        return <OrderDetailPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
       case 'shipping-settings':
         return <ShippingSettings {...ordersProps} />;
       case 'inventory':

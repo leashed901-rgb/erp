@@ -5,6 +5,7 @@ import { DomainKey } from '@/data/shellData';
 import { ORDER_TABS, OrderRow } from '@/data/ordersData';
 import RowMenu, { RowMenuItem, BulkBar } from '@/components/ListPrimitives';
 import { exportToCsv } from '@/lib/csvExport';
+import { useOrderStore } from '@/lib/orderStore';
 import styles from './OrdersPages.module.css';
 
 interface OrdersScreenProps {
@@ -35,6 +36,7 @@ export function OrdersList({ onNavigate, onToast, onCreate, onOpenPeek }: Orders
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [splitOpen, setSplitOpen] = useState(false);
+  const setSelectedOrder = useOrderStore(s => s.setSelectedOrder);
 
   // REAL data from erp_orders via the Document Engine API
   useEffect(() => {
@@ -291,16 +293,24 @@ export function OrdersList({ onNavigate, onToast, onCreate, onOpenPeek }: Orders
                 <tr
                   key={row.id}
                   className={`${styles.tableRow} ${selected.has(row.id) ? styles.tableRowSelected : ''}`}
-                  onClick={() => (onOpenPeek ? onOpenPeek(`Order ${row.id} — ${row.customer}`, {
-                    Order: row.id,
-                    Customer: row.customer,
-                    Items: row.items,
-                    Supplier: row.supplier,
-                    Total: row.total,
-                    SLA: row.sla,
-                    Status: row.status,
-                  }) : onToast(`Viewing ${row.id}`))
-                  }
+                  onClick={() => {
+                    // Open the full Order Detail page (mirrors PartyProfile /
+                    // SellerProfilePage pattern — row click navigates, the
+                    // store carries the id + summary so the page renders
+                    // instantly from the cached list row before the full
+                    // record is fetched).
+                    setSelectedOrder(row.id, {
+                      id: row.id,
+                      customer: row.customer,
+                      total: row.total,
+                      status: row.status,
+                      items: row.items,
+                      supplier: row.supplier,
+                      sla: row.sla,
+                      slaPast: row.slaPast,
+                    });
+                    onNavigate('orders', 'order-detail');
+                  }}
                 >
                   <td className={styles.checkCell}>
                     <input

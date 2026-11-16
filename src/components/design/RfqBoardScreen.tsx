@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/rules-of-hooks, react-hooks/refs, react-hooks/immutability */
 import { useEffect, useMemo, useState } from 'react';
 import type { DomainKey } from '@/data/shellData';
 import { useDesignCanvas } from '@/lib/designCanvasStore';

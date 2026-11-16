@@ -64,38 +64,139 @@ export interface IngestReport {
   notes: string[];
 }
 
-/** Placement/position → the render contract's ViewAngle. Unknown → null. */
+/** Placement/position → the render contract's ViewAngle. Unknown → null.
+ *
+ * The supplier catalogs carry ~300 distinct position names (Printify
+ * placeholders + Printful placement_dimensions), while the contract has
+ * 7 views. The old switch matched ~15 names, so most blanks ingested
+ * with ZERO views: 'front_left_dtf' and 'front_dtfabric' never matched
+ * anything. The mapping is therefore rule-based, not a list:
+ *  1. normalize (spaces/hyphens → underscores, lowercase),
+ *  2. strip technique suffixes repeatedly (dtf/dtg/dtfabric/embroidery/… —
+ *     some names double them: front_dye-sublimation_dye-sublimation),
+ *  3. face families first (months/pages/spreads/flags/candles are faces
+ *     of one flat product → FRONT; all-over → WRAPAROUND),
+ *  4. label/neck/collar/inside → INSIDE_LABEL,
+ *  5. any 'front' segment → FRONT, any 'back' segment → BACK,
+ *  6. left/right side zones → LEFT_SIDE / RIGHT_SIDE,
+ *  7. chest/pocket → FRONT.
+ * A placement that matches no rule stays null — an honest skip, never a
+ * guessed view. The largest box per view wins downstream (addPlaceholder).
+ */
+const PLACEMENT_MONTHS = new Set([
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+]);
+const PLACEMENT_TECH_SUFFIX =
+  /_(dtf|dtg|dtfabric|embroidery|sublimation|dye_sublimation|screen_printing|screenprint|digital_printing|glitter|metallic|puff|uv|laser_engraving|engraving|vinyl|cut_sew|hat_embroidery)$/;
+
 export function placementToView(position: string): ViewAngle | null {
-  const p = position.toLowerCase().replace(/_(dtf|dtg|embroidery|sublimation|screen_print|screenprint|vinyl|cut_sew)$/i, '');
-  switch (p) {
-    case 'front':
-    case 'left_chest':
-    case 'right_chest':
-    case 'chest':
-    case 'pocket':
-      return 'FRONT';
-    case 'back':
-      return 'BACK';
-    case 'left_sleeve':
-    case 'sleeve_left':
-      return 'LEFT_SIDE';
-    case 'right_sleeve':
-    case 'sleeve_right':
-      return 'RIGHT_SIDE';
-    case 'label':
-    case 'inside_label':
-    case 'label_inside':
-    case 'neck':
-      return 'INSIDE_LABEL';
-    case 'wrap':
-    case 'all_over':
-    case 'allover':
-      return 'WRAPAROUND';
-    case 'top_down':
-      return 'TOP_DOWN';
-    default:
-      return null;
+  let p = position
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!p) return null;
+  // Strip technique suffixes, repeatedly (some names double them), and a
+  // leading 'embroidery_' prefix (embroidery_sleeve_left_top).
+  let prev = '';
+  while (prev !== p) {
+    prev = p;
+    p = p.replace(PLACEMENT_TECH_SUFFIX, '');
+    p = p.replace(/^embroidery_/, '');
   }
+  if (!p) return null;
+  const segs = p.split('_');
+  const first = segs[0];
+  // Faces of one flat product (calendar months, book pages/spreads,
+  // flags, candles, the default face) all design on the front.
+  if (
+    PLACEMENT_MONTHS.has(first) ||
+    p.startsWith('page') ||
+    p.startsWith('spread_') ||
+    p.startsWith('flag_') ||
+    p.startsWith('candle_') ||
+    p === 'default' ||
+    p === 'cover' ||
+    p === 'outside_cover'
+  ) {
+    return 'FRONT';
+  }
+  if (p === 'inside_cover' || (p.startsWith('card') && p.endsWith('_inside'))) return 'BACK';
+  // Ordinal faces (first/second/…) and the remaining single-face zones.
+  if (p === 'first' || p === 'second' || p === 'third' || p === 'fourth') return 'FRONT';
+  if (p === 'bottom' || p === 'bottom_center' || p === 'large_center' || p === 'large_right_corner') {
+    return 'FRONT';
+  }
+  if (p === 'neckline' || p === 'belt' || p === 'yoke' || p === 'details' || p === 'toilet_mat' || p === 'base_plate' || p === 'blade' || p === 'paddle' || p === 'shaft') {
+    return 'FRONT';
+  }
+  if (p === 'neck_outer' || p === 'label_outside') return 'BACK';
+  if (p === 'hood_left') return 'LEFT_SIDE';
+  if (p === 'hood_right') return 'RIGHT_SIDE';
+  if (p === 'hood_inner' || p.startsWith('lining_') || p === 'facing') return 'INSIDE_LABEL';
+  if (p.startsWith('label_inside')) return 'INSIDE_LABEL';
+  if (p === 'sides') return 'LEFT_SIDE';
+  if (p === 'dtf_b') return 'BACK';
+  if (p === 'dtf_left') return 'LEFT_SIDE';
+  if (p === 'dtf_right') return 'RIGHT_SIDE';
+  if (p === 'all' || p === 'all_over' || p === 'allover' || p === 'wrap') return 'WRAPAROUND';
+  if (p === 'top_down' || p === 'top' || p === 'top_center') return 'TOP_DOWN';
+  // Label / neck / collar / inside zones live inside the garment.
+  // The hood is the back-top of a hoodie — it prints on the back face.
+  if (p === 'hood') return 'BACK';
+  if (
+    p === 'label' ||
+    p === 'inside_label' ||
+    p === 'label_inside' ||
+    p === 'label_panel' ||
+    p === 'neck' ||
+    p === 'collar' ||
+    p === 'undercollar' ||
+    p.startsWith('inside') ||
+    p.startsWith('body_inside') ||
+    p.endsWith('_inside')
+  ) {
+    return 'INSIDE_LABEL';
+  }
+  // Sleeves are side photos.
+  if (p === 'left_sleeve' || p === 'sleeve_left' || p.startsWith('sleeve_left') || p === 'sleeves') return 'LEFT_SIDE';
+  if (p === 'right_sleeve' || p === 'sleeve_right' || p.startsWith('sleeve_right')) return 'RIGHT_SIDE';
+  if (p === 'left' || p === 'left_side') return 'LEFT_SIDE';
+  if (p === 'right' || p === 'right_side') return 'RIGHT_SIDE';
+  // Any front/back segment names the photo that shows the zone.
+  if (segs.includes('front')) return 'FRONT';
+  if (segs.includes('back')) return 'BACK';
+  // Chest / pocket zones sit on the front face.
+  if (segs.includes('chest') || segs.includes('pocket') || p === 'above_pocket' || p === 'placket') {
+    return 'FRONT';
+  }
+  // Left/right side zones (legs, hips, cuffs, shoes, hoods, cups…).
+  if (first === 'left' || p.endsWith('_left')) return 'LEFT_SIDE';
+  if (first === 'right' || p.endsWith('_right')) return 'RIGHT_SIDE';
+  // Single-face products (duvet, pillow cover, blanket, waistband…) and
+  // any other zone on the product's main face.
+  if (
+    p === 'waistband' ||
+    p === 'hem' ||
+    p === 'duvet' ||
+    p === 'pillow_cover' ||
+    p === 'quilt_cover' ||
+    p === 'blanket' ||
+    p === 'carpet' ||
+    p === 'background' ||
+    p.startsWith('panel_') ||
+    p === 'flap' ||
+    p === 'footpad' ||
+    p === 'pouch' ||
+    p === 'strap' ||
+    p === 'band' ||
+    p === 'grip' ||
+    p === 'gusset'
+  ) {
+    return 'FRONT';
+  }
+  return null;
 }
 
 /** 0..1 perceptual luminance of a hex color (Rec. 709). */
@@ -225,7 +326,8 @@ export function anchorZone(
 async function harvestPrintify(
   productId: string,
   notes: string[],
-): Promise<{ harvested: Harvested[]; dims: Map<string, { wIn: number; hIn: number }> }> {
+  blueprintIdFromProduct?: string | null,
+): Promise<{ harvested: Harvested[]; dims: Map<ViewAngle, { wIn: number; hIn: number }> }> {
   const sb = supabaseAdmin();
   const { data: variantRows } = await sb
     .from('supplier_catalog_variants')
@@ -238,6 +340,12 @@ async function harvestPrintify(
     const specs = (v.print_specs ?? {}) as { blueprint_id?: number; provider_id?: number };
     if (!blueprintId && specs.blueprint_id) blueprintId = Number(specs.blueprint_id);
     if (!providerId && specs.provider_id) providerId = Number(specs.provider_id);
+  }
+  // No variant carries blueprint_id (0/149,392 do) — the supplier row's
+  // own external_id IS the Printify blueprint id (external_id_type
+  // 'blueprint'). Without this fallback every Printify ingest threw here.
+  if (!blueprintId && blueprintIdFromProduct && /^\d+$/.test(blueprintIdFromProduct)) {
+    blueprintId = Number(blueprintIdFromProduct);
   }
   if (!blueprintId || !providerId) {
     throw new Error('Printify blank has no blueprint_id/provider_id on file (print_specs).');
@@ -270,7 +378,7 @@ async function harvestPrintify(
     }
   }
 
-  const dims = new Map<string, { wIn: number; hIn: number }>();
+  const dims = new Map<ViewAngle, { wIn: number; hIn: number }>();
   const addPlaceholder = (position: unknown, width: unknown, height: unknown) => {
     const pos = String(position ?? '').toLowerCase();
     const w = Number(width ?? 0);
@@ -357,7 +465,7 @@ async function harvestPrintful(
   externalId: string,
   productId: string,
   notes: string[],
-): Promise<{ harvested: Harvested[]; dims: Map<string, { wIn: number; hIn: number }> }> {
+): Promise<{ harvested: Harvested[]; dims: Map<ViewAngle, { wIn: number; hIn: number }> }> {
   const sb = supabaseAdmin();
   // Live gallery first; when the live API is unavailable the stored
   // mockup still gives a color-accurate FRONT base and the DB
@@ -387,7 +495,7 @@ async function harvestPrintful(
   }
   // Placement inches: print_specs.placement_dimensions (per-variant rows),
   // largest box per view wins.
-  const dims = new Map<string, { wIn: number; hIn: number }>();
+  const dims = new Map<ViewAngle, { wIn: number; hIn: number }>();
   const { data: variantRows } = await sb
     .from('supplier_catalog_variants')
     .select('print_specs')
@@ -421,7 +529,7 @@ async function harvestPrintful(
       RIGHT_SIDE: { wIn: 4, hIn: 3.5 },
       INSIDE_LABEL: { wIn: 3, hIn: 3 },
     };
-    const views = new Set<string>();
+    const views = new Set<ViewAngle>();
     for (const h of harvested) {
       const v = placementToView(h.position);
       if (v) views.add(v);
@@ -497,10 +605,15 @@ function categoryChain(
 }
 
 /**
- * Ensure the blank has a canonical_products row + link. Most catalog rows
- * were canonicalized at sync time (3,000+); stragglers are provisioned
- * here — a canonical row is the render contract's join key and publish
- * reads it too. Returns the canonical id.
+ * Ensure the blank has a canonical_products row + link. No catalog row
+ * carries a canonical link yet (0/3,600 as of 2026-11-14) — every ingest
+ * provisions one here. A canonical row is the render contract's join key
+ * and publish reads it too. Returns the canonical id.
+ *
+ * The insert writes ONLY columns the live table has (id, sku_slug, name,
+ * category, render_state). An earlier version wrote title/brand/lifecycle/
+ * visibility/render_colors — none of those columns exist in the migration
+ * or on hosted — so every ingest 500'd and no blank was ever added.
  */
 async function ensureCanonicalProduct(product: {
   id: string;
@@ -519,17 +632,24 @@ async function ensureCanonicalProduct(product: {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 80) || `blank-${id.slice(0, 8)}`;
+  // category is a varchar(100) NAME on this table, not a UUID — resolve
+  // the node name; the supplier row's brand stays on the supplier row,
+  // there is no brand column here.
+  let categoryName = 'Uncategorized';
+  if (product.category_id) {
+    const { data: node } = await sb
+      .from('categories')
+      .select('name')
+      .eq('id', product.category_id)
+      .maybeSingle();
+    if (node?.name) categoryName = String(node.name).slice(0, 100);
+  }
   const { error } = await sb.from('canonical_products').insert({
     id,
     sku_slug: skuSlug,
     name: product.name,
-    title: product.name,
-    brand: product.brand_name,
-    category: product.category_id,
-    lifecycle: 'imported',
-    visibility: 'hidden',
+    category: categoryName,
     render_state: 'missing_assets',
-    render_colors: {},
   });
   if (error) throw new Error(`canonical_products insert: ${error.message}`);
   const { error: linkErr } = await sb
@@ -667,7 +787,7 @@ export async function ingestBlank(
 
   const { harvested, dims } =
     supplierSlug === 'printify'
-      ? await harvestPrintify(productId, notes)
+      ? await harvestPrintify(productId, notes, String(product.external_id ?? '') || null)
       : await harvestPrintful(externalId, productId, notes);
 
   // Group by view; pick the lighest color photo per view.
@@ -780,7 +900,8 @@ export async function ingestBlank(
   // a flat base + design — honest, and geometrically the provider's own
   // numbers instead of the category archetype's guess.
   const rowedViews = new Set(ingested.map((v) => v.view));
-  for (const [view, dim] of dims) {
+  for (const [viewKey, dim] of dims) {
+    const view = viewKey as ViewAngle;
     if (rowedViews.has(view) || ingested.length >= 5) continue;
     const boxPx = anchorZone(MOCKUP_CANVAS.w, MOCKUP_CANVAS.h, dim.wIn, dim.hIn, view);
     const ppi = boxPx.width / dim.wIn;

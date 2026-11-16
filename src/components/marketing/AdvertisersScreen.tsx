@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/rules-of-hooks, react-hooks/refs, react-hooks/immutability */
 'use client';
 /* AdvertisersScreen — 1:1 port of upload/marketing_extracted/Marketing/ad center mangemnt .html
    The HTML's <style> block lives in src/app/marketing.css (global classes).

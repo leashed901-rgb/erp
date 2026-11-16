@@ -219,7 +219,7 @@ export function useLiveQueueBadges(): QueueBadgeCounts | null {
         fetchJson<{ counts: Record<string, number> }>('/api/v1/nav-counts'),
       ]);
       if (mounted) {
-        const merged: Record<string, number> = {};
+        const merged: QueueBadgeCounts & Record<string, number> = { attention: 0, 'customer-queue': 0, 'seller-queue': 0 };
         if (queueRes.ok && queueRes.data?.data) Object.assign(merged, queueRes.data.data);
         if (navRes.ok && navRes.data?.counts) Object.assign(merged, navRes.data.counts);
         badgeCache.counts = merged;

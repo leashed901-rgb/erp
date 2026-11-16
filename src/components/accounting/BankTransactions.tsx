@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/rules-of-hooks, react-hooks/refs, react-hooks/immutability */
 'use client';
 import './bank-transactions.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

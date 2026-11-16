@@ -5,9 +5,9 @@ import {
   DOMAINS,
   DRAWER_FIELDS,
   DemoRow,
+  DomainConfig,
   DomainKey,
   PINNED,
-  findScreen,
   screensOf,
 } from '@/data/shellData';
 import Header, { WorkspaceTab } from './Header';
@@ -20,11 +20,17 @@ import StudioDrawer from './StudioDrawer';
 import DocumentEngine, { DocTabType } from './DocumentEngine';
 import PaymentModal, { type PaymentPrefill } from './PaymentModal';
 import PartyFormDrawer from './contacts/PartyFormDrawer';
-import { usePlatformStore, type DocumentType, type PartyRole } from '@/lib/platformStore';
-import { supabaseRecordToStoreParty, type SupabasePartyRecord } from '@/lib/partyMirror';
+import type { DocumentType, PartyRole } from '@/lib/platformStore';
+import { getEnvelope, clearEnvelope } from '@/lib/contextEnvelope';
+import { fetchJson } from '@/hooks/useCrmApi';
 import { useLiveQueueBadges } from '@/hooks/useQueueApi';
 import { useStoredJson, useStoredString } from '@/hooks/useStoredPref';
+import { useTenantNav, findScreenIn, resolveDomainKey, type DbAction } from '@/hooks/useTenantNav';
 import CreateFlyout from './CreateFlyout';
+import { ALL_ACTIONS_MAP } from './QuickActionsDrawer';
+import GenericCreateDrawer from './GenericCreateDrawer';
+import { TABLE_REGISTRY } from '@/lib/tableRegistry';
+import { TABLE_POST_ROUTES } from '@/lib/tablePostRoutes';
 import NavigationHubFlyout from './NavigationHubFlyout';
 import {
   DEFAULT_FAVORITE_IDS,
@@ -33,14 +39,19 @@ import {
 } from './QuickActionsDrawer';
 import { FavoritesFlyout, PinMode, BookmarkEntry } from './FavoritesFlyout';
 import Toast from './Toast';
+import MailQuickAction from './contacts/MailQuickAction';
 import {
   DashboardOverlays,
   useDashboardController,
 } from './dashboard/DashboardScreens';
 import { useDesignCanvas, type DrawerId, type StudioView } from '@/lib/designCanvasStore';
 
-function buildWorkspaceTab(domain: DomainKey, screenId: string): WorkspaceTab {
-  const scr = findScreen(domain, screenId);
+function buildWorkspaceTab(
+  domain: DomainKey,
+  screenId: string,
+  domains: Record<DomainKey, DomainConfig> = DOMAINS,
+): WorkspaceTab {
+  const scr = findScreenIn(domains, domain, screenId);
   const label = scr.label === 'Overview' ? `${scr.group} · Overview` : scr.label;
   return {
     key: `${domain}:${scr.id}`,
@@ -118,8 +129,166 @@ function isNonEmptyStringArray(v: unknown): boolean {
   return Array.isArray(v) && v.every(x => typeof x === 'string');
 }
 
+
+/**
+ * ProfileActionModal — the execution surface for the two personal
+ * registry create actions: create.out_of_office and
+ * create.notification_preference. Both write the operator's own rows
+ * through /api/platform/profile; existing records list inline with
+ * delete. All feedback renders in the modal — no toasts.
+ */
+function ProfileActionModal({ kind, onClose }: { kind: 'out-of-office' | 'notification-preference'; onClose: () => void }) {
+  const isOoo = kind === 'out-of-office';
+  const [records, setRecords] = useState<Record<string, unknown>[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
+  const [startsAt, setStartsAt] = useState('');
+  const [endsAt, setEndsAt] = useState('');
+  const [message, setMessage] = useState('');
+  const [eventType, setEventType] = useState('');
+  const [channel, setChannel] = useState('email');
+  const [enabled, setEnabled] = useState(true);
+  const [digest, setDigest] = useState('');
+
+  const load = useCallback(() => {
+    fetch(`/api/platform/profile?kind=${kind}`)
+      .then((r) => r.json())
+      .then((j) => setRecords((j.data as Record<string, unknown>[]) || []))
+      .catch(() => {});
+  }, [kind]);
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async () => {
+    setBusy(true);
+    setMsg(null);
+    const body = isOoo
+      ? { startsAt, endsAt, message, appliesTo: ['all'] }
+      : { eventType, channel, enabled, digest: digest || undefined };
+    try {
+      const r = await fetch(`/api/platform/profile?kind=${kind}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error?.message || 'Save failed');
+      setMsg({ text: isOoo ? 'Out of office saved' : 'Notification preference saved', error: false });
+      load();
+    } catch (e) {
+      setMsg({ text: e instanceof Error ? e.message : 'Save failed', error: true });
+    }
+    setBusy(false);
+  };
+
+  const remove = async (id: string) => {
+    await fetch(`/api/platform/profile?kind=${kind}&id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+    load();
+  };
+
+  const inputCls = 'w-full h-9 px-3 border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary';
+  const labelCls = 'block text-label-sm font-semibold mb-1';
+
+  return (
+    <div className="fixed inset-0 z-[9990] bg-black/40 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-[440px] max-w-[92vw] max-h-[88vh] overflow-y-auto p-5" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={isOoo ? 'Out of office' : 'Notification preference'}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-headline-sm">{isOoo ? 'Out of office' : 'Notification preference'}</h2>
+          <button type="button" className="text-on-surface-variant" onClick={onClose} aria-label="Close">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <p className="text-body-sm text-on-surface-variant mb-4">
+          {isOoo ? 'While you are away, work routes to your delegate and senders see your message.' : 'Choose which events reach you, and on which channel.'}
+        </p>
+
+        {isOoo ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className={labelCls} htmlFor="ooo-start">Starts</label>
+                <input id="ooo-start" type="date" className={inputCls} value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className={labelCls} htmlFor="ooo-end">Ends</label>
+                <input id="ooo-end" type="date" className={inputCls} value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="ooo-msg">Message</label>
+              <input id="ooo-msg" type="text" className={inputCls} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Out for the holidays — back Monday" />
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className={labelCls} htmlFor="np-event">Event type</label>
+              <input id="np-event" type="text" className={inputCls} value={eventType} onChange={(e) => setEventType(e.target.value)} placeholder="ticket.assigned" />
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className={labelCls} htmlFor="np-channel">Channel</label>
+                <select id="np-channel" className={inputCls} value={channel} onChange={(e) => setChannel(e.target.value)}>
+                  <option value="email">Email</option>
+                  <option value="in_app">In app</option>
+                  <option value="sms">SMS</option>
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className={labelCls} htmlFor="np-digest">Digest</label>
+                <select id="np-digest" className={inputCls} value={digest} onChange={(e) => setDigest(e.target.value)}>
+                  <option value="">Instant</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-body-sm">
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+              Enabled
+            </label>
+          </div>
+        )}
+
+        {msg && (
+          <p role="status" className="text-body-sm mt-3" style={{ color: msg.error ? '#b3261e' : '#2e7d32' }}>{msg.text}</p>
+        )}
+
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" className="h-9 px-4 rounded border border-surface-dim text-label-md" onClick={onClose}>Close</button>
+          <button
+            type="button"
+            className="h-9 px-4 rounded bg-primary text-white text-label-md disabled:opacity-50"
+            disabled={busy || (isOoo ? !startsAt || !endsAt : !eventType)}
+            onClick={() => void submit()}
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+
+        {records.length > 0 && (
+          <div className="mt-5 border-t border-surface-dim pt-3">
+            <h3 className="text-label-md font-semibold mb-2">{isOoo ? 'Your out-of-office records' : 'Your preferences'}</h3>
+            {records.map((r) => (
+              <div key={String(r.id)} className="flex items-center justify-between py-1.5 text-body-sm">
+                <span>
+                  {isOoo
+                    ? `${new Date(String(r.starts_at)).toLocaleDateString()} → ${new Date(String(r.ends_at)).toLocaleDateString()}${r.message ? ` · ${String(r.message)}` : ''}`
+                    : `${String(r.event_type)} · ${String(r.channel)}${r.enabled ? '' : ' · off'}`}
+                </span>
+                <button type="button" className="text-error text-label-sm" onClick={() => void remove(String(r.id))}>Delete</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GlobalShell() {
   const dashboardController = useDashboardController();
+  // DB-driven navigation — /api/v1/nav (22 domains / 331 screens / 181
+  // actions). Falls back to shellData's static DOMAINS on any failure,
+  // so the shell always boots even if Supabase is unreachable.
+  const { domains: tenantDomains, actions: tenantActions } = useTenantNav();
   // Live sidebar badges — real queue counts from Supabase override the
   // controller's local placeholder numbers once the background fetch lands.
   const liveQueueBadges = useLiveQueueBadges();
@@ -150,6 +319,14 @@ export default function GlobalShell() {
 
   const [recordDrawerOpen, setRecordDrawerOpen] = useState<boolean>(false);
   const [recordKind, setRecordKind] = useState<string>('Invoice');
+  // Generic table create — the one create drawer every table funnels
+  // into when it has no bespoke form (see GenericCreateDrawer).
+  const [genericCreate, setGenericCreate] = useState<{ table: string; title: string; screenKey?: string } | null>(null);
+  // Bumped whenever a generic create saves, so the open list re-reads.
+  const [listRefreshSignal, setListRefreshSignal] = useState<number>(0);
+  const openGenericCreate = useCallback((table: string, title: string, screenKey?: string) => {
+    setGenericCreate({ table, title, screenKey });
+  }, []);
   const [recordRole, setRecordRole] = useState<PartyRole | null>(null);
   const [recordInit, setRecordInit] = useState<Record<string, unknown> | null>(null);
   const [recordSessionKey, setRecordSessionKey] = useState<number>(0);
@@ -174,7 +351,6 @@ export default function GlobalShell() {
   // Prefill: when a document is created FROM a party record (profile page,
   // row menu), the engine opens with that party already selected.
   const [docPartyId, setDocPartyId] = useState<string | null>(null);
-  const store = usePlatformStore();
 
   // Payment modal — opened from a customer profile's New Transaction →
   // Payment (or the row-menu Receive payment). Opens a focused payment
@@ -185,6 +361,25 @@ export default function GlobalShell() {
   const [paymentPrefill, setPaymentPrefill] = useState<PaymentPrefill | null>(null);
 
   const [createFlyoutOpen, setCreateFlyoutOpen] = useState<boolean>(false);
+  const [profileAction, setProfileAction] = useState<'out-of-office' | 'notification-preference' | null>(null);
+  // Inbox rail badge = the operator's real unread notification count
+  // (user_notifications via /api/tasks/notifications), refreshed on
+  // navigation. Replaces the badge count the rail used to hardcode.
+  const [inboxUnread, setInboxUnread] = useState<number>(0);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/tasks/notifications')
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+        const rows = (json.data || []) as { isRead: boolean }[];
+        setInboxUnread(rows.filter((n) => !n.isRead).length);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDomain, activeScreen]);
   const [navigationHubOpen, setNavigationHubOpen] = useState<boolean>(false);
   const [quickActionsDrawerOpen, setQuickActionsDrawerOpen] = useState<boolean>(false);
   const [favoritesFlyoutOpen, setFavoritesFlyoutOpen] = useState<boolean>(false);
@@ -210,7 +405,91 @@ export default function GlobalShell() {
     sanitizeBookmarks,
   );
 
+
+  // ── Rail pins ↔ platform tables ──
+  // Bookmarks are saved views (entity_type 'screen', filters carry
+  // {domain, screen}); favorites are platform_create_favorites rows
+  // keyed by the registry action_code (matched to Quick Actions items
+  // by display name; the shell id is the fallback code).
+  const bookmarkViewIds = useRef(new Map<string, string>());
+  const codeForShellAction = useCallback((shellId: string): string => {
+    const item = ALL_ACTIONS_MAP.get(shellId);
+    if (!item) return shellId;
+    const reg = (tenantActions || []).find((a) => a.display_name === item.name);
+    return reg?.action_code || shellId;
+  }, [tenantActions]);
+  const shellIdForCode = useCallback((code: string): string => {
+    const reg = (tenantActions || []).find((a) => a.action_code === code);
+    if (reg) {
+      for (const [id, item] of ALL_ACTIONS_MAP) if (item.name === reg.display_name) return id;
+    }
+    return code;
+  }, [tenantActions]);
+
+  const pinsHydrated = useRef(false);
+  useEffect(() => {
+    if (pinsHydrated.current) return;
+    pinsHydrated.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [viewsRes, favRes] = await Promise.all([
+          fetch('/api/platform/customization?kind=views').then((r) => r.json()),
+          fetch('/api/platform/customization?kind=favorites').then((r) => r.json()),
+        ]);
+        if (cancelled) return;
+        const views = (viewsRes.data || []) as { id: string; entity_type: string; filters: { domain?: string; screen?: string } | null }[];
+        const screenViews = views.filter((v) => v.entity_type === 'screen' && v.filters?.domain && v.filters?.screen);
+        if (screenViews.length) {
+          bookmarkViewIds.current = new Map(screenViews.map((v) => [`${v.filters!.domain}:${v.filters!.screen}`, v.id]));
+          setRailBookmarks(screenViews.map((v) => ({ domain: v.filters!.domain as DomainKey, screen: v.filters!.screen as string })));
+        }
+        const favs = (favRes.data || []) as { action_code: string }[];
+        if (favs.length) setFavoriteIds(favs.map((f) => shellIdForCode(f.action_code)));
+      } catch { /* offline: localStorage cache stands */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const persistBookmark = useCallback((domain: DomainKey, screen: string) => {
+    void fetch('/api/platform/customization', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'views', entityType: 'screen', name: screen, filters: { domain, screen }, isShared: false }),
+    }).then((r) => r.json()).then((j) => {
+      const id = (j.data as { id?: string } | undefined)?.id;
+      if (id) bookmarkViewIds.current.set(`${domain}:${screen}`, id);
+    }).catch(() => {});
+  }, []);
+  const persistUnbookmark = useCallback((domain: DomainKey, screen: string) => {
+    const id = bookmarkViewIds.current.get(`${domain}:${screen}`);
+    if (!id) return;
+    bookmarkViewIds.current.delete(`${domain}:${screen}`);
+    void fetch(`/api/platform/customization?kind=views&id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+  }, []);
+  const handleFavoriteIdsChange = useCallback((next: string[]) => {
+    const prev = favoriteIds;
+    setFavoriteIds(next);
+    for (const id of next) {
+      if (!prev.includes(id)) {
+        void fetch('/api/platform/customization', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'favorites', actionCode: codeForShellAction(id), sortOrder: next.indexOf(id) }),
+        }).catch(() => {});
+      }
+    }
+    for (const id of prev) {
+      if (!next.includes(id)) {
+        void fetch('/api/platform/customization', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ kind: 'favorites', actionCode: codeForShellAction(id), remove: true }),
+        }).catch(() => {});
+      }
+    }
+  }, [favoriteIds, setFavoriteIds, codeForShellAction]);
+
   // Toast
+  const [mailOpen, setMailOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string>('');
   const [toastVisible, setToastVisible] = useState<boolean>(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -342,6 +621,9 @@ export default function GlobalShell() {
         setRecordDrawerOpen(false);
         setStudioDrawerOpen(false);
         setPeekOpen(false);
+        setPartyFormRole(null);
+        setPaymentModalOpen(false);
+        setProfileAction(null);
         closeSetupWizard();
         setCustomizeCreateOpen(false);
         setContractorModalOpen(false);
@@ -374,8 +656,8 @@ export default function GlobalShell() {
   ]);
 
   const openOrActivateTab = useCallback((domain: DomainKey, screenId: string) => {
-    const nextTab = buildWorkspaceTab(domain, screenId);
-    const targetScreen = findScreen(domain, nextTab.screenId);
+    const nextTab = buildWorkspaceTab(domain, screenId, tenantDomains);
+    const targetScreen = findScreenIn(tenantDomains, domain, nextTab.screenId);
     setActiveDomain(domain);
     setActiveScreen(nextTab.screenId);
     setOpenGroupsByDomain((prev) => {
@@ -390,7 +672,7 @@ export default function GlobalShell() {
       if (prev.some((t) => t.key === nextTab.key)) return prev;
       return [...prev, nextTab];
     });
-  }, []);
+  }, [tenantDomains]);
 
   // Boot from URL — standalone page view: /?view=<domain>:<screen>&focus=1
   // One-time hydration-time init from window.location (server HTML always
@@ -418,9 +700,9 @@ export default function GlobalShell() {
         // instead of silently falling back to the Dashboard.
         const isDesignCatalogPath = d === 'design' && s.startsWith('studio-');
         if (
-          DOMAINS[d] &&
+          tenantDomains[d] &&
           (isDesignCatalogPath ||
-            screensOf(DOMAINS[d]).some((scr) => scr.id === s && scr.type !== 'drawer'))
+            screensOf(tenantDomains[d]).some((scr) => scr.id === s && scr.type !== 'drawer'))
         ) {
           openOrActivateTab(d, s);
         }
@@ -431,26 +713,6 @@ export default function GlobalShell() {
     }
   }, [openOrActivateTab]);
 
-  /* Party mirror boot — pull every live Supabase party into platformStore
-     once so the document-engine pickers (invoice/bill/PO customer & vendor
-     pickers) offer the real CRM records. Supabase stays the system of
-     record; the store is a read-mirror. Best-effort: a failure here never
-     blocks the shell (the Contacts lists read Supabase directly). */
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/parties')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body: { data?: SupabasePartyRecord[] } | null) => {
-        if (cancelled || !body?.data?.length) return;
-        const mirrored = body.data
-          .map((rec) => supabaseRecordToStoreParty(rec))
-          .filter(Boolean);
-        usePlatformStore.getState().mirrorParties(mirrored);
-      })
-      .catch(() => { /* best-effort mirror — lists still read Supabase */ });
-    return () => { cancelled = true; };
-  }, []);
-
   const handleSelectDomain = useCallback(
     (domain: DomainKey) => {
       const existingInDomain = [...openTabs]
@@ -460,12 +722,12 @@ export default function GlobalShell() {
         openOrActivateTab(domain, existingInDomain.screenId);
       } else {
         // First tabbable screen — drawer-type items open tool panels, not tabs.
-        const all = screensOf(DOMAINS[domain]);
+        const all = screensOf(tenantDomains[domain]);
         const firstScreen = all.find((s) => s.type !== 'drawer') ?? all[0];
         openOrActivateTab(domain, firstScreen.id);
       }
     },
-    [openTabs, openOrActivateTab]
+    [openTabs, openOrActivateTab, tenantDomains]
   );
 
   const handleSelectScreen = useCallback(
@@ -508,7 +770,7 @@ export default function GlobalShell() {
       // on the design canvas — the dock opens with the right panel. No
       // openStudio call: tool browsing needs no product guard and must not
       // double-open the overlay drawer.
-      const screen = screensOf(DOMAINS[activeDomain]).find((s) => s.id === screenId);
+      const screen = screensOf(tenantDomains[activeDomain]).find((s) => s.id === screenId);
       if (screen?.type === 'drawer' && activeDomain === 'design') {
         const kind = drawerKindByLabel[screen.label];
         if (kind) useDesignCanvas.getState().setCanvasDock(kind);
@@ -517,7 +779,7 @@ export default function GlobalShell() {
       }
       openOrActivateTab(activeDomain, screenId);
     },
-    [activeDomain, openOrActivateTab]
+    [activeDomain, openOrActivateTab, tenantDomains]
   );
 
   const handleSelectTab = useCallback(
@@ -555,6 +817,27 @@ export default function GlobalShell() {
     [activeDomain, activeScreen, openTabs]
   );
 
+  /** Tab right-click: close every tab except the one right-clicked, and
+   *  activate it. */
+  const handleCloseOtherTabs = useCallback(
+    (tabKey: string) => {
+      const tab = openTabs.find((t) => t.key === tabKey);
+      if (!tab) return;
+      setOpenTabs([tab]);
+      setActiveDomain(tab.domain);
+      setActiveScreen(tab.screenId);
+    },
+    [openTabs]
+  );
+
+  /** Tab right-click: close all tabs, landing back on the dashboard. */
+  const handleCloseAllTabs = useCallback(() => {
+    const fallback = buildWorkspaceTab('dashboard', 'ops');
+    setOpenTabs([fallback]);
+    setActiveDomain(fallback.domain);
+    setActiveScreen(fallback.screenId);
+  }, []);
+
   const handleToggleGroup = useCallback(
     (groupName: string) => {
       setOpenGroupsByDomain((prev) => {
@@ -579,19 +862,18 @@ export default function GlobalShell() {
     setDocPartyId(prefillPartyId ?? null);
     setDocEngineOpen(true);
   }, []);
-
   /* §1.3 return_to: closing the engine returns to the origin surface,
      then the envelope is cleared for the next context. */
   const closeDocEngine = useCallback(() => {
     setDocEngineOpen(false);
     setDocId(null);
-    const env = usePlatformStore.getState().envelope;
+    const env = getEnvelope();
     if (env.returnTo) {
       const [d, s] = env.returnTo.split(':');
-      if (DOMAINS[d as DomainKey] && s) openOrActivateTab(d as DomainKey, s);
+      if (tenantDomains[d as DomainKey] && s) openOrActivateTab(d as DomainKey, s);
     }
-    usePlatformStore.getState().clearEnvelope();
-  }, [openOrActivateTab]);
+    clearEnvelope();
+  }, [openOrActivateTab, tenantDomains]);
 
   const openRecordDrawer = useCallback((kind: string) => {
     setRecordKind(kind);
@@ -621,8 +903,12 @@ export default function GlobalShell() {
      `prefill` carries the party a document is being created FOR (profile
      page / row menu): the engine opens with that party already selected. */
   const handleCreate = useCallback(
-    (rawLabel: string, prefill?: { partyName?: string; partyId?: string; source?: string; email?: string | null }) => {
+    (rawLabel: string | DbAction, prefill?: { partyName?: string; partyId?: string; source?: string; email?: string | null }) => {
       setCreateFlyoutOpen(false);
+      // The Create flyout passes the full registry action; every other
+      // caller passes a label string. Both resolve through the same maps.
+      const action = (typeof rawLabel === 'object' && rawLabel !== null ? rawLabel : null) as DbAction | null;
+      const rawName = action?.display_name ?? (rawLabel as string);
 
       // ── Normalize: map all quick-action / create-registry labels to canonical keys ──
       const normalizeMap: Record<string, string> = {
@@ -673,7 +959,7 @@ export default function GlobalShell() {
         'Publish Design': 'Publish design',
         'Create Social Post': 'Post',
       };
-      const label = ciLookup(normalizeMap, rawLabel) || rawLabel;
+      const label = ciLookup(normalizeMap, rawName) || rawName;
 
       // ── Document types → Document Engine with the correct config ──
       const docTypeMap: Record<string, DocumentType> = {
@@ -708,12 +994,12 @@ export default function GlobalShell() {
       // creating an invoice or a sales receipt. The modal has amount,
       // payment method (cash/check/card/Stripe/ACH), apply-to-invoice,
       // deposit-to, and settlement status (settled vs pending for Stripe
-      // payouts). It persists to payment_transactions and marks the linked
-      // invoice Paid in the store.
+      // payouts). It persists via the receive endpoint /
+      // payment_transactions.
       if (label === 'Receive payment') {
         setPaymentPrefill({
-          partyId: prefill?.partyId || null,
-          partyName: prefill?.partyName || null,
+          partyId: prefill?.partyId || undefined,
+          partyName: prefill?.partyName || undefined,
           source: prefill?.source,
           email: prefill?.email ?? null,
         });
@@ -723,40 +1009,24 @@ export default function GlobalShell() {
 
       const asDoc = ciLookup(docTypeMap, label);
       if (asDoc && label !== 'Void') {
-        // §1.3 Context Envelope — creating from a party record resolves that
-        // record into the engine's party picker. Resolution order:
-        //   1. Supabase uuid — the platformStore mirror keeps store ids
-        //      identical to the Supabase ids, so an exact id match resolves
-        //      instantly (the common case — no placeholder needed).
-        //   2. Name match.
-        //   3. Placeholder — created on first use so the prefill never
-        //      silently disappears.
-        let storePartyId: string | null = null;
-        if (prefill?.partyId || prefill?.partyName) {
-          const st = usePlatformStore.getState();
-          const byId = prefill?.partyId ? st.parties.find(p => p.id === prefill.partyId) : undefined;
-          const byName = prefill?.partyName
-            ? st.parties.find(p => p.name.toLowerCase() === prefill.partyName!.toLowerCase())
-            : undefined;
-          if (byId) {
-            storePartyId = byId.id;
-          } else if (byName) {
-            storePartyId = byName.id;
-          } else {
-            const role: PartyRole = prefill.source === 'acct_vendors' ? 'Vendor'
-              : prefill.source === 'suppliers' ? 'Supplier'
-              : prefill.source === 'crm_leads' ? 'Lead' : 'Customer';
-            storePartyId = st.addParty({
-              name: prefill.partyName!, displayName: prefill.partyName!,
-              firstName: '', lastName: '',
-              email: prefill.email || '', phone: '',
-              roles: [role], balance: 0, address: '', city: '', state: '', zip: '', country: '',
-              terms: '', creditLimit: 0, taxId: '', taxExempt: false, track1099: false,
-              notes: '', tags: [], owner: 'Current user', segmentIds: [],
-            });
-          }
+        // §1.3 Context Envelope — creating from a party record prefills
+        // the engine's party picker with the REAL record id (callers
+        // pass Supabase ids). A name-only prefill resolves against
+        // GET /api/parties; if it cannot be resolved the engine opens
+        // unprefilled rather than inventing a placeholder party.
+        if (prefill?.partyId) {
+          openDocEngine(asDoc, null, prefill.partyId);
+        } else if (prefill?.partyName) {
+          const wanted = prefill.partyName.toLowerCase();
+          fetchJson<{ data: { id: string; displayName?: string; name?: string }[] }>('/api/parties')
+            .then(res => {
+              const match = res.ok ? (res.data.data || []).find(x => (x.displayName || x.name || '').toLowerCase() === wanted) : undefined;
+              openDocEngine(asDoc, null, match?.id ?? null);
+            })
+            .catch(() => openDocEngine(asDoc, null, null));
+        } else {
+          openDocEngine(asDoc, null, null);
         }
-        openDocEngine(asDoc, null, storePartyId);
         return;
       }
 
@@ -786,21 +1056,6 @@ export default function GlobalShell() {
         'File extension': ['finance', 'tax-filing'],
         // CRM Appointments — the create flyout lands on the calendar screen.
         'Appointment': ['contacts', 'appointments'],
-        // CRM & Communication cross-module actions
-        'Send customer message': ['contacts', 'parties'],
-        'Create support ticket': ['support', 'tickets'],
-        'View customer invoices': ['finance', 'invoices'],
-        'View customer statements': ['finance', 'statements'],
-        'Add lead': ['contacts', 'leads'],
-        'Create deal': ['contacts', 'deals'],
-        'Book appointment': ['contacts', 'appointments'],
-        'Add note': ['contacts', 'parties'],
-        // Seller Marketplace
-        'Add seller': ['contacts', 'sellers'],
-        'Review onboarding queue': ['contacts', 'sellers'],
-        'View seller feed': ['contacts', 'sellers'],
-        'Review appeals': ['contacts', 'sellers'],
-        'Review violations': ['contacts', 'sellers'],
       };
       const navTarget = ciLookup(navigateMap, label);
       if (navTarget) {
@@ -812,9 +1067,8 @@ export default function GlobalShell() {
       // Customer/Vendor/Supplier/Lead/Seller live in real Supabase tables
       // (crm_customers / acct_vendors / suppliers / crm_leads / sellers +
       // seller_self_serve_profiles): their create flows open the same
-      // PartyFormDrawer every Contacts screen uses → POST /api/parties →
-      // mirror into platformStore for the doc-engine pickers. Contractors
-      // remain store entities (contractor modal).
+      // PartyFormDrawer every Contacts screen uses → POST /api/parties.
+      // Contractors use the contractor modal.
       const partyKinds: Record<string, PartyRole> = {
         'Add customer': 'Customer',
         'Customer': 'Customer',
@@ -927,12 +1181,47 @@ export default function GlobalShell() {
         return;
       }
 
-      showToast(`Create → ${label}`);
+      // ── Registry resolution: the action knows its own table + route.
+      //  A table with an insert path opens the generic create drawer
+      //  directly; otherwise we open the screen the registry points at
+      //  (matched by backing table, then id slug, then label). No
+      //  create action ends in a toast pretending to be a feature.
+      if (action) {
+        const table = action.target_table ?? null;
+        if (table && (TABLE_REGISTRY[table]?.writable || TABLE_POST_ROUTES[table])) {
+          openGenericCreate(table, action.display_name);
+          return;
+        }
+        const route = action.ui_route || '';
+        const segs = route.split('/').filter(Boolean);
+        if (segs.length > 0) {
+          const domain = resolveDomainKey(segs[0]);
+          const screens = tenantDomains[domain] ? screensOf(tenantDomains[domain]) : [];
+          const slug = segs[segs.length - 1];
+          const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const byTable = table ? screens.find((s) => (s as { backingTable?: string | null }).backingTable === table) : undefined;
+          const byId = screens.find((s) => s.id === slug || s.id === `${domain}-${slug}` || s.id.endsWith(`--${slug}`) || s.id.endsWith(`-${slug}`));
+          const byLabel = screens.find((s) => norm(s.label) === norm(slug) || (action.object_type ? norm(s.label) === norm(action.object_type) : false));
+          const hit = byTable || byId || byLabel;
+          if (hit) {
+            openOrActivateTab(domain, hit.id);
+            return;
+          }
+          if (screens.length > 0) {
+            openOrActivateTab(domain, screens[0].id);
+            return;
+          }
+        }
+      }
+
+      showToast(`No create flow for ${label} yet`);
     },
     [
       openDocEngine,
       openOrActivateTab,
       openRecordDrawer,
+      openGenericCreate,
+      tenantDomains,
       setContractorModalOpen,
       setQuickTaskModalOpen,
       showToast,
@@ -953,8 +1242,10 @@ export default function GlobalShell() {
         // domain.
         openOrActivateTab('reports', 'reports-overview');
       } else if (id === 'inbox') {
-        // Inbox → Support omnichannel inbox (real screen).
-        openOrActivateTab('support', 'messages');
+        // Mail is a QUICK ACTION (Kim, 2026-11-15): the rail icon
+        // opens the compose overlay — pick a party, start from a
+        // template, send. It is not a screen and not part of CRM.
+        setMailOpen(true);
       } else if (id === 'tasks') {
         // Tasks & calendar → opens the Tasks & Projects page (full screen).
         openOrActivateTab('dashboard', 'tasks');
@@ -1003,11 +1294,13 @@ export default function GlobalShell() {
         ? prev
         : [...prev, { domain, screen }],
     );
-  }, [setRailBookmarks]);
+    persistBookmark(domain, screen);
+  }, [setRailBookmarks, persistBookmark]);
 
   const handleRemoveBookmark = useCallback((domain: DomainKey, screen: string) => {
     setRailBookmarks(prev => prev.filter((b) => !(b.domain === domain && b.screen === screen)));
-  }, [setRailBookmarks]);
+    persistUnbookmark(domain, screen);
+  }, [setRailBookmarks, persistUnbookmark]);
 
   const activeTabKey = `${activeDomain}:${activeScreen}`;
 
@@ -1018,6 +1311,14 @@ export default function GlobalShell() {
         activeTabKey={activeTabKey}
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
+        onCloseOtherTabs={(tab) => handleCloseOtherTabs(tab.key)}
+        onCloseAllTabs={handleCloseAllTabs}
+        onBookmarkTab={(tab) => {
+          handleAddBookmark(tab.domain, tab.screenId);
+        }}
+        onOpenTabStandalone={(tab) => {
+          window.open(`/?view=${tab.domain}:${tab.screenId}&focus=1`, '_blank');
+        }}
         onOpenCreateFlyout={() => setCreateFlyoutOpen(true)}
         onOpenNavigationHub={() => setNavigationHubOpen(true)}
         onOpenSettings={(screenId) => openOrActivateTab('settings', screenId ?? 'ws-home')}
@@ -1042,6 +1343,7 @@ export default function GlobalShell() {
           bookmarksCount={railBookmarks.length}
           favoritesOpen={favoritesFlyoutOpen}
           onToggleFavorites={() => setFavoritesFlyoutOpen((prev) => !prev)}
+          inboxBadge={inboxUnread}
         />
       )}
 
@@ -1057,9 +1359,29 @@ export default function GlobalShell() {
           collapsed={sideRailCollapsed}
           onToggleCollapse={() => setSideRailCollapsed((prev) => !prev)}
           screenBadges={{ ...dashboardController.queueBadges, ...(liveQueueBadges || {}) }}
+          domains={tenantDomains}
           onLaunchWizard={(category, subcategory) => {
             setWizardPrefill({ category, subcategory });
             openOrActivateTab('design', 'studio-wizard');
+          }}
+          onOpenWorkspace={() => openOrActivateTab('settings', 'ws-home')}
+          onExportWorkspace={async () => {
+            try {
+              const res = await fetch('/api/platform/export');
+              if (!res.ok) throw new Error('Export failed');
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `unleashe-export-${new Date().toISOString().slice(0, 10)}.json`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+              showToast('Workspace export downloaded');
+            } catch {
+              showToast('Workspace export failed');
+            }
           }}
         />
       )}
@@ -1067,11 +1389,15 @@ export default function GlobalShell() {
       <ScreenContent
         openTabs={openTabs}
         activeTabKey={activeTabKey}
+        domains={tenantDomains}
         dashboardController={dashboardController}
         onNavigate={openOrActivateTab}
         onCapCreate={handleCapCreate}
         onCreate={handleCreate}
+        onCreateTable={openGenericCreate}
+        listRefreshSignal={listRefreshSignal}
         onOpenCreateFlyout={() => setCreateFlyoutOpen(true)}
+        onOpenDocument={openDocEngine}
         onOpenPeek={(row) => {
           setPeekRow(row);
           setPeekOpen(true);
@@ -1084,18 +1410,36 @@ export default function GlobalShell() {
         wizardPrefill={wizardPrefill}
       />
 
+      <GenericCreateDrawer
+        open={genericCreate !== null}
+        table={genericCreate?.table ?? null}
+        title={genericCreate?.title ?? ''}
+        screenKey={genericCreate?.screenKey}
+        onClose={() => setGenericCreate(null)}
+        onSaved={() => setListRefreshSignal((n) => n + 1)}
+        onToast={showToast}
+      />
+
       <DashboardOverlays controller={dashboardController} onToast={showToast} />
 
       <PeekDrawer
         open={peekOpen}
         row={peekRow}
         onClose={() => setPeekOpen(false)}
+        onToast={showToast}
         onOpenFull={() => {
           setPeekOpen(false);
-          // Open the real document in the engine when the row maps to one
-          const rowDoc = peekRow && (peekRow.documentId || peekRow.id) ? store.getDocument(String(peekRow.documentId || peekRow.id)) : null;
-          if (rowDoc) openDocEngine(rowDoc.type, rowDoc.id);
-          else openDocEngine('Invoice');
+          // Open the real document in the engine when the row maps to
+          // one: the row's id is probed against the Document Engine.
+          const docId = peekRow && (peekRow.documentId || peekRow.id) ? String(peekRow.documentId || peekRow.id) : null;
+          const guess = (peekRow?.docType as DocumentType) || 'Invoice';
+          if (!docId) { showToast('This record has no document to open'); return; }
+          fetchJson(`/api/v1/documents/${docId}?type=${guess}`)
+            .then(res => {
+              if (res.ok) openDocEngine(guess, docId);
+              else showToast('This record does not map to a document');
+            })
+            .catch(() => showToast('This record does not map to a document'));
         }}
       />
 
@@ -1107,97 +1451,150 @@ export default function GlobalShell() {
         record={recordInit}
         onClose={() => { setRecordDrawerOpen(false); setRecordRole(null); setRecordInit(null); }}
         onToast={showToast}
-        onSave={(values) => {
-          /* Write every record create to the shared store — a real row
-             appears in the corresponding list the moment you save. */
-          if (recordKind === 'Party') {
-            const roles = (values.roles as PartyRole[]) || (recordRole ? [recordRole] : []);
-            const id = store.addParty({
-              name: String(values.name || ''),
-              displayName: String(values.displayName || values.name || ''),
-              firstName: '',
-              lastName: '',
-              email: String(values.email || ''),
-              phone: String(values.phone || ''),
-              roles,
-              balance: 0,
-              address: String(values.address || ''),
-              city: String(values.city || ''),
-              state: String(values.state || ''),
-              zip: String(values.zip || ''),
-              country: String(values.country || 'United States'),
-              terms: String(values.terms || 'Net 30'),
-              creditLimit: Number(values.creditLimit || 0),
-              taxId: String(values.taxId || ''),
-              taxExempt: false,
-              track1099: Boolean(values.track1099),
-              notes: String(values.notes || ''),
-              tags: [],
-              owner: 'Current user',
-              segmentIds: [],
-              ...(roles.includes('Lead') ? { leadSource: String(values.leadSource || ''), leadStatus: String(values.leadStatus || 'New'), leadValue: Number(values.leadValue || 0) } : {}),
-              ...(roles.includes('Supplier') ? { supplierLeadTime: Number(values.supplierLeadTime || 0), supplierAccountNo: String(values.supplierAccountNo || ''), supplierUrl: String(values.supplierUrl || '') } : {}),
-              ...(roles.includes('Vendor') ? { vendorDefaultAccount: String(values.vendorDefaultAccount || '') } : {}),
-            });
-            showToast(`${String(values.name || 'Party')} added as ${roles.join(', ') || 'party'}`);
-            return;
+        onSave={async (values) => {
+          /* Every record create lands in its real table via the API.
+             A failed call reports the API's error — nothing is saved
+             locally and no success is claimed. */
+          const fail = (res: { error?: string }, what: string) => {
+            showToast(res.error || `${what} could not be saved`);
+            return false;
+          };
+          try {
+            if (recordKind === 'Party') {
+              const roles = ((values.roles as PartyRole[]) || (recordRole ? [recordRole] : []));
+              if (!roles.length) { showToast('Select at least one role'); return false; }
+              const name = String(values.name || '');
+              const [firstName, ...rest] = name.split(' ');
+              let lastError: string | undefined;
+              let saved = 0;
+              for (const role of roles) {
+                const roleKey = role.toLowerCase();
+                const base: Record<string, unknown> = {
+                  role: roleKey,
+                  name,
+                  display: String(values.displayName || name),
+                  email: String(values.email || '') || undefined,
+                  phone: String(values.phone || '') || undefined,
+                  address: String(values.address || '') || undefined,
+                  city: String(values.city || '') || undefined,
+                  state: String(values.state || '') || undefined,
+                  zip: String(values.zip || '') || undefined,
+                  country: String(values.country || 'United States'),
+                  notes: String(values.notes || '') || undefined,
+                };
+                if (roleKey === 'customer') {
+                  base.first_name = firstName || undefined;
+                  base.last_name = rest.join(' ') || undefined;
+                  base.company_name = name;
+                }
+                if (roleKey === 'vendor') {
+                  const termsMatch = /\d+/.exec(String(values.terms || 'Net 30'));
+                  base.terms = termsMatch ? Number(termsMatch[0]) : 30;
+                  base.is1099 = Boolean(values.track1099);
+                  base.tax_number = String(values.taxId || '') || undefined;
+                  if (values.vendorDefaultAccount) base.default_expense_account_id = values.vendorDefaultAccount;
+                }
+                if (roleKey === 'lead') {
+                  base.lead_source = String(values.leadSource || '') || undefined;
+                  base.status = String(values.leadStatus || 'New');
+                }
+                if (roleKey === 'supplier') {
+                  base.kind = 'company';
+                }
+                if (roleKey === 'seller') {
+                  // Sellers are created through Seller onboarding, not the party drawer.
+                  lastError = 'Sellers are created from the Sellers module';
+                  continue;
+                }
+                if (roleKey === 'contractor') {
+                  // Contractors are vendor records flagged 1099.
+                  base.role = 'vendor';
+                  base.is1099 = true;
+                  base.tax_number = String(values.taxId || '') || undefined;
+                }
+                const res = await fetchJson('/api/parties', { method: 'POST', body: JSON.stringify(base) });
+                if (!res.ok) lastError = (res as { error?: string }).error;
+                else saved++;
+              }
+              if (!saved) { showToast(lastError || 'Party could not be saved'); return false; }
+              showToast(`${name || 'Party'} added as ${roles.join(', ')}`);
+              return true;
+            }
+            if (recordKind === 'Item') {
+              const ftMap: Record<string, string> = { 'Stock': 'stocked', 'POD': 'pod', 'Supplier-fulfilled': 'supplier', 'Digital': 'digital' };
+              const res = await fetchJson('/api/products', {
+                method: 'POST',
+                body: JSON.stringify({
+                  name: String(values.name || ''),
+                  description: String(values.description || '') || undefined,
+                  status: 'draft',
+                  fulfillment_type: ftMap[String(values.fulfillmentType || 'Stock')] || 'stocked',
+                }),
+              });
+              if (!res.ok) return fail(res as { error?: string }, 'Product');
+              showToast(`${String(values.name || 'Item')} added to catalog as a draft (SKU and pricing are set on the product)`);
+              return true;
+            }
+            if (recordKind === 'Account') {
+              const res = await fetchJson('/api/accounting/chart-of-accounts', {
+                method: 'POST',
+                body: JSON.stringify({
+                  name: String(values.name || ''),
+                  code: String(values.number || ''),
+                  type: String(values.type || 'Expense'),
+                  detail: String(values.detailType || '') || undefined,
+                  description: String(values.description || '') || undefined,
+                  openingBalance: Number(values.openingBalance || 0),
+                }),
+              });
+              if (!res.ok) return fail(res as { error?: string }, 'Account');
+              showToast(`Account ${String(values.name || '')} added to chart of accounts`);
+              return true;
+            }
+            if (recordKind === 'Expense') {
+              const amount = Number(values.amount || 0);
+              const res = await fetchJson('/api/v1/documents', {
+                method: 'POST',
+                body: JSON.stringify({
+                  type: 'Expense',
+                  partyId: (values.payeeId as string) || undefined,
+                  bankAccountId: (values.paidFrom as string) || undefined,
+                  date: String(values.date || new Date().toISOString().slice(0, 10)),
+                  subtotal: amount,
+                  total: amount,
+                  status: 'posted',
+                  memo: String(values.memo || '') || undefined,
+                  lines: [{ description: String(values.memo || 'Expense'), quantity: 1, unitPrice: amount, accountId: (values.category as string) || undefined }],
+                }),
+              });
+              if (!res.ok) return fail(res as { error?: string }, 'Expense');
+              showToast(`Expense of $${amount.toFixed(2)} recorded`);
+              return true;
+            }
+            if (recordKind === 'Ticket') {
+              const channelMap: Record<string, string> = { 'Email': 'email', 'Chat': 'chat', 'Social DM': 'social', 'Marketplace message': 'marketplace', 'Web form': 'web' };
+              const priorityMap: Record<string, string> = { 'Low': 'low', 'Normal': 'normal', 'High': 'high', 'Urgent': 'urgent' };
+              const res = await fetchJson('/api/v1/tickets', {
+                method: 'POST',
+                body: JSON.stringify({
+                  subject: String(values.subject || ''),
+                  source_channel: channelMap[String(values.channel || 'Web form')] || 'web',
+                  requester_type: 'customer',
+                  requester_customer_id: (values.requesterId as string) || undefined,
+                  priority: priorityMap[String(values.priority || 'Normal')] || 'normal',
+                  category: 'general',
+                }),
+              });
+              if (!res.ok) return fail(res as { error?: string }, 'Ticket');
+              showToast(`Ticket created: ${String(values.subject || '')}`);
+              return true;
+            }
+            showToast(`No create endpoint exists for ${recordKind} yet — nothing was saved`);
+            return false;
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : 'Save failed');
+            return false;
           }
-          if (recordKind === 'Item') {
-            store.addItem({
-              name: String(values.name || ''),
-              sku: String(values.sku || ''),
-              type: (values.type as never) || 'Product',
-              category: String(values.category || ''),
-              status: 'Draft',
-              price: Number(values.price || 0),
-              cost: Number(values.cost || 0),
-              description: String(values.description || ''),
-              incomeAccount: String(values.incomeAccount || '4000 Product Sales'),
-              expenseAccount: String(values.expenseAccount || '5000 COGS'),
-              taxable: Boolean(values.taxable),
-              trackInventory: Boolean(values.trackInventory),
-              fulfillmentType: (values.fulfillmentType as never) || 'Stock',
-              stockOnHand: 0,
-              reorderPoint: Number(values.reorderPoint || 0),
-              supplierId: (values.supplierId as string) || null,
-              designId: null,
-              channels: [],
-              image: '',
-              tags: [],
-            });
-            showToast(`${String(values.name || 'Item')} added to catalog`);
-            return;
-          }
-          if (recordKind === 'Account') {
-            store.addAccount({
-              number: String(values.number || ''),
-              name: String(values.name || ''),
-              type: (values.type as never) || 'Expense',
-              detailType: String(values.detailType || ''),
-              balance: Number(values.openingBalance || 0),
-              bankBalance: 0,
-              active: true,
-              parent: null,
-              description: String(values.description || ''),
-            });
-            showToast(`Account ${String(values.name || '')} added to chart of accounts`);
-            return;
-          }
-          if (recordKind === 'Expense') {
-            const amount = Number(values.amount || 0);
-            store.addDocument({
-              type: 'Expense', number: `EXP-${store.documents.filter(d => d.type === 'Expense').length + 1001}`,
-              partyId: (values.payeeId as string) || '', status: 'Paid',
-              date: String(values.date || new Date().toISOString().slice(0, 10)), dueDate: '',
-              lines: [{ id: 'L1', itemId: null, description: String(values.category || 'Expense'), qty: 1, rate: amount, amount, taxRate: 0, account: String(values.paidFrom || ''), tags: [] }],
-              subtotal: amount, tax: 0, shipping: 0, total: amount, amountPaid: amount, balance: 0,
-              memo: String(values.memo || ''), notes: '', tags: [], attachments: [],
-              orderId: null, poId: null, channelId: null, createdBy: 'Current user',
-            });
-            showToast(`Expense of $${amount.toFixed(2)} recorded`);
-            return;
-          }
-          showToast(`Saved ${recordKind}`);
         }}
       />
 
@@ -1233,8 +1630,117 @@ export default function GlobalShell() {
       <CreateFlyout
         open={createFlyoutOpen}
         onClose={() => setCreateFlyoutOpen(false)}
-        onSelectCreate={handleCreate}
+        onSelectCreate={(action) => {
+          // Registry create actions with a real home execute or navigate
+          // to the surface that performs them — the binding travels with
+          // the click instead of being dropped to a label.
+          const code = typeof action === 'object' && action !== null ? (action.action_code ?? '') : '';
+          if (code === 'create.invitation') {
+            setCreateFlyoutOpen(false);
+            try { sessionStorage.setItem('ws:open-invite', '1'); } catch { /* noop */ }
+            openOrActivateTab('settings', 'ws-teammates');
+            return;
+          }
+          if (code === 'create.out_of_office') {
+            setCreateFlyoutOpen(false);
+            setProfileAction('out-of-office');
+            return;
+          }
+          if (code === 'create.notification_preference') {
+            setCreateFlyoutOpen(false);
+            setProfileAction('notification-preference');
+            return;
+          }
+          // Registry create actions resolve by action_code — the
+          // display label alone dropped most of them to the fallback
+          // toast (the flyout "didn't work"). Tier 1: the canonical
+          // create flows handleCreate already owns (doc engine, party
+          // drawer, item/account drawers, modals). Tier 2: navigate
+          // to the module screen whose own create performs the action
+          // (targets verified against the shell + merged DB nav).
+          const CREATE_LABEL_BY_CODE: Record<string, string> = {
+            'create.invoice': 'Invoice',
+            'create.estimate': 'Estimate',
+            'create.bill': 'Bill',
+            'create.check': 'Check',
+            'create.expense': 'Expense',
+            'create.credit_memo': 'Credit memo',
+            'create.vendor_credit': 'Vendor credit',
+            'create.journal_entry': 'Journal entry',
+            'create.sales_receipt': 'Sales receipt',
+            'create.purchase_order': 'Purchase order',
+            'create.sales_order': 'Sales order',
+            'create.receive_payment': 'Receive payment',
+            'create.pay_bills': 'Pay bills',
+            'create.statement': 'Statement',
+            'create.payment_link': 'Payment link',
+            'create.customer': 'Add customer',
+            'create.vendor': 'Add vendor',
+            'create.supplier': 'Add supplier',
+            'create.contractor': 'Add contractor',
+            'create.employee': 'Add employee',
+            'create.product': 'Product',
+            'create.product_service': 'Add product/service',
+            'create.account': 'Add account',
+            'create.category': 'Category',
+            'create.task': 'Task',
+            'create.note': 'Add note',
+            'create.time_entry': 'Time entry',
+            'create.ticket': 'Ticket',
+            'create.design': 'Design',
+            'create.return_rma': 'Return/RMA',
+            'create.appointment': 'Appointment',
+            'create.reconcile': 'Reconcile',
+            'create.bank_deposit': 'Bank deposit',
+            'create.post': 'Post',
+            'create.inventory_count': 'Cycle count',
+            'create.void': 'Void',
+          };
+          const CREATE_NAV_BY_CODE: Record<string, [DomainKey, string]> = {
+            'create.deal': ['contacts', 'deals'],
+            'create.pipeline': ['contacts', 'deals'],
+            'create.lead_scoring_rule': ['contacts', 'leads'],
+            'create.tracked_record': ['contacts', 'parties'],
+            'create.record_event': ['contacts', 'parties'],
+            'create.calendar_event': ['contacts', 'appointments'],
+            'create.mailbox': ['settings', 'ws-mailboxes'],
+            'create.banner': ['marketing', 'marketing-banners'],
+            'create.popup': ['marketing', 'marketing-popups'],
+            'create.discount_code': ['marketing', 'mkt-promotions'],
+            'create.newsletter': ['marketing', 'mkt-newsletter'],
+            'create.sequence': ['marketing', 'mkt-sequences'],
+            'create.webform': ['marketing', 'mkt-webforms'],
+            'create.campaign': ['marketing', 'mkt-campaigns'],
+            'create.listing_category': ['catalog', 'catalog-listing--categories'],
+            'create.collection': ['catalog', 'collection'],
+            'create.custom_field': ['settings', 'settings-customization--custom-fields'],
+            'create.picklist_value': ['settings', 'settings-customization--picklists'],
+            'create.dashboard': ['reports', 'reports-dashboards'],
+            'create.report': ['reports', 'reports-dashboards'],
+            'create.settlement': ['finance', 'finance-banking--settlements'],
+            'create.transfer': ['finance', 'finance-banking--transfers'],
+            'create.payroll_run': ['finance', 'payroll'],
+            'create.escalation_policy': ['support', 'support-on-call--escalation-policies'],
+            'create.oncall_schedule': ['support', 'support-on-call--escalation-policies'],
+            'create.oncall_override': ['support', 'support-on-call--escalation-policies'],
+            'create.sales_tax_filing': ['finance', 'tax-overview'],
+          };
+          if (CREATE_LABEL_BY_CODE[code]) {
+            handleCreate(CREATE_LABEL_BY_CODE[code]);
+            return;
+          }
+          if (CREATE_NAV_BY_CODE[code]) {
+            setCreateFlyoutOpen(false);
+            openOrActivateTab(CREATE_NAV_BY_CODE[code][0], CREATE_NAV_BY_CODE[code][1]);
+            return;
+          }
+          handleCreate(action);
+        }}
       />
+
+      {profileAction && (
+        <ProfileActionModal kind={profileAction} onClose={() => setProfileAction(null)} />
+      )}
 
       <NavigationHubFlyout
         open={navigationHubOpen}
@@ -1271,7 +1777,7 @@ export default function GlobalShell() {
         open={quickActionsDrawerOpen}
         onClose={() => setQuickActionsDrawerOpen(false)}
         selectedActionIds={favoriteIds}
-        onSelectedActionIdsChange={setFavoriteIds}
+        onSelectedActionIdsChange={handleFavoriteIdsChange}
         onToast={showToast}
         onSelectAction={(actionName) => {
           handleCreate(actionName);
@@ -1300,7 +1806,8 @@ export default function GlobalShell() {
         onToast={showToast}
       />
 
-      <Toast message={toastMsg} visible={toastVisible} />
+      {mailOpen && <MailQuickAction onClose={() => setMailOpen(false)} />}
+        <Toast message={toastMsg} visible={toastVisible} />
     </>
   );
 }

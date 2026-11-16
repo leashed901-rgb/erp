@@ -57,7 +57,6 @@ import ListingsPage from './catalog/ListingsPage';
 import BundlesPage from './catalog/BundlesPage';
 import CollectionsPage from './catalog/CollectionsPage';
 import BrandsPage from './catalog/BrandsPage';
-import PricingPage from './catalog/PricingPage';
 import EcommercePage from './catalog/EcommercePage';
 import ContactsParties from './contacts/ContactsParties';
 import CrmOverviewSupabase from './contacts/CrmOverviewSupabase';
@@ -3349,9 +3348,9 @@ function TabScreenRenderer({
     return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
-  if (screenId === 'pricing') {
-    return <PricingPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
-  }
+  // NOTE: 'pricing' is no longer a standalone sidebar page. Pricing lives ON
+  // the item as a quick-action drawer (PricingDrawer), wired into
+  // CatalogProductsScreen's row menu. The broken PricingPage has been removed.
 
   if (screenId === 'ecommerce') {
     return <EcommercePage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;

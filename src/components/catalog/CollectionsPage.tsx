@@ -64,7 +64,69 @@ export default function CollectionsPage({ onToast, onNavigate }: Props) {
     </div>
   </div>
 
-  
+  {/* ── CATEGORIES heading — the category tree that groups collections.
+      This is the "category heading" section: a proper labeled block showing
+      every top-level category with its subcategory count and product rollup. */}
+  <div className="mb-5">
+    <div className="flex items-center justify-between mb-3">
+      <div>
+        <h2 className="text-headline-md flex items-center gap-2">
+          <span className="material-symbols-outlined text-[20px] text-qb-blue">category</span>
+          Categories
+        </h2>
+        <p className="text-body-sm text-on-surface-variant mt-0.5">Top-level category tree — each category groups its subcategories and collections</p>
+      </div>
+      <button
+        className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
+        onClick={() => onToast('New category drawer')}
+      >
+        <span className="material-symbols-outlined text-[16px]">add</span>New category
+      </button>
+    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      {/* Apparel & Accessories */}
+      <div className="bg-white rounded-xl border border-surface-dim p-4 hover:border-qb-blue hover:shadow-sm transition-all cursor-pointer" onClick={() => onToast('Open Apparel & Accessories')}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-qb-blue/10 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px] text-qb-blue">checkroom</span>
+            </div>
+            <div className="font-semibold text-body-sm">Apparel &amp; Accessories</div>
+          </div>
+          <span className="stat info">3 subcategories</span>
+        </div>
+        <div className="text-[11px] text-on-surface-variant">1,945 products · Apparel · Headwear · Accessories</div>
+      </div>
+      {/* Home & Living */}
+      <div className="bg-white rounded-xl border border-surface-dim p-4 hover:border-qb-blue hover:shadow-sm transition-all cursor-pointer" onClick={() => onToast('Open Home & Living')}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-qb-green/10 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px] text-qb-green">chair</span>
+            </div>
+            <div className="font-semibold text-body-sm">Home &amp; Living</div>
+          </div>
+          <span className="stat info">3 subcategories</span>
+        </div>
+        <div className="text-[11px] text-on-surface-variant">1,151 products · Drinkware · Wall Art · Home &amp; Living</div>
+      </div>
+      {/* Other Categories */}
+      <div className="bg-white rounded-xl border border-surface-dim p-4 hover:border-qb-blue hover:shadow-sm transition-all cursor-pointer" onClick={() => onToast('Open Other Categories')}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-qb-maroon/10 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px] text-qb-maroon">widgets</span>
+            </div>
+            <div className="font-semibold text-body-sm">Other Categories</div>
+          </div>
+          <span className="stat info">7 subcategories</span>
+        </div>
+        <div className="text-[11px] text-on-surface-variant">1,154 products · Business · Cards · Collections · Games · Keepsakes · Tech · Wellness</div>
+      </div>
+    </div>
+  </div>
+
+  {/* ── COLLECTIONS table ── */}
   <div className="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
     <div className="flex items-center gap-1 px-4 h-11 border-b border-surface-dim overflow-x-auto">
       <button className="h-full px-3 text-label-md tab-underline active">All collections</button>

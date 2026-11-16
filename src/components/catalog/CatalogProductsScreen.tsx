@@ -17,6 +17,7 @@ import {
 import { exportToCsv } from '@/lib/csvExport';
 import ProductProfile from './ProductProfile';
 import ProductFormDrawer, { type ProductFormEditTarget } from './ProductFormDrawer';
+import PricingDrawer from './PricingDrawer';
 
 interface CatalogProductsScreenProps {
   onToast: (m: string) => void;
@@ -72,6 +73,9 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
   const [showCreate, setShowCreate] = useState(false);
   const [rowMenuForId, setRowMenuForId] = useState<string | null>(null);
   const [rowEditId, setRowEditId] = useState<string | null>(null);
+  // Pricing quick-action drawer — opens for a specific product row. Pricing
+  // is NOT a standalone sidebar page; it lives ON the item as a quick action.
+  const [pricingForProduct, setPricingForProduct] = useState<CatalogProductSummary | null>(null);
 
   // Client-side status filter on top of the cached list (search is debounced
   // by the API query param — we pass it straight through).
@@ -303,6 +307,9 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
                           <div className="menu-header">{p.name}</div>
                           <button onClick={() => { setRowMenuForId(null); setProfileId(p.id); }}><span className="material-symbols-outlined">inventory_2</span>Open profile</button>
                           <button onClick={() => { setRowMenuForId(null); setRowEditId(p.id); }}><span className="material-symbols-outlined">edit</span>Edit product</button>
+                          {/* Pricing lives ON the item — quick-action drawer showing
+                              variant matrix + supplier price comparison. */}
+                          <button onClick={() => { setRowMenuForId(null); setPricingForProduct(p); }}><span className="material-symbols-outlined">payments</span>Compare pricing</button>
                           <button onClick={() => rowTogglePublish(p)}>
                             <span className="material-symbols-outlined">{p.status === 'published' ? 'unpublished' : 'publish'}</span>
                             {p.status === 'published' ? 'Unpublish (draft)' : 'Publish'}
@@ -352,6 +359,20 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
         onSaved={() => { refetch(); }}
         onToast={onToast}
       />
+
+      {/* Pricing quick-action drawer — opens for the row that triggered it.
+          Variant matrix + supplier price comparison. Pricing is NOT a
+          standalone sidebar page; it lives ON the item. */}
+      {pricingForProduct && (
+        <PricingDrawer
+          item={{
+            name: pricingForProduct.name,
+            category: pricingForProduct.category?.name ?? undefined,
+          }}
+          onClose={() => setPricingForProduct(null)}
+          onToast={onToast}
+        />
+      )}
     </main>
   );
 }

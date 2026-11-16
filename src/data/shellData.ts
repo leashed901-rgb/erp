@@ -231,7 +231,9 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
           { id: 'categories', label: 'Categories', type: 'list' },
           { id: 'bundles', label: 'Bundles', type: 'list' },
           { id: 'brands', label: 'Brands', type: 'list' },
-          { id: 'pricing', label: 'Pricing', type: 'list' },
+          // Pricing is NOT a standalone page — it's a quick-action drawer
+          // that opens on a product/item row (see PricingDrawer.tsx, wired
+          // into CatalogProductsScreen). Don't add it back to the sidebar.
         ],
       },
     ],

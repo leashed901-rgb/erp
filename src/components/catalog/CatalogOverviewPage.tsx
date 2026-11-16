@@ -49,22 +49,22 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
 
   
   <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-    <div className="kpi" onClick="toast('Open Products')">
+    <div className="kpi" onClick={() => onToast('Open Products')}>
       <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-blue">inventory</span>Products</div>
       <div className="kpi-val">5,079</div>
       <div className="kpi-sub">Across 12 suppliers · 1,024 designed</div>
     </div>
-    <div className="kpi" onClick="toast('Open Variants &amp; SKUs')">
+    <div className="kpi" onClick={() => onToast('Open Variants &amp; SKUs')}>
       <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-teal">qr_code</span>Variants &amp; SKUs</div>
       <div className="kpi-val">8,412</div>
       <div className="kpi-sub">91 on Classic Tee · 49 on Polo</div>
     </div>
-    <div className="kpi" onClick="toast('Open Suppliers')">
+    <div className="kpi" onClick={() => onToast('Open Suppliers')}>
       <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-maroon">factory</span>Suppliers</div>
       <div className="kpi-val">12</div>
       <div className="kpi-sub">3 POD · 2 materials · 7 other</div>
     </div>
-    <div className="kpi" onClick="toast('Open Channels')">
+    <div className="kpi" onClick={() => onToast('Open Channels')}>
       <div className="kpi-label"><span className="material-symbols-outlined text-[14px] text-qb-green">local_mall</span>Channels</div>
       <div className="kpi-val">4</div>
       <div className="kpi-sub">3 connected · 1 needs sync · 2 errors</div>
@@ -112,7 +112,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
         <span className="text-[11px] text-error font-semibold">5 items</span>
       </div>
       <div>
-        <div className="act-row" onClick="toast('Open 47 products needing sync')">
+        <div className="act-row" onClick={() => onToast('Open 47 products needing sync')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">sync_problem</span>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium">47 products out of sync</div>
@@ -120,7 +120,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick="toast('Open Etsy sync errors')">
+        <div className="act-row" onClick={() => onToast('Open Etsy sync errors')}>
           <span className="material-symbols-outlined text-[18px] text-error">error</span>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium">2 failed syncs on Etsy</div>
@@ -128,7 +128,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick="toast('Open UGC moderation')">
+        <div className="act-row" onClick={() => onToast('Open UGC moderation')}>
           <span className="material-symbols-outlined text-[18px] text-qb-blue">rate_review</span>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium">8 UGC submissions pending</div>
@@ -136,7 +136,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick="toast('Open missing assets')">
+        <div className="act-row" onClick={() => onToast('Open missing assets')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">image_not_supported</span>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium">1 brand missing favicon</div>
@@ -144,7 +144,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
         </div>
-        <div className="act-row" onClick="toast('Open low stock')">
+        <div className="act-row" onClick={() => onToast('Open low stock')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">inventory_2</span>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium">3 SKUs low or out of stock</div>
@@ -163,7 +163,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <div className="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-headline-sm">Recent activity</h2>
-        <button className="text-[11px] text-primary font-semibold hover:underline" onClick="toast('View all activity')">View all</button>
+        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onToast('View all activity')}>View all</button>
       </div>
       <div className="space-y-3 text-body-sm">
         <div className="flex items-start gap-2">
@@ -208,37 +208,37 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <div className="bg-white rounded-xl border border-surface-dim p-5">
       <h2 className="text-headline-sm mb-3">Jump to</h2>
       <div className="space-y-1">
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick="toast('Open Products')">
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Products')}>
           <span className="material-symbols-outlined text-[18px] text-qb-blue">inventory</span>
           <span className="flex-1 text-body-sm font-medium">Products</span>
           <span className="text-[11px] text-on-surface-variant">5,079</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick="toast('Open Variants &amp; SKUs')">
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Variants &amp; SKUs')}>
           <span className="material-symbols-outlined text-[18px] text-qb-teal">qr_code</span>
           <span className="flex-1 text-body-sm font-medium">Variants &amp; SKUs</span>
           <span className="text-[11px] text-on-surface-variant">8,412</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick="toast('Open Bundles')">
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Bundles')}>
           <span className="material-symbols-outlined text-[18px] text-qb-green">redeem</span>
           <span className="flex-1 text-body-sm font-medium">Bundles</span>
           <span className="text-[11px] text-on-surface-variant">12</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick="toast('Open Suppliers')">
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Suppliers')}>
           <span className="material-symbols-outlined text-[18px] text-qb-maroon">factory</span>
           <span className="flex-1 text-body-sm font-medium">Suppliers</span>
           <span className="text-[11px] text-on-surface-variant">12</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick="toast('Open Brands')">
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Brands')}>
           <span className="material-symbols-outlined text-[18px] text-qb-navy">branding_watermark</span>
           <span className="flex-1 text-body-sm font-medium">Brands</span>
           <span className="text-[11px] text-on-surface-variant">3</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick="toast('Open Channels')">
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Channels')}>
           <span className="material-symbols-outlined text-[18px] text-qb-green">local_mall</span>
           <span className="flex-1 text-body-sm font-medium">Channels</span>
           <span className="text-[11px] text-on-surface-variant">4</span>
         </button>
-        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick="toast('Open Categories &amp; Collections')">
+        <button className="w-full text-left px-3 py-2 rounded hover:bg-surface-container-low flex items-center gap-2" onClick={() => onToast('Open Categories &amp; Collections')}>
           <span className="material-symbols-outlined text-[18px] text-qb-blue">category</span>
           <span className="flex-1 text-body-sm font-medium">Categories &amp; Collections</span>
           <span className="text-[11px] text-on-surface-variant">24</span>
@@ -254,10 +254,10 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <div className="bg-white rounded-xl border border-surface-dim p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-headline-sm">Top SKUs (30d)</h2>
-        <button className="text-[11px] text-primary font-semibold hover:underline" onClick="toast('Open Variants')">View all</button>
+        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onToast('Open Variants')}>View all</button>
       </div>
       <div>
-        <div className="act-row" onClick="toast('Open Classic Tee — M / Black')">
+        <div className="act-row" onClick={() => onToast('Open Classic Tee — M / Black')}>
           <div className="av bg-qb-blue">T</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Classic Tee — M / Black</div>
@@ -265,7 +265,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="text-body-sm font-semibold tabular-nums">$28.00</span>
         </div>
-        <div className="act-row" onClick="toast('Open Speckled Mug')">
+        <div className="act-row" onClick={() => onToast('Open Speckled Mug')}>
           <div className="av bg-qb-teal">M</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Speckled Wayland Ceramic Mug</div>
@@ -273,7 +273,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="text-body-sm font-semibold tabular-nums">$18.00</span>
         </div>
-        <div className="act-row" onClick="toast('Open Soy Candle — Lavender')">
+        <div className="act-row" onClick={() => onToast('Open Soy Candle — Lavender')}>
           <div className="av bg-qb-maroon">C</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Soy Candle — Lavender</div>
@@ -281,7 +281,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
           </div>
           <span className="text-body-sm font-semibold tabular-nums">$22.00</span>
         </div>
-        <div className="act-row" onClick="toast('Open Dad Cap')">
+        <div className="act-row" onClick={() => onToast('Open Dad Cap')}>
           <div className="av bg-qb-navy">D</div>
           <div className="min-w-0 flex-1">
             <div className="text-body-sm font-medium truncate">Dad Cap</div>
@@ -296,7 +296,7 @@ export default function CatalogOverviewPage({ onToast, onNavigate }: Props) {
     <div className="bg-white rounded-xl border border-surface-dim p-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-headline-sm">Channel health</h2>
-        <button className="text-[11px] text-primary font-semibold hover:underline" onClick="toast('Open Channels')">Manage</button>
+        <button className="text-[11px] text-primary font-semibold hover:underline" onClick={() => onToast('Open Channels')}>Manage</button>
       </div>
       <div className="space-y-2">
         <div className="flex items-center gap-3 py-2 border-b border-surface-dim last:border-0">

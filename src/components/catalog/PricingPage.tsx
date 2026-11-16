@@ -45,21 +45,21 @@ export default function PricingPage({ onToast, onNavigate }: Props) {
         
         <div className="popover-menu" style={{ top: '42px', right: 0 }}>
           <div className="menu-header">Apparel &amp; Accessories</div>
-          <button onClick="selectCat('Apparel', 'T-Shirt')"><span className="material-symbols-outlined">checkroom</span>Apparel <span className="badge">1,945</span></button>
-          <button onClick="selectCat('Headwear', 'Hat')"><span className="material-symbols-outlined">sports_baseball</span>Headwear <span className="badge">366</span></button>
-          <button onClick="selectCat('Accessories', 'Tote')"><span className="material-symbols-outlined">shopping_bag</span>Accessories <span className="badge">343</span></button>
+          <button onClick={() => selectCat('Apparel', 'T-Shirt')}><span className="material-symbols-outlined">checkroom</span>Apparel <span className="badge">1,945</span></button>
+          <button onClick={() => selectCat('Headwear', 'Hat')}><span className="material-symbols-outlined">sports_baseball</span>Headwear <span className="badge">366</span></button>
+          <button onClick={() => selectCat('Accessories', 'Tote')}><span className="material-symbols-outlined">shopping_bag</span>Accessories <span className="badge">343</span></button>
           <div className="menu-header">Home &amp; Living</div>
-          <button onClick="selectCat('Drinkware', 'Mug')"><span className="material-symbols-outlined">coffee</span>Drinkware <span className="badge">198</span></button>
-          <button onClick="selectCat('Wall Art', 'Poster')"><span className="material-symbols-outlined">image</span>Wall Art <span className="badge">630</span></button>
-          <button onClick="selectCat('Home &amp; Living', 'Blanket')"><span className="material-symbols-outlined">chair</span>Home &amp; Living <span className="badge">323</span></button>
+          <button onClick={() => selectCat('Drinkware', 'Mug')}><span className="material-symbols-outlined">coffee</span>Drinkware <span className="badge">198</span></button>
+          <button onClick={() => selectCat('Wall Art', 'Poster')}><span className="material-symbols-outlined">image</span>Wall Art <span className="badge">630</span></button>
+          <button onClick={() => selectCat('Home &amp; Living', 'Blanket')}><span className="material-symbols-outlined">chair</span>Home &amp; Living <span className="badge">323</span></button>
           <div className="menu-header">Other Categories</div>
-          <button onClick="selectCat('Business', 'Notebook')"><span className="material-symbols-outlined">work</span>Business &amp; commercial <span className="badge">258</span></button>
-          <button onClick="selectCat('Cards', 'Greeting Card')"><span className="material-symbols-outlined">mail</span>Cards &amp; stationery <span className="badge">267</span></button>
-          <button onClick="selectCat('Collections', 'Gift Set')"><span className="material-symbols-outlined">redeem</span>Collections &amp; Occasions <span className="badge">3</span></button>
-          <button onClick="selectCat('Games', 'Puzzle')"><span className="material-symbols-outlined">extension</span>Games &amp; Puzzles <span className="badge">21</span></button>
-          <button onClick="selectCat('Keepsakes', 'Ornament')"><span className="material-symbols-outlined">diamond</span>Keepsakes <span className="badge">527</span></button>
-          <button onClick="selectCat('Technology', 'Phone Case')"><span className="material-symbols-outlined">devices</span>Technology <span className="badge">65</span></button>
-          <button onClick="selectCat('Wellness', 'Water Bottle')"><span className="material-symbols-outlined">spa</span>Wellness <span className="badge">16</span></button>
+          <button onClick={() => selectCat('Business', 'Notebook')}><span className="material-symbols-outlined">work</span>Business &amp; commercial <span className="badge">258</span></button>
+          <button onClick={() => selectCat('Cards', 'Greeting Card')}><span className="material-symbols-outlined">mail</span>Cards &amp; stationery <span className="badge">267</span></button>
+          <button onClick={() => selectCat('Collections', 'Gift Set')}><span className="material-symbols-outlined">redeem</span>Collections &amp; Occasions <span className="badge">3</span></button>
+          <button onClick={() => selectCat('Games', 'Puzzle')}><span className="material-symbols-outlined">extension</span>Games &amp; Puzzles <span className="badge">21</span></button>
+          <button onClick={() => selectCat('Keepsakes', 'Ornament')}><span className="material-symbols-outlined">diamond</span>Keepsakes <span className="badge">527</span></button>
+          <button onClick={() => selectCat('Technology', 'Phone Case')}><span className="material-symbols-outlined">devices</span>Technology <span className="badge">65</span></button>
+          <button onClick={() => selectCat('Wellness', 'Water Bottle')}><span className="material-symbols-outlined">spa</span>Wellness <span className="badge">16</span></button>
         </div>
       </div>
     </div>
@@ -108,7 +108,7 @@ export default function PricingPage({ onToast, onNavigate }: Props) {
           <div className="text-[11px] text-on-surface-variant">Variant Matrix &amp; Supplier Routing</div>
         </div>
       </div>
-      <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick="closeFlyout()">
+      <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setShowFlyout(false)}>
         <span className="material-symbols-outlined text-[18px]">close</span>
       </button>
     </div>
@@ -239,9 +239,9 @@ export default function PricingPage({ onToast, onNavigate }: Props) {
 
     
     <div className="h-16 bg-white border-t border-surface-dim px-6 flex items-center justify-between shrink-0">
-      <button className="h-8 px-4 border border-surface-dim rounded text-body-md hover:bg-surface-container-low font-semibold" onClick="closeFlyout()">Cancel</button>
+      <button className="h-8 px-4 border border-surface-dim rounded text-body-md hover:bg-surface-container-low font-semibold" onClick={() => setShowFlyout(false)}>Cancel</button>
       <div className="flex items-center gap-2">
-        <button className="h-9 px-5 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center gap-2 shadow-sm" onClick="closeFlyout(); toast('Opening Design Studio with selected variant matrix...')">
+        <button className="h-9 px-5 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center gap-2 shadow-sm" onClick={() => { setShowFlyout(false); onToast('Opening Design Studio with selected variant matrix...'); }}>
           <span className="material-symbols-outlined text-[18px]">palette</span>Open Design Studio
         </button>
       </div>

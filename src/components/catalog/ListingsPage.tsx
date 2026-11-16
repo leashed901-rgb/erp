@@ -34,7 +34,7 @@ export default function ListingsPage({ onToast, onNavigate }: Props) {
     <div className="flex items-center gap-2">
       <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-sync-all>
         <span className="material-symbols-outlined text-[16px]">open_in_new</span>View live site</button>
-      <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 rounded" onClick="toast('New storefront listing flow')">
+      <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 rounded" onClick={() => onToast('New storefront listing flow')}>
           <span className="material-symbols-outlined text-[16px]">add</span>New listing
         </button>
     </div>
@@ -209,7 +209,7 @@ export default function ListingsPage({ onToast, onNavigate }: Props) {
           <div className="text-[11px] text-on-surface-variant">Calculate costs for this listing</div>
         </div>
       </div>
-      <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick="closeFlyout()">
+      <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setShowFlyout(false)}>
         <span className="material-symbols-outlined text-[18px]">close</span>
       </button>
     </div>
@@ -260,8 +260,8 @@ export default function ListingsPage({ onToast, onNavigate }: Props) {
     </div>
 
     <div className="h-16 bg-white border-t border-surface-dim px-6 flex items-center justify-between shrink-0">
-      <button className="h-8 px-4 border border-surface-dim rounded text-body-md hover:bg-surface-container-low font-semibold" onClick="closeFlyout()">Cancel</button>
-      <button className="h-9 px-5 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center gap-2 shadow-sm" onClick="closeFlyout(); toast('Opening Design Studio...')">
+      <button className="h-8 px-4 border border-surface-dim rounded text-body-md hover:bg-surface-container-low font-semibold" onClick={() => setShowFlyout(false)}>Cancel</button>
+      <button className="h-9 px-5 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center gap-2 shadow-sm" onClick={() => { setShowFlyout(false); onToast('Opening Design Studio...'); }}>
         <span className="material-symbols-outlined text-[18px]">palette</span>Save &amp; Open Studio
       </button>
     </div>
@@ -279,7 +279,7 @@ export default function ListingsPage({ onToast, onNavigate }: Props) {
         <div className="text-[11px] text-on-surface-variant">Lightweight Sweatshirt (AOP)</div>
       </div>
     </div>
-    <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick="closeDrawer('ugc')">
+    <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setShowUgcDrawer(false)}>
       <span className="material-symbols-outlined text-[18px]">close</span></button>
   </div>
   <div className="flex-1 overflow-y-auto p-5 space-y-6">
@@ -300,8 +300,8 @@ export default function ListingsPage({ onToast, onNavigate }: Props) {
       <div className="p-3">
         <p className="text-[12px] mb-3">"Loved the quality! Fits perfectly."</p>
         <div className="flex items-center gap-2">
-          <button className="flex-1 h-7 bg-primary text-white rounded text-[11px] font-semibold hover:bg-primary-container" onClick="toast('Approved')">Approve</button>
-          <button className="flex-1 h-7 border border-error text-error rounded text-[11px] font-semibold hover:bg-error-container/20" onClick="toast('Rejected')">Reject</button>
+          <button className="flex-1 h-7 bg-primary text-white rounded text-[11px] font-semibold hover:bg-primary-container" onClick={() => onToast('Approved')}>Approve</button>
+          <button className="flex-1 h-7 border border-error text-error rounded text-[11px] font-semibold hover:bg-error-container/20" onClick={() => onToast('Rejected')}>Reject</button>
         </div>
       </div>
     </div>

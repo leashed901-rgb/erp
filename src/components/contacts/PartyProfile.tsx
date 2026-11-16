@@ -29,8 +29,9 @@ import { useCustomerTransactions } from '@/hooks/useAccounting';
 import { exportToCsv } from '@/lib/csvExport';
 import { useSellerStore } from '@/lib/sellerStore';
 import PartyFormDrawer, { type PartyFormEditTarget } from './PartyFormDrawer';
+import SequencingTab from './SequencingTab';
 
-type Tab = 'transactions' | 'activity' | 'statements' | 'recurring' | 'details' | 'latefees' | 'notes' | 'tasks';
+type Tab = 'transactions' | 'activity' | 'statements' | 'recurring' | 'details' | 'latefees' | 'notes' | 'tasks' | 'sequencing';
 
 const money = (n: number | null | undefined) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function initials(name: string) {
@@ -58,6 +59,7 @@ const TABS: { id: Tab; label: string; badge?: string }[] = [
   { id: 'latefees', label: 'Late Fees' },
   { id: 'notes', label: 'Notes' },
   { id: 'tasks', label: 'Tasks', badge: 'New' },
+  { id: 'sequencing', label: 'Sequencing', badge: 'New' },
 ];
 
 /* "New transaction" menu — adapts to role: customers get Invoice/Receipt,
@@ -805,7 +807,7 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                       // Seller relationships workspace (onboarding, violations,
                       // appeals, social feed) without losing context.
                       useSellerStore.getState().setSelectedSellerId(partyId);
-                      onNavigate?.('contacts', 'seller-detail');
+                      onNavigate?.('contacts', 'seller-profile');
                     }}
                   >
                     <span className="material-symbols-outlined text-[16px]">storefront</span>Open seller workspace
@@ -964,6 +966,16 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
               )}
             </div>
           </div>
+        )}
+
+        {/* 9. Sequencing — combines CRM sequences + route builder + this
+                party's enrolled-sequences view. See SequencingTab.tsx. */}
+        {tab === 'sequencing' && (
+          <SequencingTab
+            partyId={partyId}
+            partyName={displayName}
+            onToast={onToast}
+          />
         )}
         </>
         )}

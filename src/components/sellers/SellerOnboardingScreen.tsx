@@ -62,7 +62,7 @@ export default function SellerOnboardingScreen({ onToast, onNavigate }: SellerOn
   function openDetail(s: SellerSummary) {
     setSelectedSellerId(s.seller_id);
     setRowMenuForId(null);
-    onNavigate?.('contacts', 'seller-detail');
+    onNavigate?.('contacts', 'seller-profile');
   }
 
   async function saveSeller() {

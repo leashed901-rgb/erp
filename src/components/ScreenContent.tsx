@@ -63,7 +63,7 @@ import ContactsParties from './contacts/ContactsParties';
 import CrmOverviewSupabase from './contacts/CrmOverviewSupabase';
 // Sellers — Seller relationships group (Supabase-backed screens)
 import SellersScreen from './sellers/SellersScreen';
-import SellerDetailScreen from './sellers/SellerDetailScreen';
+import SellerProfilePage from './sellers/SellerProfilePage';
 import SellerFeedScreen from './sellers/SellerFeedScreen';
 import SellerOnboardingScreen from './sellers/SellerOnboardingScreen';
 import SellerQueueScreen from './sellers/SellerQueueScreen';
@@ -3124,10 +3124,11 @@ function TabScreenRenderer({
     return <SellersScreen onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
-  if (screenId === 'seller-detail') {
+  if (screenId === 'seller-detail' || screenId === 'seller-profile') {
     // Dossier for the seller selected in the Sellers list (sellerStore carries
-    // the selection): profile, violations, appeals, posts.
-    return <SellerDetailScreen onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+    // the selection): profile, violations, appeals, posts — rendered as a full
+    // profile page (same shape as PartyProfile).
+    return <SellerProfilePage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'seller-feed') {

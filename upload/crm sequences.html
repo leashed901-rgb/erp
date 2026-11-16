@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sequences — CRM</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{ extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+    "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+    "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+    "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+    "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+    "on-error-container":"#93000a","background":"#faf9fc",
+    "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{ sans:["Inter"] },
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  .row-check{accent-color:#0077c5}
+  .tab-underline{border-bottom:2px solid transparent}
+  .tab-underline.active{border-bottom-color:#0077c5;color:#0077c5;font-weight:600}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px;display:inline-flex}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .bulk-bar{display:none;background:#0077c5;color:#fff;padding:8px 16px;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+  .bulk-bar.show{display:flex}
+  .bulk-bar button{color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:4px}
+  .bulk-bar button:hover{background:rgba(255,255,255,.15)}
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+  .stat.success{background:#8af5be;color:#00714b}
+  .stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.error{background:#ffdad6;color:#93000a}
+  .stat.info{background:#e8f0fb;color:#0055a5}
+  .stat.neutral{background:#f4f3f7;color:#5a6355}
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:260px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu button.danger:hover{background:#ffdad6}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+  .drawer-scrim{position:fixed;inset:0;background:rgba(26,28,30,.35);z-index:80;display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:720px;max-width:96vw;background:#fff;z-index:81;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .field-label{display:block;font:600 11px Inter;letter-spacing:.04em;text-transform:uppercase;color:#5a6355;margin-bottom:6px}
+  .field-input{width:100%;height:36px;padding:0 10px;border:1px solid #dad9dd;border-radius:6px;font-size:13px;background:#fff}
+  .field-input:focus{outline:none;border-color:#0077c5}
+  .section-h{font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;color:#1a1c1e;padding-bottom:6px;border-bottom:1px solid #dad9dd;margin-bottom:10px}
+  /* Step cards in builder */
+  .step{border:1px solid #dad9dd;border-radius:8px;background:#fff;padding:10px 12px;margin-bottom:8px;cursor:grab;transition:all .1s;display:flex;align-items:flex-start;gap:10px}
+  .step:hover{border-color:#0077c5;box-shadow:0 2px 8px rgba(0,119,197,.08)}
+  .step.dragging{opacity:0.4;border-style:dashed}
+  .step .icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;font-weight:700;font-size:11px}
+  .step .icon.email{background:#0055a5}
+  .step .icon.wait{background:#8a5a00}
+  .step .icon.task{background:#6b1e28}
+  .step .icon.branch{background:#1e5a38}
+  .step .icon.exit{background:#5a6355}
+  .step .details{flex:1;min-width:0}
+  .step .title{font-size:13px;font-weight:600;color:#1a1c1e}
+  .step .sub{font-size:11px;color:#5a6355;margin-top:2px}
+  .step-connector{height:14px;margin-left:26px;border-left:2px dashed #dad9dd}
+  .step-connector.last{border-left:none;height:0}
+  /* Enrollment chain */
+  .enrollment-chain{display:flex;align-items:center;gap:4px;font-size:11px;color:#5a6355}
+  .enrollment-chain .node{width:10px;height:10px;border-radius:50%;background:#dad9dd}
+  .enrollment-chain .node.done{background:#00714b}
+  .enrollment-chain .node.current{background:#0077c5;box-shadow:0 0 0 3px rgba(0,119,197,.15)}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">alt_route</span>
+    <span class="text-label-md font-semibold">Contacts / CRM</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold">Sequences</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="export">
+      <span class="material-symbols-outlined text-[16px]">download</span>Export
+    </button>
+    <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" data-action="new-sequence">
+      <span class="material-symbols-outlined text-[16px]">add</span>New sequence
+    </button>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Page header -->
+  <div class="py-4 flex items-center justify-between flex-wrap gap-4">
+    <div>
+      <h1 class="text-headline-lg">Sequences</h1>
+      <p class="text-body-sm text-on-surface-variant mt-0.5">Automated follow-up flows — trigger, wait, act, exit. Track every enrolled party.</p>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Active sequences</div>
+      <div class="text-headline-md mt-1 tabular-nums" data-kpi="active">—</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Running right now</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Enrolled parties</div>
+      <div class="text-headline-md mt-1 tabular-nums text-qb-blue" data-kpi="enrolled">—</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">In-flight</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Completed (30d)</div>
+      <div class="text-headline-md mt-1 tabular-nums text-secondary" data-kpi="completed">—</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Finished flow</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Reply rate (30d)</div>
+      <div class="text-headline-md mt-1 tabular-nums" data-kpi="reply">—</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Sequenced emails with reply</div>
+    </div>
+  </div>
+
+  <!-- Tabs: Sequences / Enrollments -->
+  <div class="flex items-center gap-1 border-b border-surface-dim mb-0 overflow-x-auto">
+    <button class="tab-underline active px-4 py-2.5 text-label-md" data-viewtab="Sequences">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">alt_route</span>Sequences
+    </button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Enrollments">
+      <span class="material-symbols-outlined text-[15px] align-middle mr-1">group</span>Enrollments
+    </button>
+  </div>
+
+  <!-- Workbench -->
+  <div class="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden mt-4">
+
+    <!-- Filter bar -->
+    <div class="px-4 py-2 flex items-center gap-2 border-b border-surface-dim flex-wrap">
+      <div class="relative flex items-center flex-1 max-w-sm min-w-[180px]">
+        <span class="material-symbols-outlined absolute left-2 text-[15px] text-outline">search</span>
+        <input class="w-full h-7 pl-7 pr-2 bg-surface-container-low border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search sequences, parties…" data-filter/>
+      </div>
+      <button class="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1">
+        <span class="material-symbols-outlined text-[14px]">filter_list</span>Filter
+      </button>
+      <span class="ml-auto text-[11px] text-on-surface-variant" data-row-count>—</span>
+    </div>
+
+    <!-- Bulk bar -->
+    <div class="bulk-bar" data-bulk-bar>
+      <span class="text-[12px] font-semibold" data-bulk-count>0 selected</span>
+      <span class="w-px h-4 bg-white/30"></span>
+      <button data-bulk="activate">Activate</button>
+      <button data-bulk="pause">Pause</button>
+      <button data-bulk="duplicate">Duplicate</button>
+      <span class="w-px h-4 bg-white/30"></span>
+      <button data-bulk="archive">Archive</button>
+      <button class="ml-auto" data-bulk="close"><span class="material-symbols-outlined text-[16px]">close</span></button>
+    </div>
+
+    <!-- Content host — sequences list OR enrollments list -->
+    <div id="contentHost"></div>
+  </div>
+</main>
+
+<!-- ═══════════ BUILDER DRAWER ═══════════ -->
+<div class="drawer-scrim" id="builderScrim"></div>
+<div class="drawer" id="builderDrawer">
+  <div class="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="material-symbols-outlined text-[20px] text-primary">alt_route</span>
+      <div class="min-w-0">
+        <div class="text-headline-sm truncate" id="builderTitle">New sequence</div>
+        <div class="text-[11px] text-on-surface-variant" id="builderSub">Trigger → steps → exit</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-1">
+      <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" title="Preview">
+        <span class="material-symbols-outlined text-[18px] text-on-surface-variant">visibility</span>
+      </button>
+      <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-builder>
+        <span class="material-symbols-outlined text-[18px]">close</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="flex-1 overflow-y-auto p-5 space-y-4">
+
+    <!-- Metadata -->
+    <div>
+      <div class="section-h">Sequence</div>
+      <div class="space-y-3">
+        <div>
+          <label class="field-label">Name</label>
+          <input class="field-input" placeholder="e.g. New lead welcome" data-builder-name/>
+        </div>
+        <div>
+          <label class="field-label">Description</label>
+          <textarea class="field-input" style="height:56px;padding:8px 10px;font-family:inherit" placeholder="Internal description"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trigger -->
+    <div>
+      <div class="section-h">Trigger</div>
+      <div class="border border-surface-dim rounded-lg p-3 flex items-center gap-3 bg-surface-container-lowest">
+        <div class="icon" style="width:32px;height:32px;border-radius:6px;background:#0077c5;color:#fff;display:flex;align-items:center;justify-content:center">
+          <span class="material-symbols-outlined text-[18px]">bolt</span>
+        </div>
+        <div class="flex-1">
+          <div class="text-body-sm font-semibold">When party is created with role = Lead</div>
+          <div class="text-[11px] text-on-surface-variant">Fires once per party — respects suppression list</div>
+        </div>
+        <button class="h-7 px-2 border border-surface-dim rounded text-[11px] font-semibold hover:bg-surface-container-low" data-edit-trigger>Edit</button>
+      </div>
+    </div>
+
+    <!-- Steps -->
+    <div>
+      <div class="section-h flex items-center justify-between">
+        <span>Steps</span>
+        <span class="text-[10px] text-on-surface-variant normal-case tracking-normal font-normal">Drag to reorder</span>
+      </div>
+
+      <div id="stepList"></div>
+
+      <!-- Add step -->
+      <div class="grid grid-cols-4 gap-2 mt-3">
+        <button class="h-9 border border-surface-dim rounded-lg text-[11px] font-semibold hover:border-qb-blue hover:bg-qb-blue/5 flex items-center justify-center gap-1" data-add-step="email">
+          <span class="material-symbols-outlined text-[14px]">mail</span>Email
+        </button>
+        <button class="h-9 border border-surface-dim rounded-lg text-[11px] font-semibold hover:border-qb-blue hover:bg-qb-blue/5 flex items-center justify-center gap-1" data-add-step="wait">
+          <span class="material-symbols-outlined text-[14px]">hourglass_empty</span>Wait
+        </button>
+        <button class="h-9 border border-surface-dim rounded-lg text-[11px] font-semibold hover:border-qb-blue hover:bg-qb-blue/5 flex items-center justify-center gap-1" data-add-step="task">
+          <span class="material-symbols-outlined text-[14px]">task_alt</span>Task
+        </button>
+        <button class="h-9 border border-surface-dim rounded-lg text-[11px] font-semibold hover:border-qb-blue hover:bg-qb-blue/5 flex items-center justify-center gap-1" data-add-step="branch">
+          <span class="material-symbols-outlined text-[14px]">call_split</span>Branch
+        </button>
+      </div>
+    </div>
+
+    <!-- Exit conditions -->
+    <div>
+      <div class="section-h">Exit conditions</div>
+      <div class="space-y-2">
+        <label class="flex items-center gap-2 text-body-sm"><input type="checkbox" class="row-check" checked/>Exit when party replies to any step</label>
+        <label class="flex items-center gap-2 text-body-sm"><input type="checkbox" class="row-check" checked/>Exit when party books an appointment</label>
+        <label class="flex items-center gap-2 text-body-sm"><input type="checkbox" class="row-check"/>Exit when party becomes a Customer</label>
+      </div>
+    </div>
+
+    <!-- Enrollment stats -->
+    <div>
+      <div class="section-h">Performance (30d)</div>
+      <div class="grid grid-cols-3 gap-2">
+        <div class="border border-surface-dim rounded-lg p-3">
+          <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Enrolled</div>
+          <div class="text-headline-sm mt-1 tabular-nums">142</div>
+        </div>
+        <div class="border border-surface-dim rounded-lg p-3">
+          <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Completed</div>
+          <div class="text-headline-sm mt-1 tabular-nums text-secondary">96</div>
+        </div>
+        <div class="border border-surface-dim rounded-lg p-3">
+          <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Reply rate</div>
+          <div class="text-headline-sm mt-1 tabular-nums">18.4%</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-builder>Cancel</button>
+    <div class="flex items-center gap-2">
+      <button class="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low" data-save-draft>Save draft</button>
+      <button class="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" data-save-activate>
+        <span class="material-symbols-outlined text-[16px] align-middle mr-1">play_arrow</span>Save &amp; activate
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Row menu (sequence) -->
+<div class="row-menu" id="seqMenu">
+  <div class="menu-header">Open</div>
+  <button data-seq-action="edit"><span class="material-symbols-outlined">edit</span>Edit sequence</button>
+  <button data-seq-action="enroll"><span class="material-symbols-outlined">group_add</span>Enroll parties</button>
+  <button data-seq-action="view-enrollments"><span class="material-symbols-outlined">group</span>View enrollments</button>
+  <div class="sep"></div>
+  <div class="menu-header">State</div>
+  <button data-seq-action="activate"><span class="material-symbols-outlined">play_arrow</span>Activate</button>
+  <button data-seq-action="pause"><span class="material-symbols-outlined">pause</span>Pause</button>
+  <button data-seq-action="duplicate"><span class="material-symbols-outlined">content_copy</span>Duplicate</button>
+  <div class="sep"></div>
+  <button class="danger" data-seq-action="archive"><span class="material-symbols-outlined">archive</span>Archive</button>
+</div>
+
+<!-- Row menu (enrollment) -->
+<div class="row-menu" id="enrMenu">
+  <div class="menu-header">This enrollment</div>
+  <button data-enr-action="view"><span class="material-symbols-outlined">person</span>Open party profile</button>
+  <button data-enr-action="view-sequence"><span class="material-symbols-outlined">alt_route</span>Open sequence</button>
+  <div class="sep"></div>
+  <div class="menu-header">Manage</div>
+  <button data-enr-action="pause"><span class="material-symbols-outlined">pause</span>Pause enrollment</button>
+  <button data-enr-action="resume"><span class="material-symbols-outlined">play_arrow</span>Resume</button>
+  <button data-enr-action="advance"><span class="material-symbols-outlined">skip_next</span>Advance to next step</button>
+  <div class="sep"></div>
+  <button class="danger" data-enr-action="remove"><span class="material-symbols-outlined">exit_to_app</span>Remove from sequence</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================= */
+/* Sequences — automated follow-up surface                        */
+/* Contract:                                                      */
+/*   actions.md — trigger from party lifecycle (create.lead_scoring_rule, */
+/*                party.add_role, email.send, create.appointment) */
+/*   functions.md — email_enqueue (per step), platform_party_add_role  */
+/*   pages.md — surfaced from CRM overview / party drawer          */
+/*   USER-GUIDE — observable real rows, no dead screens            */
+/* ============================================================= */
+
+function toast(m){ const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('show'), 1800); }
+
+// ---------- STATE ----------
+const state = {
+  tab: 'Sequences',
+  q: '',
+  sel: new Set(),
+  sequences: [
+    { id: 'seq-1', name: 'New lead welcome', desc: 'Triggered when a party is created with role = Lead', status: 'active',
+      trigger: 'Party created (role=Lead)',
+      steps: [
+        { kind: 'email', title: 'Welcome email', sub: 'Template: Welcome' },
+        { kind: 'wait', title: 'Wait 2 days', sub: 'Until next step is due' },
+        { kind: 'email', title: 'Follow-up #1', sub: 'Template: Value prop' },
+        { kind: 'wait', title: 'Wait 3 days', sub: '' },
+        { kind: 'email', title: 'Follow-up #2', sub: 'Template: Book a demo' }
+      ],
+      enrolled: 42, completed: 28, replyRate: '21.4%'
+    },
+    { id: 'seq-2', name: 'Post-appointment follow-up', desc: 'Triggered 1 day after an appointment completes', status: 'active',
+      trigger: 'Appointment completed',
+      steps: [
+        { kind: 'wait', title: 'Wait 1 day', sub: '' },
+        { kind: 'email', title: 'Thank you', sub: 'Template: Thanks after visit' },
+        { kind: 'task', title: 'Review call recording', sub: 'Assigned to: sales-team' }
+      ],
+      enrolled: 18, completed: 14, replyRate: '32.1%'
+    },
+    { id: 'seq-3', name: 'Q4 reengagement', desc: 'Dormant customers — no activity 30d', status: 'draft',
+      trigger: 'No activity 30d + status = inactive',
+      steps: [
+        { kind: 'email', title: 'We miss you', sub: 'Template: Reengage' },
+        { kind: 'wait', title: 'Wait 5 days', sub: '' },
+        { kind: 'email', title: 'Special offer', sub: 'Template: Offer 20%' }
+      ],
+      enrolled: 0, completed: 0, replyRate: '—'
+    },
+    { id: 'seq-4', name: 'Supplier onboarding', desc: 'Triggered when role = Supplier added', status: 'paused',
+      trigger: 'Party role = Supplier added',
+      steps: [
+        { kind: 'email', title: 'Welcome supplier', sub: 'Template: Supplier welcome' },
+        { kind: 'wait', title: 'Wait 3 days', sub: '' },
+        { kind: 'task', title: 'Collect W-9 + bank info', sub: 'Assigned to: ops' }
+      ],
+      enrolled: 6, completed: 2, replyRate: '16.6%'
+    }
+  ],
+  enrollments: [
+    { id: 'enr-1', sequenceId: 'seq-1', sequenceName: 'New lead welcome', partyId: 'p-1039', partyName: 'Alder & Co.', step: 2, totalSteps: 5, nextAt: 'tomorrow 9:00 AM', status: 'active' },
+    { id: 'enr-2', sequenceId: 'seq-1', sequenceName: 'New lead welcome', partyId: 'p-1041', partyName: 'Crescent Foods', step: 1, totalSteps: 5, nextAt: 'in 2 hours', status: 'active' },
+    { id: 'enr-3', sequenceId: 'seq-2', sequenceName: 'Post-appointment follow-up', partyId: 'p-1045', partyName: 'Northwind Labs', step: 3, totalSteps: 3, nextAt: 'completed', status: 'completed' },
+    { id: 'enr-4', sequenceId: 'seq-4', sequenceName: 'Supplier onboarding', partyId: 'p-1038', partyName: 'Toner & Ink Depot', step: 2, totalSteps: 3, nextAt: 'paused', status: 'paused' }
+  ]
+};
+
+// ---------- KPIs ----------
+function renderKpis(){
+  const active = state.sequences.filter(s => s.status === 'active').length;
+  document.querySelector('[data-kpi="active"]').textContent = active;
+  document.querySelector('[data-kpi="enrolled"]').textContent = state.enrollments.filter(e => e.status === 'active').length + 56;
+  const completed = 96; // production: GET /api/crm/sequences/stats?window=30d
+  document.querySelector('[data-kpi="completed"]').textContent = completed;
+  document.querySelector('[data-kpi="reply"]').textContent = '18.4%';
+}
+
+// ---------- Render sequences list ----------
+function renderSequencesList(){
+  const rows = state.sequences.filter(s => !state.q || (s.name + ' ' + s.desc).toLowerCase().includes(state.q.toLowerCase()));
+  document.querySelector('[data-row-count]').textContent = `${rows.length} of ${state.sequences.length}`;
+
+  if (rows.length === 0){
+    document.getElementById('contentHost').innerHTML = `<div class="p-12 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined text-[40px] mb-2 block">alt_route</span>
+      <div class="font-medium mb-1">No sequences yet</div>
+      <div class="text-[12px]">Click <b>New sequence</b> to start your first automation.</div>
+    </div>`;
+    return;
+  }
+
+  document.getElementById('contentHost').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Sequence</th>
+        <th class="px-3 py-2">Trigger</th>
+        <th class="px-3 py-2 text-right">Steps</th>
+        <th class="px-3 py-2 text-right">Enrolled</th>
+        <th class="px-3 py-2 text-right">Reply rate</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(s => `<tr class="hover:bg-surface-container-low cursor-pointer seq-row" data-id="${s.id}">
+        <td class="px-3 py-2"><input type="checkbox" class="row-check seq-check" ${state.sel.has(s.id)?'checked':''}></td>
+        <td class="px-3 py-2">
+          <div class="font-medium">${s.name}</div>
+          <div class="text-[11px] text-on-surface-variant truncate">${s.desc}</div>
+        </td>
+        <td class="px-3 py-2 text-on-surface-variant text-[12px]">${s.trigger}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${s.steps.length}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${s.enrolled}</td>
+        <td class="px-3 py-2 text-right tabular-nums ${s.replyRate !== '—' ? 'text-secondary font-medium' : 'text-on-surface-variant'}">${s.replyRate}</td>
+        <td class="px-3 py-2"><span class="stat ${s.status === 'active' ? 'success' : s.status === 'paused' ? 'warn' : 'neutral'}">${s.status}</span></td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-seq-menu><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+
+  wireSequenceRows();
+}
+
+// ---------- Render enrollments list ----------
+function renderEnrollmentsList(){
+  const rows = state.enrollments.filter(e => !state.q || (e.partyName + ' ' + e.sequenceName).toLowerCase().includes(state.q.toLowerCase()));
+  document.querySelector('[data-row-count]').textContent = `${rows.length} of ${state.enrollments.length}`;
+
+  if (rows.length === 0){
+    document.getElementById('contentHost').innerHTML = `<div class="p-12 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined text-[40px] mb-2 block">group</span>
+      <div class="font-medium mb-1">No enrollments</div>
+      <div class="text-[12px]">Parties will appear here as they enter active sequences.</div>
+    </div>`;
+    return;
+  }
+
+  document.getElementById('contentHost').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Party</th>
+        <th class="px-3 py-2">Sequence</th>
+        <th class="px-3 py-2">Progress</th>
+        <th class="px-3 py-2">Next step</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(e => {
+        const nodes = Array.from({ length: e.totalSteps }, (_, i) => {
+          const cls = i < e.step - 1 ? 'done' : i === e.step - 1 ? 'current' : '';
+          return `<div class="node ${cls}"></div>`;
+        }).join('');
+        return `<tr class="hover:bg-surface-container-low cursor-pointer enr-row" data-id="${e.id}">
+          <td class="px-3 py-2"><input type="checkbox" class="row-check enr-check" ${state.sel.has(e.id)?'checked':''}></td>
+          <td class="px-3 py-2 font-medium">${e.partyName}</td>
+          <td class="px-3 py-2 text-on-surface-variant">${e.sequenceName}</td>
+          <td class="px-3 py-2">
+            <div class="enrollment-chain">
+              ${nodes}
+              <span class="ml-1">step ${e.step} of ${e.totalSteps}</span>
+            </div>
+          </td>
+          <td class="px-3 py-2 text-on-surface-variant">${e.nextAt}</td>
+          <td class="px-3 py-2"><span class="stat ${e.status === 'active' ? 'info' : e.status === 'completed' ? 'success' : e.status === 'paused' ? 'warn' : 'neutral'}">${e.status}</span></td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-enr-menu><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table></div>`;
+
+  wireEnrollmentRows();
+}
+
+// ---------- Row wiring ----------
+function wireSequenceRows(){
+  document.querySelectorAll('.seq-row').forEach(tr => {
+    tr.addEventListener('click', e => {
+      if (e.target.closest('input,button,[data-seq-menu]')) return;
+      openBuilder(tr.dataset.id);
+    });
+    tr.querySelector('[data-seq-menu]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      openMenu(e.currentTarget, tr.dataset.id, 'seq');
+    });
+  });
+  document.querySelectorAll('.seq-check').forEach(cb => cb.addEventListener('change', updateBulk));
+  document.querySelector('[data-check-all]')?.addEventListener('change', e => {
+    document.querySelectorAll('.seq-check').forEach(c => c.checked = e.target.checked);
+    document.querySelectorAll('.seq-check').forEach(c => {
+      const id = c.closest('tr').dataset.id;
+      if (c.checked) state.sel.add(id); else state.sel.delete(id);
+    });
+    updateBulk();
+  });
+}
+
+function wireEnrollmentRows(){
+  document.querySelectorAll('.enr-row').forEach(tr => {
+    tr.addEventListener('click', e => {
+      if (e.target.closest('input,button,[data-enr-menu]')) return;
+      const e2 = state.enrollments.find(x => x.id === tr.dataset.id);
+      if (e2) toast(`Open party → /crm/parties/${e2.partyId}`);
+    });
+    tr.querySelector('[data-enr-menu]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      openMenu(e.currentTarget, tr.dataset.id, 'enr');
+    });
+  });
+  document.querySelectorAll('.enr-check').forEach(cb => cb.addEventListener('change', updateBulk));
+  document.querySelector('[data-check-all]')?.addEventListener('change', e => {
+    document.querySelectorAll('.enr-check').forEach(c => c.checked = e.target.checked);
+    document.querySelectorAll('.enr-check').forEach(c => {
+      const id = c.closest('tr').dataset.id;
+      if (c.checked) state.sel.add(id); else state.sel.delete(id);
+    });
+    updateBulk();
+  });
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll('[data-viewtab]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-viewtab]').forEach(x => x.classList.toggle('active', x === b));
+  state.tab = b.dataset.viewtab;
+  state.sel.clear();
+  updateBulk();
+  render();
+}));
+
+// ---------- Search ----------
+document.querySelector('[data-filter]').addEventListener('input', e => {
+  state.q = e.target.value;
+  render();
+});
+
+// ---------- Bulk ----------
+function updateBulk(){
+  const bar = document.querySelector('[data-bulk-bar]');
+  const cnt = document.querySelector('[data-bulk-count]');
+  if (state.sel.size > 0){ bar.classList.add('show'); cnt.textContent = `${state.sel.size} selected`; }
+  else bar.classList.remove('show');
+}
+document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.bulk;
+  if (act === 'close'){ state.sel.clear(); document.querySelectorAll('.seq-check, .enr-check').forEach(c => c.checked = false); updateBulk(); render(); return; }
+  if (act === 'archive' && state.tab === 'Sequences'){ state.sequences = state.sequences.filter(s => !state.sel.has(s.id)); }
+  if (act === 'activate'){ state.sequences.forEach(s => { if (state.sel.has(s.id)) s.status = 'active'; }); }
+  if (act === 'pause'){ state.sequences.forEach(s => { if (state.sel.has(s.id)) s.status = 'paused'; }); }
+  if (act === 'duplicate'){ state.sequences.filter(s => state.sel.has(s.id)).forEach(s => {
+    state.sequences.push({ ...s, id: 'seq-' + Date.now(), name: s.name + ' (copy)', status: 'draft' });
+  }); }
+  toast(`${act} on ${state.sel.size} item${state.sel.size !== 1 ? 's' : ''}`);
+  state.sel.clear();
+  document.querySelectorAll('.seq-check, .enr-check').forEach(c => c.checked = false);
+  updateBulk();
+  render();
+}));
+
+// ---------- Menus ----------
+const seqMenu = document.getElementById('seqMenu');
+const enrMenu = document.getElementById('enrMenu');
+let currentId = null;
+
+function openMenu(btn, id, kind){
+  currentId = id;
+  const menu = kind === 'seq' ? seqMenu : enrMenu;
+  seqMenu.classList.remove('open'); enrMenu.classList.remove('open');
+  const r = btn.getBoundingClientRect();
+  menu.style.top = (r.bottom + 4) + 'px';
+  menu.style.left = Math.min(r.right - 260, window.innerWidth - 280) + 'px';
+  menu.classList.add('open');
+}
+
+seqMenu.querySelectorAll('[data-seq-action]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.seqAction;
+  seqMenu.classList.remove('open');
+  const s = state.sequences.find(x => x.id === currentId);
+  if (!s) return;
+  switch (act){
+    case 'edit': openBuilder(s.id); break;
+    case 'enroll': toast('Open party picker to enroll'); break;
+    case 'view-enrollments': state.tab = 'Enrollments'; state.q = s.name; document.querySelector('[data-viewtab="Enrollments"]').click(); break;
+    case 'activate': s.status = 'active'; render(); toast('Sequence activated'); break;
+    case 'pause': s.status = 'paused'; render(); toast('Sequence paused'); break;
+    case 'duplicate': state.sequences.push({ ...s, id: 'seq-' + Date.now(), name: s.name + ' (copy)', status: 'draft' }); render(); toast('Duplicated'); break;
+    case 'archive': state.sequences = state.sequences.filter(x => x.id !== s.id); render(); toast('Archived'); break;
+  }
+}));
+
+enrMenu.querySelectorAll('[data-enr-action]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.enrAction;
+  enrMenu.classList.remove('open');
+  const e = state.enrollments.find(x => x.id === currentId);
+  if (!e) return;
+  switch (act){
+    case 'view': toast(`Navigate → /crm/parties/${e.partyId}`); break;
+    case 'view-sequence': openBuilder(e.sequenceId); break;
+    case 'pause': e.status = 'paused'; e.nextAt = 'paused'; render(); toast('Enrollment paused'); break;
+    case 'resume': e.status = 'active'; e.nextAt = 'in 24 hours'; render(); toast('Enrollment resumed'); break;
+    case 'advance': if (e.step < e.totalSteps){ e.step++; if (e.step === e.totalSteps) { e.status = 'completed'; e.nextAt = 'completed'; } render(); toast(`Advanced to step ${e.step}`); } break;
+    case 'remove': state.enrollments = state.enrollments.filter(x => x.id !== e.id); render(); toast('Removed from sequence'); break;
+  }
+}));
+
+// ---------- Builder ----------
+const builderScrim = document.getElementById('builderScrim');
+const builderDrawer = document.getElementById('builderDrawer');
+let currentStepSequence = null;
+
+function openBuilder(id){
+  const s = state.sequences.find(x => x.id === id);
+  currentStepSequence = s || { id: 'seq-' + Date.now(), name: '', desc: '', status: 'draft', trigger: 'Party created (role=Lead)', steps: [], enrolled: 0, completed: 0, replyRate: '—' };
+  document.getElementById('builderTitle').textContent = s ? s.name : 'New sequence';
+  document.getElementById('builderSub').textContent = s ? s.desc : 'Trigger → steps → exit';
+  document.querySelector('[data-builder-name]').value = s ? s.name : '';
+  renderSteps();
+  builderScrim.classList.add('open');
+  builderDrawer.classList.add('open');
+}
+
+function closeBuilder(){
+  builderScrim.classList.remove('open');
+  builderDrawer.classList.remove('open');
+}
+document.querySelectorAll('[data-close-builder]').forEach(b => b.addEventListener('click', closeBuilder));
+builderScrim.addEventListener('click', closeBuilder);
+
+function renderSteps(){
+  const host = document.getElementById('stepList');
+  const steps = currentStepSequence.steps;
+  if (!steps.length){
+    host.innerHTML = `<div class="p-4 text-center text-on-surface-variant text-[12px] border border-dashed border-surface-dim rounded-lg">No steps yet — add one below</div>`;
+    return;
+  }
+  host.innerHTML = steps.map((st, i) => {
+    const iconClass = st.kind;
+    return `<div class="step" draggable="true" data-idx="${i}">
+      <div class="icon ${iconClass}">
+        ${st.kind === 'email' ? '✉' : st.kind === 'wait' ? '⏱' : st.kind === 'task' ? '✓' : '↗'}
+      </div>
+      <div class="details">
+        <div class="title">${st.title}</div>
+        ${st.sub ? `<div class="sub">${st.sub}</div>` : ''}
+      </div>
+      <div class="flex items-center gap-1">
+        <button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-step-edit="${i}" title="Edit"><span class="material-symbols-outlined text-[14px] text-on-surface-variant">edit</span></button>
+        <button class="w-6 h-6 rounded hover:bg-error-container flex items-center justify-center" data-step-delete="${i}" title="Delete"><span class="material-symbols-outlined text-[14px] text-on-surface-variant">close</span></button>
+      </div>
+    </div>
+    ${i < steps.length - 1 ? `<div class="step-connector"></div>` : ''}`;
+  }).join('');
+  wireSteps();
+}
+
+function wireSteps(){
+  document.querySelectorAll('.step').forEach(el => {
+    el.addEventListener('dragstart', e => { el.classList.add('dragging'); e.dataTransfer.setData('text/plain', el.dataset.idx); });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    el.addEventListener('dragover', e => { e.preventDefault(); el.style.borderTopColor = '#0077c5'; });
+    el.addEventListener('dragleave', () => el.style.borderTopColor = '');
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      el.style.borderTopColor = '';
+      const from = parseInt(e.dataTransfer.getData('text/plain'));
+      const to = parseInt(el.dataset.idx);
+      if (from === to) return;
+      const arr = currentStepSequence.steps;
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      renderSteps();
+    });
+  });
+  document.querySelectorAll('[data-step-delete]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    currentStepSequence.steps.splice(parseInt(b.dataset.stepDelete), 1);
+    renderSteps();
+  }));
+  document.querySelectorAll('[data-step-edit]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    toast('Open step editor — production: inline drawer for template, delay, assignee');
+  }));
+}
+
+// ---------- Add step ----------
+document.querySelectorAll('[data-add-step]').forEach(b => b.addEventListener('click', () => {
+  const kind = b.dataset.addStep;
+  const defaults = {
+    email: { kind: 'email', title: 'Email step', sub: 'Template: choose' },
+    wait: { kind: 'wait', title: 'Wait 1 day', sub: '' },
+    task: { kind: 'task', title: 'Task step', sub: 'Assigned to: sales-team' },
+    branch: { kind: 'branch', title: 'Branch', sub: 'If replied → exit, else → continue' }
+  };
+  currentStepSequence.steps.push(defaults[kind]);
+  renderSteps();
+}));
+
+// ---------- Save ----------
+document.querySelector('[data-save-draft]').addEventListener('click', () => {
+  saveSequence('draft');
+});
+document.querySelector('[data-save-activate]').addEventListener('click', () => {
+  saveSequence('active');
+});
+
+function saveSequence(status){
+  const name = document.querySelector('[data-builder-name]').value.trim();
+  if (!name){ toast('Name required'); return; }
+  // Production: POST /api/crm/sequences (crm_sequences) then per-step crm_sequence_steps
+  const existing = state.sequences.find(s => s.id === currentStepSequence.id);
+  if (existing){
+    existing.name = name;
+    existing.steps = currentStepSequence.steps;
+    existing.status = status;
+  } else {
+    state.sequences.push({
+      id: currentStepSequence.id,
+      name,
+      desc: '',
+      status,
+      trigger: currentStepSequence.trigger,
+      steps: currentStepSequence.steps,
+      enrolled: 0, completed: 0, replyRate: '—'
+    });
+  }
+  closeBuilder();
+  render();
+  toast(status === 'active' ? 'Sequence activated' : 'Draft saved');
+}
+
+// ---------- New sequence ----------
+document.querySelector('[data-action="new-sequence"]').addEventListener('click', () => openBuilder(null));
+document.querySelector('[data-action="export"]').addEventListener('click', () => toast('Sequences exported'));
+
+// ---------- Render entry ----------
+function render(){
+  renderKpis();
+  if (state.tab === 'Sequences') renderSequencesList(); else renderEnrollmentsList();
+}
+
+// ---------- Global click closes menus ----------
+document.addEventListener('click', e => {
+  if (!e.target.closest('#seqMenu')) seqMenu.classList.remove('open');
+  if (!e.target.closest('#enrMenu')) enrMenu.classList.remove('open');
+});
+
+// ---------- Init ----------
+render();
+</script>
+</body>
+</html>

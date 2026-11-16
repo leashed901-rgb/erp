@@ -548,6 +548,12 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         bg: 'bg-qb-maroon',
         screens: [
           { id: 'sellers', label: 'Sellers', type: 'list' },
+          // Action-opened detail screens (hidden from the sidebar; opened by
+          // clicking a row in Sellers, by the onboarding queue, etc.).
+          { id: 'seller-profile', label: 'Seller Profile', type: 'list', hidden: true },
+          { id: 'seller-detail', label: 'Seller Detail', type: 'list', hidden: true },
+          { id: 'seller-feed', label: 'Seller Feed', type: 'list', hidden: true },
+          { id: 'seller-onboarding', label: 'Seller Onboarding', type: 'list', hidden: true },
         ],
       },
     ],

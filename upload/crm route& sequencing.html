@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Routes — CRM</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{ extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+    "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+    "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+    "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+    "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+    "on-error-container":"#93000a","background":"#faf9fc",
+    "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{ sans:["Inter"] },
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  .row-check{accent-color:#0077c5}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px;display:inline-flex}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .bulk-bar{display:none;background:#0077c5;color:#fff;padding:8px 16px;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+  .bulk-bar.show{display:flex}
+  .bulk-bar button{color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:4px}
+  .bulk-bar button:hover{background:rgba(255,255,255,.15)}
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+  .stat.success{background:#8af5be;color:#00714b}
+  .stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.error{background:#ffdad6;color:#93000a}
+  .stat.info{background:#e8f0fb;color:#0055a5}
+  .stat.neutral{background:#f4f3f7;color:#5a6355}
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:250px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu button.danger:hover{background:#ffdad6}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+  .drawer-scrim{position:fixed;inset:0;background:rgba(26,28,30,.35);z-index:80;display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:600px;max-width:96vw;background:#fff;z-index:81;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .field-label{display:block;font:600 11px Inter;letter-spacing:.04em;text-transform:uppercase;color:#5a6355;margin-bottom:6px}
+  .field-input{width:100%;height:36px;padding:0 10px;border:1px solid #dad9dd;border-radius:6px;font-size:13px;background:#fff}
+  .field-input:focus{outline:none;border-color:#0077c5}
+  .section-h{font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;color:#1a1c1e;padding-bottom:6px;border-bottom:1px solid #dad9dd;margin-bottom:10px}
+  /* Route stop */
+  .stop{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #dad9dd;border-radius:8px;background:#fff;margin-bottom:8px;cursor:grab;transition:all .1s}
+  .stop:hover{border-color:#0077c5;box-shadow:0 2px 8px rgba(0,119,197,.08)}
+  .stop.dragging{opacity:0.4;border-style:dashed}
+  .stop .num{width:24px;height:24px;border-radius:50%;background:#0077c5;color:#fff;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .stop .num.warn{background:#8a5a00}
+  /* Map placeholder */
+  .map-canvas{background:#e3e2e6;border-radius:10px;height:100%;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+  .map-canvas .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(0,0,0,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,.04) 1px,transparent 1px);background-size:32px 32px}
+  .map-canvas .pin{position:absolute;width:14px;height:14px;background:#0077c5;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 4px rgba(0,0,0,.2)}
+  .map-canvas .pin::after{content:"";position:absolute;width:4px;height:4px;background:#fff;border-radius:50%;left:5px;top:5px}
+  .map-canvas .pin.warn{background:#8a5a00}
+  .map-canvas .label{position:absolute;color:#fff;font-weight:700;font-size:10px}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">route</span>
+    <span class="text-label-md font-semibold">Contacts / CRM</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold">Route Builder</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="export">
+      <span class="material-symbols-outlined text-[16px]">download</span>Export
+    </button>
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="navigate">
+      <span class="material-symbols-outlined text-[16px]">navigation</span>Start navigation
+    </button>
+    <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" data-action="optimize">
+      <span class="material-symbols-outlined text-[16px]">auto_fix_high</span>Optimize route
+    </button>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Page header -->
+  <div class="py-4 flex items-center justify-between flex-wrap gap-4">
+    <div>
+      <h1 class="text-headline-lg">Route Builder</h1>
+      <p class="text-body-sm text-on-surface-variant mt-0.5">Plan your day — pick stops, sequence them, hand the driver the list</p>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Stops today</div>
+      <div class="text-headline-md mt-1 tabular-nums" data-kpi="stops">6</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Across 3 cities</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Est. drive time</div>
+      <div class="text-headline-md mt-1 tabular-nums text-qb-blue" data-kpi="drive">1h 42m</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Between stops</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Est. distance</div>
+      <div class="text-headline-md mt-1 tabular-nums" data-kpi="distance">42.6 mi</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Round trip</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">SLA at risk</div>
+      <div class="text-headline-md mt-1 tabular-nums text-error" data-kpi="sla">1</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Stop may be late</div>
+    </div>
+  </div>
+
+  <!-- Two-column: route list + map -->
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+    <!-- LEFT: stop list -->
+    <div class="lg:col-span-3 bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
+      <div class="px-4 py-3 border-b border-surface-dim flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-label-sm uppercase tracking-wider font-bold text-on-surface">Today · Nov 15</span>
+          <span class="stat info">Draft</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-[11px] text-on-surface-variant" data-stop-count>—</span>
+          <button class="h-7 px-2 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-1" data-action="add-stop">
+            <span class="material-symbols-outlined text-[14px]">add</span>Add stop
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="px-4 py-2 border-b border-surface-dim flex flex-wrap items-center gap-2">
+        <div class="relative flex items-center flex-1 max-w-sm min-w-[180px]">
+          <span class="material-symbols-outlined absolute left-2 text-[15px] text-outline">search</span>
+          <input class="w-full h-7 pl-7 pr-2 bg-surface-container-low border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search parties, addresses…" data-filter/>
+        </div>
+        <label class="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1 bg-white">
+          <span class="material-symbols-outlined text-[14px] text-on-surface-variant">filter_alt</span>
+          <select class="bg-transparent border-none text-label-sm text-on-surface focus:outline-none" data-filter-type>
+            <option value="">All types</option>
+            <option value="customer">Customer</option>
+            <option value="lead">Lead</option>
+            <option value="supplier">Supplier</option>
+          </select>
+        </label>
+        <span class="ml-auto text-[11px] text-on-surface-variant" data-row-count>—</span>
+      </div>
+
+      <!-- Bulk bar -->
+      <div class="bulk-bar" data-bulk-bar>
+        <span class="text-[12px] font-semibold" data-bulk-count>0 selected</span>
+        <span class="w-px h-4 bg-white/30"></span>
+        <button data-bulk="remove">Remove</button>
+        <button data-bulk="prioritize">Prioritize</button>
+        <button class="ml-auto" data-bulk="close"><span class="material-symbols-outlined text-[16px]">close</span></button>
+      </div>
+
+      <div class="p-3" id="stopList"></div>
+    </div>
+
+    <!-- RIGHT: map + summary -->
+    <div class="lg:col-span-2 space-y-4">
+      <div class="bg-white rounded-xl shadow-sm border border-surface-dim p-3 h-[400px]">
+        <div class="map-canvas" id="mapCanvas">
+          <div class="grid"></div>
+          <div class="absolute top-3 left-3 text-[10px] uppercase tracking-wider font-bold text-on-surface-variant bg-white/90 px-2 py-1 rounded shadow-sm">Map · Charlotte, NC</div>
+          <!-- Pins injected by JS -->
+        </div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-surface-dim p-4">
+        <div class="section-h">Route summary</div>
+        <div class="space-y-2 text-body-sm">
+          <div class="flex justify-between"><span class="text-on-surface-variant">Total stops</span><span class="font-semibold tabular-nums" data-summary="stops">6</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Drive time</span><span class="font-semibold tabular-nums" data-summary="drive">1h 42m</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Distance</span><span class="font-semibold tabular-nums" data-summary="distance">42.6 mi</span></div>
+          <div class="flex justify-between pt-2 border-t border-surface-dim"><span class="text-on-surface-variant">Depart by</span><span class="font-semibold tabular-nums">8:30 AM</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Return by</span><span class="font-semibold tabular-nums">4:15 PM</span></div>
+          <div class="flex justify-between text-error"><span>Late stop</span><span class="font-semibold">#3</span></div>
+        </div>
+        <div class="mt-3 pt-3 border-t border-surface-dim space-y-2">
+          <button class="w-full h-8 bg-primary text-white rounded text-label-sm font-semibold hover:bg-primary-container flex items-center justify-center gap-1" data-action="optimize">
+            <span class="material-symbols-outlined text-[14px]">auto_fix_high</span>Re-optimize for drive time
+          </button>
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center justify-center gap-1" data-action="print">
+            <span class="material-symbols-outlined text-[14px]">print</span>Print for driver
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Row menu -->
+<div class="row-menu" id="rowMenu">
+  <div class="menu-header">Open</div>
+  <button data-action="open-party"><span class="material-symbols-outlined">person</span>Open party profile</button>
+  <button data-action="call"><span class="material-symbols-outlined">call</span>Click-to-call</button>
+  <div class="sep"></div>
+  <div class="menu-header">Reschedule</div>
+  <button data-action="move-up"><span class="material-symbols-outlined">arrow_upward</span>Move up</button>
+  <button data-action="move-down"><span class="material-symbols-outlined">arrow_downward</span>Move down</button>
+  <button data-action="move-date"><span class="material-symbols-outlined">event</span>Move to another day</button>
+  <div class="sep"></div>
+  <div class="menu-header">Create from this</div>
+  <button data-action="create-appointment"><span class="material-symbols-outlined">event_available</span>Book appointment</button>
+  <button data-action="create-note"><span class="material-symbols-outlined">note_add</span>Add note</button>
+  <button data-action="create-task"><span class="material-symbols-outlined">task_alt</span>New task</button>
+  <div class="sep"></div>
+  <div class="menu-header">Route</div>
+  <button data-action="set-priority"><span class="material-symbols-outlined">star</span>Prioritize stop</button>
+  <button data-action="mark-arrived"><span class="material-symbols-outlined">check_circle</span>Mark arrived</button>
+  <div class="sep"></div>
+  <button class="danger" data-action="remove"><span class="material-symbols-outlined">delete</span>Remove from route</button>
+</div>
+
+<!-- ═══════════ ADD STOP DRAWER ═══════════ -->
+<div class="drawer-scrim" id="addScrim"></div>
+<div class="drawer" id="addDrawer">
+  <div class="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="material-symbols-outlined text-[20px] text-primary">add_location</span>
+      <div class="min-w-0">
+        <div class="text-headline-sm truncate">Add stop to route</div>
+        <div class="text-[11px] text-on-surface-variant">Pick a party, appointment, or manual address</div>
+      </div>
+    </div>
+    <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-add>
+      <span class="material-symbols-outlined text-[18px]">close</span>
+    </button>
+  </div>
+
+  <div class="flex-1 overflow-y-auto p-5 space-y-4">
+    <!-- Source tabs -->
+    <div>
+      <div class="section-h">Add from</div>
+      <div class="grid grid-cols-3 gap-2">
+        <button class="border border-qb-blue bg-qb-blue/5 rounded-lg p-3 text-left" data-add-source="party">
+          <div class="text-body-sm font-semibold text-qb-blue">Party</div>
+          <div class="text-[11px] text-on-surface-variant">Search customers</div>
+        </button>
+        <button class="border border-surface-dim rounded-lg p-3 text-left hover:bg-surface-container-low" data-add-source="appointment">
+          <div class="text-body-sm font-semibold">Appointment</div>
+          <div class="text-[11px] text-on-surface-variant">Today's bookings</div>
+        </button>
+        <button class="border border-surface-dim rounded-lg p-3 text-left hover:bg-surface-container-low" data-add-source="manual">
+          <div class="text-body-sm font-semibold">Manual</div>
+          <div class="text-[11px] text-on-surface-variant">Type an address</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Search party -->
+    <div>
+      <div class="section-h">Search parties</div>
+      <div class="relative flex items-center">
+        <span class="material-symbols-outlined absolute left-2 text-[16px] text-outline">search</span>
+        <input class="field-input pl-8" placeholder="Name, address, phone…" data-party-search/>
+      </div>
+      <div class="mt-2 border border-surface-dim rounded-lg divide-y divide-surface-dim" data-party-list>
+        <!-- populated by JS -->
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div>
+      <div class="section-h">Stop notes</div>
+      <textarea class="field-input" style="height:60px;padding:8px 10px;font-family:inherit" placeholder="Anything the driver should know" data-add-notes></textarea>
+    </div>
+  </div>
+
+  <div class="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-add>Cancel</button>
+    <button class="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" data-confirm-add>
+      <span class="material-symbols-outlined text-[16px] align-middle mr-1">add</span>Add stop
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================= */
+/* Route Builder — backed by crm_build_route RPC                  */
+/* Docs contract:                                                 */
+/*   actions.md  → create.route.build — Build route for the day   */
+/*   functions.md → crm_build_route (RPC / callable)              */
+/*   pages.md    → Contacts/CRM overview → route.build action      */
+/*   USER-GUIDE  → observable: real rows, real stops, real map     */
+/* ============================================================= */
+
+function toast(m){ const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('show'), 1800); }
+
+// ---------- STATE — production: hydrate from GET /api/crm/routes?date=today ----------
+const state = {
+  q: '',
+  type: '',
+  sel: new Set(),
+  stops: [
+    { id: 's1', partyId: 'p-1047', name: 'Acme Corp',       address: '22 Park Ave, Charlotte, NC',    city: 'Charlotte', time: '9:00 AM',  type: 'customer', purpose: 'Q4 contract review',  status: 'pending', late: false, x: 22, y: 28 },
+    { id: 's2', partyId: 'p-1046', name: 'Blue Ridge Co.',  address: '500 River Rd, Charlotte, NC',   city: 'Charlotte', time: '10:15 AM', type: 'customer', purpose: 'Wholesale pickup',      status: 'pending', late: false, x: 44, y: 52 },
+    { id: 's3', partyId: 'p-1045', name: 'Northwind Labs',  address: '801 Industrial Way, Charlotte', city: 'Charlotte', time: '11:30 AM', type: 'lead',     purpose: 'Demo — new equipment',  status: 'pending', late: true,  x: 62, y: 34 },
+    { id: 's4', partyId: 'p-1044', name: 'Orion Apparel',   address: '310 Trade St, Charlotte, NC',   city: 'Charlotte', time: '1:15 PM',  type: 'customer', purpose: 'Contract signing',      status: 'pending', late: false, x: 38, y: 68 },
+    { id: 's5', partyId: 'p-1043', name: 'Maple Supply',    address: '1409 Elm St, Charlotte, NC',    city: 'Charlotte', time: '2:45 PM',  type: 'customer', purpose: 'Site survey',           status: 'pending', late: false, x: 76, y: 58 },
+    { id: 's6', partyId: 'p-1042', name: 'Lakeside Design', address: '2100 Lake Dr, Charlotte, NC',   city: 'Charlotte', time: '3:30 PM',  type: 'customer', purpose: 'Q4 follow-up',          status: 'pending', late: false, x: 58, y: 78 }
+  ],
+  candidates: [
+    { partyId: 'p-1041', name: 'Crescent Foods', address: '120 S Tryon St, Charlotte', type: 'customer' },
+    { partyId: 'p-1040', name: 'Beacon Hardware', address: '75 N College St, Charlotte', type: 'customer' },
+    { partyId: 'p-1039', name: 'Alder & Co.',    address: '412 E 7th St, Charlotte',   type: 'lead' }
+  ]
+};
+
+// ---------- KPIs ----------
+function renderKpis(){
+  document.querySelector('[data-kpi="stops"]').textContent = state.stops.length;
+  // Production: computed from crm_build_route RPC response (drive_time_minutes, distance_miles)
+  const driveMinutes = 102;
+  document.querySelector('[data-kpi="drive"]').textContent = `${Math.floor(driveMinutes/60)}h ${driveMinutes%60}m`;
+  document.querySelector('[data-kpi="distance"]').textContent = '42.6 mi';
+  const late = state.stops.filter(s => s.late).length;
+  document.querySelector('[data-kpi="sla"]').textContent = late;
+}
+
+// ---------- Filter ----------
+function filteredStops(){
+  return state.stops.filter(s => {
+    if (state.type && s.type !== state.type) return false;
+    if (state.q){
+      const hay = (s.name + ' ' + s.address + ' ' + s.purpose).toLowerCase();
+      if (!hay.includes(state.q.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+
+// ---------- Render stop list ----------
+function renderStops(){
+  const rows = filteredStops();
+  document.querySelector('[data-stop-count]').textContent = `${state.stops.length} stops`;
+  document.querySelector('[data-row-count]').textContent = `${rows.length} shown`;
+
+  if (rows.length === 0){
+    document.getElementById('stopList').innerHTML = `<div class="p-8 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined text-[40px] mb-2 block">route</span>
+      <div class="font-medium mb-1">No stops yet</div>
+      <div class="text-[12px]">Click <b>Add stop</b> to pick a party or appointment.</div>
+    </div>`;
+    return;
+  }
+
+  document.getElementById('stopList').innerHTML = rows.map((s, i) => `
+    <div class="stop" draggable="true" data-id="${s.id}">
+      <div class="num ${s.late ? 'warn' : ''}">${i + 1}</div>
+      <input type="checkbox" class="row-check stop-check" ${state.sel.has(s.id)?'checked':''}/>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2">
+          <div class="font-medium text-body-sm truncate">${s.name}</div>
+          <span class="stat ${s.type === 'customer' ? 'success' : s.type === 'lead' ? 'warn' : 'neutral'}">${s.type}</span>
+          ${s.late ? '<span class="stat error">Late</span>' : ''}
+        </div>
+        <div class="text-[11px] text-on-surface-variant truncate">${s.address}</div>
+        <div class="text-[11px] text-on-surface-variant truncate mt-0.5">${s.purpose}</div>
+      </div>
+      <div class="text-right">
+        <div class="text-[12px] font-semibold tabular-nums">${s.time}</div>
+        <button class="mt-1 w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button>
+      </div>
+    </div>
+  `).join('');
+
+  wireStops();
+}
+
+// ---------- Render map pins ----------
+function renderMap(){
+  const map = document.getElementById('mapCanvas');
+  // remove old pins but keep grid
+  map.querySelectorAll('.pin, .label').forEach(el => el.remove());
+  state.stops.forEach((s, i) => {
+    const pin = document.createElement('div');
+    pin.className = 'pin' + (s.late ? ' warn' : '');
+    pin.style.left = s.x + '%';
+    pin.style.top = s.y + '%';
+    map.appendChild(pin);
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = i + 1;
+    label.style.left = `calc(${s.x}% + 2px)`;
+    label.style.top = `calc(${s.y}% + 2px)`;
+    map.appendChild(label);
+  });
+}
+
+// ---------- Wire rows ----------
+function wireStops(){
+  document.querySelectorAll('.stop').forEach(stop => {
+    stop.addEventListener('click', e => {
+      if (e.target.closest('input,button,[data-row-menu]')) return;
+      const s = state.stops.find(x => x.id === stop.dataset.id);
+      if (s) toast(`Open party → /crm/parties/${s.partyId}`);
+    });
+    stop.querySelector('[data-row-menu]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      openRowMenu(e.currentTarget, stop.dataset.id);
+    });
+    // Drag & reorder
+    stop.addEventListener('dragstart', e => {
+      stop.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', stop.dataset.id);
+    });
+    stop.addEventListener('dragend', () => stop.classList.remove('dragging'));
+    stop.addEventListener('dragover', e => { e.preventDefault(); stop.style.borderTopColor = '#0077c5'; });
+    stop.addEventListener('dragleave', () => stop.style.borderTopColor = '');
+    stop.addEventListener('drop', e => {
+      e.preventDefault();
+      stop.style.borderTopColor = '';
+      const fromId = e.dataTransfer.getData('text/plain');
+      const toId = stop.dataset.id;
+      if (fromId === toId) return;
+      const fromIdx = state.stops.findIndex(s => s.id === fromId);
+      const toIdx = state.stops.findIndex(s => s.id === toId);
+      const [moved] = state.stops.splice(fromIdx, 1);
+      state.stops.splice(toIdx, 0, moved);
+      // Production: POST /rpc/crm_build_route with ordered stop_ids[] — server recomputes drive_time
+      renderStops();
+      renderMap();
+      toast('Stop reordered — re-sequence pending');
+    });
+  });
+  document.querySelectorAll('.stop-check').forEach(cb => cb.addEventListener('change', updateBulk));
+}
+
+// ---------- Bulk ----------
+function updateBulk(){
+  const bar = document.querySelector('[data-bulk-bar]');
+  const cnt = document.querySelector('[data-bulk-count]');
+  if (state.sel.size > 0){ bar.classList.add('show'); cnt.textContent = `${state.sel.size} selected`; }
+  else bar.classList.remove('show');
+}
+
+document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.bulk;
+  if (act === 'close'){ state.sel.clear(); document.querySelectorAll('.stop-check').forEach(c => c.checked = false); updateBulk(); return; }
+  if (act === 'remove'){ state.stops = state.stops.filter(s => !state.sel.has(s.id)); }
+  if (act === 'prioritize'){ /* production: POST /rpc/crm_build_route with prioritize_ids */ }
+  toast(`${act} on ${state.sel.size} stop${state.sel.size !== 1 ? 's' : ''}`);
+  state.sel.clear();
+  document.querySelectorAll('.stop-check').forEach(c => c.checked = false);
+  updateBulk();
+  renderStops(); renderMap(); renderKpis();
+}));
+
+// ---------- Row menu ----------
+const rowMenu = document.getElementById('rowMenu');
+let currentStopId = null;
+function openRowMenu(btn, id){
+  currentStopId = id;
+  rowMenu.classList.remove('open');
+  const r = btn.getBoundingClientRect();
+  rowMenu.style.top = (r.bottom + 4) + 'px';
+  rowMenu.style.left = Math.min(r.right - 250, window.innerWidth - 270) + 'px';
+  rowMenu.classList.add('open');
+}
+
+rowMenu.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.action;
+  rowMenu.classList.remove('open');
+  const s = state.stops.find(x => x.id === currentStopId);
+  if (!s) return;
+  switch (act){
+    case 'open-party': toast(`Navigate → /crm/parties/${s.partyId}`); break;
+    case 'call': toast(`Click-to-call ${s.name} — crm_start_call RPC`); break;
+    case 'move-up': {
+      const i = state.stops.findIndex(x => x.id === s.id);
+      if (i > 0){ [state.stops[i-1], state.stops[i]] = [state.stops[i], state.stops[i-1]]; renderStops(); renderMap(); }
+      break;
+    }
+    case 'move-down': {
+      const i = state.stops.findIndex(x => x.id === s.id);
+      if (i < state.stops.length - 1){ [state.stops[i], state.stops[i+1]] = [state.stops[i+1], state.stops[i]]; renderStops(); renderMap(); }
+      break;
+    }
+    case 'move-date': toast('Date picker — move stop to another day'); break;
+    case 'create-appointment': toast(`Book appointment with ${s.name}`); break;
+    case 'create-note': toast(`Add note to ${s.name}`); break;
+    case 'create-task': toast(`New task for ${s.name}`); break;
+    case 'set-priority': toast(`Prioritize ${s.name}`); break;
+    case 'mark-arrived':
+      s.status = 'arrived'; s.late = false;
+      renderStops(); renderMap(); renderKpis();
+      toast(`Marked arrived — ${s.name}`);
+      break;
+    case 'remove':
+      state.stops = state.stops.filter(x => x.id !== s.id);
+      renderStops(); renderMap(); renderKpis();
+      toast('Removed from route');
+      break;
+  }
+}));
+
+// ---------- Optimize (production: POST /rpc/crm_build_route) ----------
+document.querySelectorAll('[data-action="optimize"]').forEach(b => b.addEventListener('click', () => {
+  toast('Re-optimizing for drive time…');
+  setTimeout(() => {
+    // mock reorder: sort by time
+    state.stops.sort((a, b) => a.time.localeCompare(b.time));
+    renderStops(); renderMap();
+    toast('Route optimized — drive time saved');
+  }, 600);
+}));
+
+// ---------- Navigate / Export / Print ----------
+document.querySelector('[data-action="navigate"]').addEventListener('click', () => toast('Starting navigation'));
+document.querySelector('[data-action="export"]').addEventListener('click', () => toast('Route exported as CSV'));
+document.querySelector('[data-action="print"]').addEventListener('click', () => toast('Route printed for driver'));
+
+// ---------- Tabs/inputs ----------
+document.querySelector('[data-filter]').addEventListener('input', e => { state.q = e.target.value; renderStops(); });
+document.querySelector('[data-filter-type]').addEventListener('change', e => { state.type = e.target.value; renderStops(); });
+
+// ---------- Add stop ----------
+const addScrim = document.getElementById('addScrim');
+const addDrawer = document.getElementById('addDrawer');
+const candidateList = document.querySelector('[data-party-list]');
+
+function renderCandidates(){
+  candidateList.innerHTML = state.candidates.map(c => `
+    <button class="w-full text-left p-2 hover:bg-surface-container-low flex items-center justify-between" data-pick="${c.partyId}">
+      <div>
+        <div class="text-body-sm font-medium">${c.name}</div>
+        <div class="text-[11px] text-on-surface-variant">${c.address}</div>
+      </div>
+      <span class="stat ${c.type === 'customer' ? 'success' : 'warn'}">${c.type}</span>
+    </button>
+  `).join('');
+  candidateList.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => {
+    const c = state.candidates.find(x => x.partyId === b.dataset.pick);
+    if (!c) return;
+    addStopFromParty(c);
+    closeAddDrawer();
+  }));
+}
+
+function openAddDrawer(){
+  addScrim.classList.add('open');
+  addDrawer.classList.add('open');
+  renderCandidates();
+}
+function closeAddDrawer(){
+  addScrim.classList.remove('open');
+  addDrawer.classList.remove('open');
+}
+document.querySelector('[data-action="add-stop"]').addEventListener('click', openAddDrawer);
+document.querySelectorAll('[data-close-add]').forEach(b => b.addEventListener('click', closeAddDrawer));
+addScrim.addEventListener('click', closeAddDrawer);
+
+function addStopFromParty(c){
+  // Production: POST /rpc/crm_build_route with appended stop
+  state.stops.push({
+    id: 's' + (state.stops.length + 1),
+    partyId: c.partyId,
+    name: c.name,
+    address: c.address,
+    city: 'Charlotte',
+    time: 'TBD',
+    type: c.type,
+    purpose: 'Added manually',
+    status: 'pending',
+    late: false,
+    x: 30 + Math.random() * 50,
+    y: 30 + Math.random() * 50
+  });
+  renderStops(); renderMap(); renderKpis();
+  toast(`${c.name} added to route`);
+}
+
+document.querySelector('[data-confirm-add]').addEventListener('click', () => {
+  toast('Select a party above');
+});
+
+// Party search filter
+document.querySelector('[data-party-search]').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  candidateList.querySelectorAll('[data-pick]').forEach(b => {
+    const match = b.textContent.toLowerCase().includes(q);
+    b.style.display = match ? '' : 'none';
+  });
+});
+
+// Close menus on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('#rowMenu')) rowMenu.classList.remove('open');
+});
+
+// ---------- Init ----------
+renderKpis();
+renderStops();
+renderMap();
+</script>
+</body>
+</html>

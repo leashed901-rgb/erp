@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Party Profile — CRM</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{ extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+    "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+    "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+    "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+    "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+    "on-error-container":"#93000a","background":"#faf9fc",
+    "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{ sans:["Inter"] },
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  .row-check{accent-color:#0077c5}
+  .tab-underline{border-bottom:2px solid transparent}
+  .tab-underline.active{border-bottom-color:#0077c5;color:#0077c5;font-weight:600}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px;display:inline-flex}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+  .stat.success{background:#8af5be;color:#00714b}
+  .stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.error{background:#ffdad6;color:#93000a}
+  .stat.info{background:#e8f0fb;color:#0055a5}
+  .stat.neutral{background:#f4f3f7;color:#5a6355}
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:260px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu button.danger:hover{background:#ffdad6}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+  .drawer-scrim{position:fixed;inset:0;background:rgba(26,28,30,.35);z-index:80;display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:600px;max-width:96vw;background:#fff;z-index:81;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .field-label{display:block;font:600 11px Inter;letter-spacing:.04em;text-transform:uppercase;color:#5a6355;margin-bottom:6px}
+  .field-input{width:100%;height:36px;padding:0 10px;border:1px solid #dad9dd;border-radius:6px;font-size:13px;background:#fff}
+  .field-input:focus{outline:none;border-color:#0077c5}
+  .section-h{font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;color:#1a1c1e;padding-bottom:6px;border-bottom:1px solid #dad9dd;margin-bottom:10px}
+  /* Role chips stackable — §B2 */
+  .role-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:14px;font-size:11px;font-weight:600;border:1px solid transparent}
+  .role-chip.customer{background:#e8f0fb;color:#0055a5;border-color:#b8d4f0}
+  .role-chip.lead{background:#fff4dc;color:#8a5a00;border-color:#f0d8a0}
+  .role-chip.vendor{background:#e8f5e8;color:#1e5a38;border-color:#b5dcb5}
+  .role-chip.supplier{background:#f4e8f8;color:#6b1e8a;border-color:#d4b5e0}
+  .role-chip.contractor{background:#f4e8f8;color:#5c3fc4;border-color:#c8b8ec}
+  .role-chip.contact{background:#f4f3f7;color:#5a6355;border-color:#dad9dd}
+  .role-chip .material-symbols-outlined{font-size:13px}
+  /* Timeline */
+  .timeline-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f4f3f7;position:relative}
+  .timeline-item:last-child{border-bottom:none}
+  .timeline-item .icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff}
+  .timeline-item .icon.email{background:#0077c5}
+  .timeline-item .icon.call{background:#1e5a38}
+  .timeline-item .icon.note{background:#8a5a00}
+  .timeline-item .icon.appointment{background:#6b1e28}
+  .timeline-item .icon.deal{background:#0055a5}
+  .timeline-item .icon.task{background:#5c3fc4}
+  .timeline-item .content{flex:1;min-width:0}
+  .timeline-item .title{font-size:13px;font-weight:600;color:#1a1c1e}
+  .timeline-item .sub{font-size:11px;color:#5a6355;margin-top:2px}
+  .timeline-item .when{font-size:11px;color:#5a6355;flex-shrink:0}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <button class="w-8 h-8 rounded hover:bg-surface-container-low flex items-center justify-center" onclick="toast('Back to CRM')">
+      <span class="material-symbols-outlined text-[18px] text-on-surface-variant">arrow_back</span>
+    </button>
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">person</span>
+    <span class="text-label-md font-semibold">Contacts / CRM</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold" id="crumb">Party Profile</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="email">
+      <span class="material-symbols-outlined text-[16px]">mail</span>Email
+    </button>
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="call">
+      <span class="material-symbols-outlined text-[16px]">call</span>Call
+    </button>
+    <div class="split-btn">
+      <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-action="create-deal">
+        <span class="material-symbols-outlined text-[16px]">add</span>New deal
+      </button>
+      <button class="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" data-create-split>
+        <span class="material-symbols-outlined text-[16px]">expand_more</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Party header -->
+  <div class="py-5 flex items-start gap-5 flex-wrap">
+    <div class="w-16 h-16 rounded-full bg-qb-blue flex items-center justify-center text-white text-[22px] font-bold shrink-0">AC</div>
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="text-headline-lg" id="partyName">Acme Corp</h1>
+        <span class="stat success" id="lifecycleBadge">Customer</span>
+      </div>
+      <div class="flex items-center gap-4 mt-1.5 text-body-sm text-on-surface-variant flex-wrap">
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">mail</span>ops@acme.com</span>
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">call</span>+1 (704) 555-0147</span>
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">place</span>22 Park Ave, Charlotte, NC 28801</span>
+      </div>
+
+      <!-- Roles — §B2 stackable -->
+      <div class="flex items-center gap-2 mt-3 flex-wrap" id="roleStack">
+        <span class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant mr-1">Roles:</span>
+        <!-- filled by JS -->
+        <button class="h-7 px-2 border border-dashed border-surface-dim rounded text-[11px] font-semibold text-primary hover:bg-surface-container-low flex items-center gap-1" data-action="add-role">
+          <span class="material-symbols-outlined text-[12px]">add</span>Add role
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick stats -->
+    <div class="flex items-center gap-3">
+      <div class="text-center">
+        <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Lifetime</div>
+        <div class="text-headline-sm tabular-nums" id="lifetimeValue">$14,820</div>
+      </div>
+      <div class="w-px h-10 bg-surface-dim"></div>
+      <div class="text-center">
+        <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Open deals</div>
+        <div class="text-headline-sm tabular-nums" id="openDeals">2</div>
+      </div>
+      <div class="w-px h-10 bg-surface-dim"></div>
+      <div class="text-center">
+        <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Outstanding</div>
+        <div class="text-headline-sm tabular-nums text-qb-maroon" id="outstanding">$1,240</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex items-center gap-1 border-b border-surface-dim mb-0 overflow-x-auto">
+    <button class="tab-underline active px-4 py-2.5 text-label-md" data-viewtab="Timeline">Timeline</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Deals">Deals</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Appointments">Appointments</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Notes">Notes</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Documents">Documents</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Tracked">Tracked records</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Account">Account</button>
+  </div>
+
+  <!-- Two-column: main content + sidebar -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-4">
+
+    <div class="lg:col-span-2">
+      <div class="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden" id="contentHost"></div>
+    </div>
+
+    <!-- Right sidebar -->
+    <div class="space-y-4">
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Details</div>
+        <div class="space-y-2 text-body-sm">
+          <div class="flex justify-between"><span class="text-on-surface-variant">Customer since</span><span class="font-medium">Jan 12, 2024</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Account no.</span><span class="font-mono text-[12px]">AC-1047</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Terms</span><span>Net 30</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Tax ID</span><span class="font-mono text-[12px]">88-1029384</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Credit limit</span><span>$15,000</span></div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Next actions</div>
+        <div class="space-y-2">
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2">
+            <span class="material-symbols-outlined text-[14px] text-qb-blue">mail</span>Send follow-up
+          </button>
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2">
+            <span class="material-symbols-outlined text-[14px] text-qb-green">event_available</span>Book appointment
+          </button>
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2">
+            <span class="material-symbols-outlined text-[14px] text-qb-maroon">receipt_long</span>Create invoice
+          </button>
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2">
+            <span class="material-symbols-outlined text-[14px] text-qb-maroon">undo</span>Issue refund
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Enrolled sequences</div>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-[12px]">
+            <div>
+              <div class="font-medium">New lead welcome</div>
+              <div class="text-[11px] text-on-surface-variant">Step 2 of 5</div>
+            </div>
+            <span class="stat info">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Danger zone</div>
+        <div class="space-y-2">
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2" data-action="merge">
+            <span class="material-symbols-outlined text-[14px]">merge</span>Merge into another party
+          </button>
+          <button class="w-full h-8 border border-error text-error rounded text-label-sm font-semibold hover:bg-error-container/20 flex items-center gap-2 px-2" data-action="archive">
+            <span class="material-symbols-outlined text-[14px]">archive</span>Archive party
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Row menu (timeline items) -->
+<div class="row-menu" id="itemMenu">
+  <div class="menu-header">Open</div>
+  <button data-item-action="view"><span class="material-symbols-outlined">open_in_new</span>Open record</button>
+  <div class="sep"></div>
+  <div class="menu-header">Create from this</div>
+  <button data-item-action="create-task"><span class="material-symbols-outlined">task_alt</span>New task</button>
+  <button data-item-action="create-note"><span class="material-symbols-outlined">note_add</span>Add note</button>
+  <div class="sep"></div>
+  <button class="danger" data-item-action="delete"><span class="material-symbols-outlined">delete</span>Delete</button>
+</div>
+
+<!-- Create split menu -->
+<div class="row-menu" id="createSplitMenu">
+  <div class="menu-header">Create</div>
+  <button data-create="deal"><span class="material-symbols-outlined">trending_up</span>Deal</button>
+  <button data-create="appointment"><span class="material-symbols-outlined">event_available</span>Appointment</button>
+  <button data-create="note"><span class="material-symbols-outlined">note_add</span>Note</button>
+  <button data-create="task"><span class="material-symbols-outlined">task_alt</span>Task</button>
+  <button data-create="document"><span class="material-symbols-outlined">description</span>Document</button>
+  <div class="sep"></div>
+  <button data-create="tracked"><span class="material-symbols-outlined">pets</span>Tracked record</button>
+  <button data-create="event"><span class="material-symbols-outlined">event</span>Record event</button>
+  <div class="sep"></div>
+  <button data-create="invoice"><span class="material-symbols-outlined">receipt_long</span>Invoice</button>
+  <button data-create="return"><span class="material-symbols-outlined">undo</span>Return</button>
+  <button data-create="ticket"><span class="material-symbols-outlined">support_agent</span>Support ticket</button>
+</div>
+
+<!-- Add role drawer -->
+<div class="drawer-scrim" id="roleScrim"></div>
+<div class="drawer" id="roleDrawer">
+  <div class="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="material-symbols-outlined text-[20px] text-primary">group_add</span>
+      <div class="min-w-0">
+        <div class="text-headline-sm truncate">Add role</div>
+        <div class="text-[11px] text-on-surface-variant">Roles stack — <code class="font-mono">platform_party_add_role(party_id, role, details)</code></div>
+      </div>
+    </div>
+    <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-role>
+      <span class="material-symbols-outlined text-[18px]">close</span>
+    </button>
+  </div>
+  <div class="flex-1 overflow-y-auto p-5 space-y-4">
+    <div>
+      <div class="section-h">Role</div>
+      <div class="space-y-2">
+        <label class="flex items-center gap-2 text-body-sm cursor-pointer"><input type="radio" name="rolepick" value="Customer" class="row-check"/>Customer</label>
+        <label class="flex items-center gap-2 text-body-sm cursor-pointer"><input type="radio" name="rolepick" value="Lead" class="row-check"/>Lead</label>
+        <label class="flex items-center gap-2 text-body-sm cursor-pointer"><input type="radio" name="rolepick" value="Vendor" class="row-check"/>Vendor</label>
+        <label class="flex items-center gap-2 text-body-sm cursor-pointer"><input type="radio" name="rolepick" value="Supplier" class="row-check"/>Supplier</label>
+        <label class="flex items-center gap-2 text-body-sm cursor-pointer"><input type="radio" name="rolepick" value="Contractor" class="row-check"/>Contractor</label>
+        <label class="flex items-center gap-2 text-body-sm cursor-pointer"><input type="radio" name="rolepick" value="Contact" class="row-check"/>Contact</label>
+      </div>
+    </div>
+    <div>
+      <div class="section-h">Role-specific details</div>
+      <div class="space-y-3">
+        <div><label class="field-label">Notes</label><textarea class="field-input" style="height:56px;padding:8px 10px;font-family:inherit" placeholder="Why this role was added"></textarea></div>
+      </div>
+    </div>
+  </div>
+  <div class="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-role>Cancel</button>
+    <button class="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" data-save-role>
+      <span class="material-symbols-outlined text-[16px] align-middle mr-1">check</span>Add role
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================= */
+/* Party Profile — canonical destination of party.open_profile   */
+/* Contract from pages.md:                                       */
+/*   Destination: /crm/parties/:id (context envelope prefilled)  */
+/*   Backed by: crm_customers, crm_notes, crm_deals,             */
+/*              crm_appointments, crm_documents, crm_dependents, */
+/*              crm_record_events, crm_activity                  */
+/* Actions from actions.md:                                      */
+/*   party.open_profile, party.email, party.add_role,            */
+/*   party.merge, party.archive, create.note, create.deal,       */
+/*   create.appointment, create.tracked_record, create.record_event */
+/* Functions from functions.md:                                  */
+/*   platform_party_add_role, platform_party_merge,              */
+/*   app_archive_record, email_enqueue                           */
+/* ============================================================= */
+
+function toast(m){ const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('show'), 1800); }
+
+// ---------- STATE — hydrated from GET /api/crm/customers/:id ----------
+const state = {
+  party: {
+    id: 'p-1047',
+    name: 'Acme Corp',
+    email: 'ops@acme.com',
+    phone: '+1 (704) 555-0147',
+    address: '22 Park Ave, Charlotte, NC 28801',
+    roles: ['Customer', 'Vendor'],
+    accountNo: 'AC-1047',
+    since: 'Jan 12, 2024',
+    terms: 'Net 30',
+    taxId: '88-1029384',
+    creditLimit: 15000,
+    lifetimeValue: 14820,
+    openDeals: 2,
+    outstanding: 1240
+  },
+  tab: 'Timeline',
+  timeline: [
+    { kind: 'email',    title: 'Email sent — Q4 pricing',          sub: 'Sent by Sam Lee · to ops@acme.com',     when: '2h ago' },
+    { kind: 'note',     title: 'Note — Approves 500 units',         sub: 'Pinned. Internal visibility.',           when: '4h ago' },
+    { kind: 'deal',     title: 'Deal — Q4 wholesale renewal',       sub: 'Stage: Negotiation · $8,400 · Owner: Sam Lee', when: '1d ago' },
+    { kind: 'call',     title: 'Call — pricing discussion',         sub: 'Direction: Outbound · 14 min · Outcome: connected', when: '2d ago' },
+    { kind: 'appointment', title: 'Appointment — Contract review',  sub: 'Booked for Nov 18, 10:00 AM',            when: '3d ago' }
+  ],
+  deals: [
+    { name: 'Q4 wholesale renewal', amount: '$8,400', stage: 'Negotiation', close: 'Nov 30', owner: 'Sam Lee' },
+    { name: 'Mug restock',          amount: '$1,240', stage: 'Proposal',    close: 'Dec 15', owner: 'Sam Lee' }
+  ],
+  appointments: [
+    { title: 'Contract review', when: 'Nov 18, 10:00 AM', location: 'Customer office', status: 'Scheduled' },
+    { title: 'Q4 check-in',     when: 'Dec 02, 2:00 PM',  location: 'Video call',      status: 'Scheduled' }
+  ],
+  notes: [
+    { body: 'Approves 500 units at $18 — will sign contract Nov 18.', pinned: true, author: 'Sam Lee', when: '4h ago' },
+    { body: 'Prefers monthly invoicing over Net 30.',                  pinned: false, author: 'Sam Lee', when: '1w ago' }
+  ],
+  documents: [
+    { name: 'Q4_contract_v3.pdf', size: '142 KB', kind: 'Contract',   when: '2d ago' },
+    { name: 'W9_Acme_2024.pdf',   size: '88 KB',  kind: 'Tax form',   when: '3mo ago' }
+  ],
+  tracked: [
+    { name: 'Acme warehouse', type: 'Property', ref: '22 Park Ave, Charlotte', when: 'Jan 12, 2024' }
+  ]
+};
+
+// ---------- Render: roles stackable ----------
+function renderRoles(){
+  const host = document.getElementById('roleStack');
+  const roleClasses = { Customer: 'customer', Lead: 'lead', Vendor: 'vendor', Supplier: 'supplier', Contractor: 'contractor', Contact: 'contact' };
+  const roleIcons = { Customer: 'shopping_bag', Lead: 'person_search', Vendor: 'storefront', Supplier: 'factory', Contractor: 'handyman', Contact: 'person' };
+  const addBtn = host.querySelector('[data-action="add-role"]');
+  host.querySelectorAll('.role-chip').forEach(el => el.remove());
+  state.party.roles.forEach(r => {
+    const chip = document.createElement('span');
+    chip.className = 'role-chip ' + (roleClasses[r] || 'contact');
+    chip.innerHTML = `<span class="material-symbols-outlined">${roleIcons[r] || 'person'}</span>${r}`;
+    host.insertBefore(chip, addBtn);
+  });
+}
+
+// ---------- Render: tabs ----------
+function render(){
+  renderRoles();
+  document.getElementById('partyName').textContent = state.party.name;
+  document.getElementById('lifetimeValue').textContent = '$' + state.party.lifetimeValue.toLocaleString();
+  document.getElementById('openDeals').textContent = state.party.openDeals;
+  document.getElementById('outstanding').textContent = '$' + state.party.outstanding.toLocaleString();
+
+  const host = document.getElementById('contentHost');
+  if (state.tab === 'Timeline'){
+    host.innerHTML = `<div class="p-4">${state.timeline.map((it, i) => `
+      <div class="timeline-item" data-timeline-idx="${i}">
+        <div class="icon ${it.kind}"><span class="material-symbols-outlined text-[14px]">${
+          it.kind === 'email' ? 'mail' :
+          it.kind === 'call' ? 'call' :
+          it.kind === 'note' ? 'sticky_note_2' :
+          it.kind === 'appointment' ? 'event' :
+          it.kind === 'deal' ? 'trending_up' : 'circle'
+        }</span></div>
+        <div class="content">
+          <div class="title">${it.title}</div>
+          <div class="sub">${it.sub}</div>
+        </div>
+        <div class="when">${it.when}</div>
+        <button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-item-menu><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button>
+      </div>`).join('')}
+      <div class="mt-4 flex items-center gap-2">
+        <input class="flex-1 h-9 px-3 border border-surface-dim rounded text-body-sm" placeholder="Add a note…"/>
+        <button class="h-9 px-3 bg-primary text-white rounded text-body-sm font-semibold">Post</button>
+      </div>
+    </div>`;
+    wireItems();
+  }
+  else if (state.tab === 'Deals'){
+    host.innerHTML = `<table class="w-full text-left text-body-sm">
+      <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+        <th class="px-4 py-2">Deal</th><th class="px-4 py-2">Stage</th><th class="px-4 py-2 text-right">Amount</th><th class="px-4 py-2">Close</th><th class="px-4 py-2">Owner</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${state.deals.map((d, i) => `<tr class="hover:bg-surface-container-low cursor-pointer" data-deal-idx="${i}">
+          <td class="px-4 py-2 font-medium">${d.name}</td>
+          <td class="px-4 py-2"><span class="stat info">${d.stage}</span></td>
+          <td class="px-4 py-2 text-right tabular-nums">${d.amount}</td>
+          <td class="px-4 py-2 text-on-surface-variant">${d.close}</td>
+          <td class="px-4 py-2 text-on-surface-variant">${d.owner}</td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center"><span class="material-symbols-outlined text-[16px]">more_horiz</span></button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+  else if (state.tab === 'Appointments'){
+    host.innerHTML = `<table class="w-full text-left text-body-sm">
+      <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+        <th class="px-4 py-2">Title</th><th class="px-4 py-2">When</th><th class="px-4 py-2">Location</th><th class="px-4 py-2">Status</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${state.appointments.map((a, i) => `<tr class="hover:bg-surface-container-low cursor-pointer" data-appt-idx="${i}">
+          <td class="px-4 py-2 font-medium">${a.title}</td>
+          <td class="px-4 py-2 text-on-surface-variant">${a.when}</td>
+          <td class="px-4 py-2 text-on-surface-variant">${a.location}</td>
+          <td class="px-4 py-2"><span class="stat success">${a.status}</span></td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center"><span class="material-symbols-outlined text-[16px]">more_horiz</span></button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+  else if (state.tab === 'Notes'){
+    host.innerHTML = `<div class="p-4 space-y-3">
+      ${state.notes.map((n, i) => `<div class="border border-surface-dim rounded-lg p-3 ${n.pinned ? 'bg-surface-container-low' : ''}">
+        <div class="flex items-center gap-2 mb-1">
+          ${n.pinned ? '<span class="material-symbols-outlined text-[14px] text-qb-blue">push_pin</span>' : ''}
+          <span class="text-[11px] text-on-surface-variant">${n.author} · ${n.when}</span>
+        </div>
+        <div class="text-body-sm">${n.body}</div>
+      </div>`).join('')}
+    </div>`;
+  }
+  else if (state.tab === 'Documents'){
+    host.innerHTML = `<table class="w-full text-left text-body-sm">
+      <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+        <th class="px-4 py-2">Name</th><th class="px-4 py-2">Kind</th><th class="px-4 py-2 text-right">Size</th><th class="px-4 py-2">Uploaded</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${state.documents.map(d => `<tr class="hover:bg-surface-container-low cursor-pointer">
+          <td class="px-4 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px] text-qb-blue">description</span><span class="font-medium">${d.name}</span></div></td>
+          <td class="px-4 py-2 text-on-surface-variant">${d.kind}</td>
+          <td class="px-4 py-2 text-right text-on-surface-variant tabular-nums">${d.size}</td>
+          <td class="px-4 py-2 text-on-surface-variant">${d.when}</td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center"><span class="material-symbols-outlined text-[16px]">more_horiz</span></button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+  else if (state.tab === 'Tracked'){
+    host.innerHTML = `<table class="w-full text-left text-body-sm">
+      <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+        <th class="px-4 py-2">Name</th><th class="px-4 py-2">Type</th><th class="px-4 py-2">Reference</th><th class="px-4 py-2">Added</th><th class="w-8"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${state.tracked.map(t => `<tr class="hover:bg-surface-container-low cursor-pointer">
+          <td class="px-4 py-2 font-medium">${t.name}</td>
+          <td class="px-4 py-2"><span class="stat info">${t.type}</span></td>
+          <td class="px-4 py-2 text-on-surface-variant">${t.ref}</td>
+          <td class="px-4 py-2 text-on-surface-variant">${t.when}</td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center"><span class="material-symbols-outlined text-[16px]">more_horiz</span></button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+  else if (state.tab === 'Account'){
+    host.innerHTML = `<div class="p-4 space-y-4">
+      <div>
+        <div class="section-h">Identity</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="field-label">Name</label><input class="field-input" value="${state.party.name}"/></div>
+          <div><label class="field-label">Display name</label><input class="field-input" value="${state.party.name}"/></div>
+          <div><label class="field-label">Email</label><input class="field-input" value="${state.party.email}"/></div>
+          <div><label class="field-label">Phone</label><input class="field-input" value="${state.party.phone}"/></div>
+        </div>
+      </div>
+      <div>
+        <div class="section-h">Address</div>
+        <div><label class="field-label">Street</label><input class="field-input" value="${state.party.address}"/></div>
+      </div>
+      <div>
+        <div class="section-h">Finance</div>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="field-label">Terms</label><input class="field-input" value="${state.party.terms}"/></div>
+          <div><label class="field-label">Credit limit</label><input class="field-input" value="$${state.party.creditLimit.toLocaleString()}"/></div>
+          <div><label class="field-label">Tax ID</label><input class="field-input font-mono" value="${state.party.taxId}"/></div>
+        </div>
+      </div>
+    </div>`;
+  }
+}
+
+// ---------- Wire timeline items ----------
+function wireItems(){
+  document.querySelectorAll('[data-item-menu]').forEach((btn, i) => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const menu = document.getElementById('itemMenu');
+      menu.classList.remove('open');
+      const r = btn.getBoundingClientRect();
+      menu.style.top = (r.bottom + 4) + 'px';
+      menu.style.left = Math.min(r.right - 260, window.innerWidth - 280) + 'px';
+      menu.classList.add('open');
+      menu._idx = i;
+    });
+  });
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll('[data-viewtab]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-viewtab]').forEach(x => x.classList.toggle('active', x === b));
+  state.tab = b.dataset.viewtab;
+  render();
+}));
+
+// ---------- Add role ----------
+const roleScrim = document.getElementById('roleScrim');
+const roleDrawer = document.getElementById('roleDrawer');
+
+document.querySelector('[data-action="add-role"]').addEventListener('click', () => {
+  roleScrim.classList.add('open');
+  roleDrawer.classList.add('open');
+});
+document.querySelectorAll('[data-close-role]').forEach(b => b.addEventListener('click', () => {
+  roleScrim.classList.remove('open');
+  roleDrawer.classList.remove('open');
+}));
+roleScrim.addEventListener('click', () => {
+  roleScrim.classList.remove('open');
+  roleDrawer.classList.remove('open');
+});
+document.querySelector('[data-save-role]').addEventListener('click', () => {
+  const selected = document.querySelector('input[name="rolepick"]:checked');
+  if (!selected){ toast('Select a role'); return; }
+  const role = selected.value;
+  if (state.party.roles.includes(role)){ toast(`${role} already added`); return; }
+  state.party.roles.push(role);
+  // Production: POST /rpc/platform_party_add_role({ party_id, role, details })
+  roleScrim.classList.remove('open');
+  roleDrawer.classList.remove('open');
+  renderRoles();
+  toast(`${role} role added`);
+});
+
+// ---------- Create split menu ----------
+const createSplitMenu = document.getElementById('createSplitMenu');
+document.querySelector('[data-create-split]').addEventListener('click', e => {
+  e.stopPropagation();
+  const r = e.currentTarget.getBoundingClientRect();
+  createSplitMenu.style.top = (r.bottom + 4) + 'px';
+  createSplitMenu.style.left = Math.min(r.right - 260, window.innerWidth - 280) + 'px';
+  createSplitMenu.classList.toggle('open');
+});
+document.querySelectorAll('[data-create]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.create;
+  createSplitMenu.classList.remove('open');
+  toast(`Create ${k} from ${state.party.name}`);
+}));
+
+// ---------- Header actions ----------
+document.querySelector('[data-action="email"]').addEventListener('click', () => {
+  // Production: /rpc/email_enqueue with related_type='party', related_id=state.party.id
+  toast(`Compose email to ${state.party.email} — email_enqueue RPC`);
+});
+document.querySelector('[data-action="call"]').addEventListener('click', () => {
+  // Production: /rpc/crm_start_call
+  toast(`Click-to-call ${state.party.phone} — crm_start_call RPC`);
+});
+document.querySelector('[data-action="create-deal"]').addEventListener('click', () => {
+  // Production: POST /api/crm/deals
+  toast('New deal for Acme Corp');
+});
+
+// ---------- Danger zone ----------
+document.querySelector('[data-action="merge"]').addEventListener('click', () => {
+  // Production: /rpc/platform_party_merge({ from, into })
+  toast('Open merge dialog — platform_party_merge RPC');
+});
+document.querySelector('[data-action="archive"]').addEventListener('click', () => {
+  // Production: /rpc/app_archive_record({ table:'crm_customers', id, archive:true })
+  if (!confirm('Archive this party? This action can be undone from Settings > Archive.')) return;
+  toast(`Archive queued — app_archive_record RPC`);
+});
+
+// ---------- Timeline item menu ----------
+const itemMenu = document.getElementById('itemMenu');
+itemMenu.querySelectorAll('[data-item-action]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.itemAction;
+  itemMenu.classList.remove('open');
+  toast(`${act} — ${state.timeline[itemMenu._idx]?.title || ''}`);
+}));
+
+// ---------- Global click closes menus ----------
+document.addEventListener('click', e => {
+  if (!e.target.closest('#itemMenu')) itemMenu.classList.remove('open');
+  if (!e.target.closest('#createSplitMenu') && !e.target.closest('[data-create-split]')) createSplitMenu.classList.remove('open');
+});
+
+// ---------- Init ----------
+render();
+</script>
+</body>
+</html>

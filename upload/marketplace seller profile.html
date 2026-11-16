@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Seller Profile — Marketplace</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{ extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+    "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+    "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+    "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+    "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+    "on-error-container":"#93000a","background":"#faf9fc",
+    "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{ sans:["Inter"] },
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  .row-check{accent-color:#0077c5}
+  .tab-underline{border-bottom:2px solid transparent}
+  .tab-underline.active{border-bottom-color:#0077c5;color:#0077c5;font-weight:600}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px;display:inline-flex}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .bulk-bar{display:none;background:#0077c5;color:#fff;padding:8px 16px;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+  .bulk-bar.show{display:flex}
+  .bulk-bar button{color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:4px}
+  .bulk-bar button:hover{background:rgba(255,255,255,.15)}
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+  .stat.success{background:#8af5be;color:#00714b}
+  .stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.error{background:#ffdad6;color:#93000a}
+  .stat.info{background:#e8f0fb;color:#0055a5}
+  .stat.neutral{background:#f4f3f7;color:#5a6355}
+  .stat.instagram{background:#fce7f3;color:#be185d}
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:260px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu button.danger:hover{background:#ffdad6}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+  .drawer-scrim{position:fixed;inset:0;background:rgba(26,28,30,.35);z-index:80;display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:640px;max-width:96vw;background:#fff;z-index:81;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .field-label{display:block;font:600 11px Inter;letter-spacing:.04em;text-transform:uppercase;color:#5a6355;margin-bottom:6px}
+  .field-input{width:100%;height:36px;padding:0 10px;border:1px solid #dad9dd;border-radius:6px;font-size:13px;background:#fff}
+  .field-input:focus{outline:none;border-color:#0077c5}
+  .section-h{font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;color:#1a1c1e;padding-bottom:6px;border-bottom:1px solid #dad9dd;margin-bottom:10px}
+  /* Gate row — critical to USER-GUIDE acceptance row 1 */
+  .gate-row{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #f4f3f7}
+  .gate-row:last-child{border-bottom:none}
+  .gate-row .gate-icon{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px}
+  .gate-row .gate-icon.pass{background:#8af5be;color:#00714b}
+  .gate-row .gate-icon.fail{background:#ffdad6;color:#93000a}
+  .gate-row .gate-icon.pending{background:#fff4dc;color:#8a5a00}
+  .gate-row .gate-body{flex:1;min-width:0}
+  .gate-row .gate-title{font-size:13px;font-weight:600;color:#1a1c1e}
+  .gate-row .gate-desc{font-size:11px;color:#5a6355;margin-top:2px}
+  .gate-row .gate-fix{font-size:11px;color:#0077c5;margin-top:4px;text-decoration:underline}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <button class="w-8 h-8 rounded hover:bg-surface-container-low flex items-center justify-center" onclick="toast('Back to sellers')">
+      <span class="material-symbols-outlined text-[18px] text-on-surface-variant">arrow_back</span>
+    </button>
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">storefront</span>
+    <span class="text-label-md font-semibold">Contacts / Seller relationships</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold" id="crumb">Copper Kiln</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="email">
+      <span class="material-symbols-outlined text-[16px]">mail</span>Email
+    </button>
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="view-portal">
+      <span class="material-symbols-outlined text-[16px]">open_in_new</span>Seller portal
+    </button>
+    <div class="split-btn">
+      <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-action="edit-seller">
+        <span class="material-symbols-outlined text-[16px]">edit</span>Edit seller
+      </button>
+      <button class="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" data-actions-split>
+        <span class="material-symbols-outlined text-[16px]">expand_more</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Party header -->
+  <div class="py-5 flex items-start gap-5 flex-wrap">
+    <div class="w-16 h-16 rounded-full bg-qb-blue flex items-center justify-center text-white text-[22px] font-bold shrink-0" id="sellerInitials">CK</div>
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="text-headline-lg" id="sellerName">Copper Kiln</h1>
+        <span class="stat success" id="sellerStatus">Active</span>
+        <span class="stat info" id="sellerType">Business</span>
+      </div>
+      <div class="flex items-center gap-4 mt-1.5 text-body-sm text-on-surface-variant flex-wrap">
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">badge</span>Copper Kiln Pottery LLC</span>
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">mail</span>hello@copperkiln.co</span>
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">percent</span>15.0% commission</span>
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">event</span>Seller since Nov 08, 2026</span>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <div class="text-center">
+        <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Lifetime sales</div>
+        <div class="text-headline-sm tabular-nums" id="lifetimeSales">$18,420</div>
+      </div>
+      <div class="w-px h-10 bg-surface-dim"></div>
+      <div class="text-center">
+        <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Payouts due</div>
+        <div class="text-headline-sm tabular-nums text-qb-blue" id="payoutsDue">$1,240</div>
+      </div>
+      <div class="w-px h-10 bg-surface-dim"></div>
+      <div class="text-center">
+        <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Open violations</div>
+        <div class="text-headline-sm tabular-nums text-error" id="openViolations">0</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex items-center gap-1 border-b border-surface-dim mb-0 overflow-x-auto">
+    <button class="tab-underline active px-4 py-2.5 text-label-md" data-viewtab="Overview">Overview</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Onboarding">Onboarding</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Settlements">Settlements</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Violations">Violations</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Appeals">Appeals</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Feed">Feed</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="Documents">Documents</button>
+    <button class="tab-underline px-4 py-2.5 text-label-md text-on-surface-variant" data-viewtab="1099K">1099-K</button>
+  </div>
+
+  <!-- Two-column: main + sidebar -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-4">
+    <div class="lg:col-span-2">
+      <div class="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden" id="contentHost"></div>
+    </div>
+    <div class="space-y-4">
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Stripe Connect</div>
+        <div class="space-y-2 text-body-sm">
+          <div class="flex justify-between"><span class="text-on-surface-variant">Account</span><span class="font-mono text-[12px]">acct_1PqXa2</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Charges</span><span class="stat success">enabled</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Payouts</span><span class="stat success">enabled</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Onboarding</span><span class="stat success">complete</span></div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Commission</div>
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-headline-sm tabular-nums">15.0%</div>
+            <div class="text-[11px] text-on-surface-variant">Applied to all postings</div>
+          </div>
+          <button class="h-7 px-2 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low" data-action="edit-commission">Edit</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Tax</div>
+        <div class="space-y-2 text-body-sm">
+          <div class="flex justify-between"><span class="text-on-surface-variant">Tax ID</span><span class="font-mono text-[12px]">•••• 4421</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">Form on file</span><span class="stat warn">not required</span></div>
+          <div class="flex justify-between"><span class="text-on-surface-variant">1099-K threshold</span><span class="text-[11px]">$20,000 / 200 txn</span></div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Quick actions</div>
+        <div class="space-y-2">
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2" data-action="payout"><span class="material-symbols-outlined text-[14px] text-qb-blue">payments</span>Run settlement</button>
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2" data-action="enforce"><span class="material-symbols-outlined text-[14px] text-qb-maroon">gavel</span>Record violation</button>
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2" data-action="pause"><span class="material-symbols-outlined text-[14px] text-qb-maroon">pause</span>Pause operations</button>
+          <button class="w-full h-8 border border-error text-error rounded text-label-sm font-semibold hover:bg-error-container/20 flex items-center gap-2 px-2" data-action="suspend"><span class="material-symbols-outlined text-[14px]">block</span>Suspend seller</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-surface-dim p-4">
+        <div class="section-h">Danger zone</div>
+        <div class="space-y-2">
+          <button class="w-full h-8 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-2 px-2" data-action="reset-stripe"><span class="material-symbols-outlined text-[14px]">refresh</span>Reset Stripe</button>
+          <button class="w-full h-8 border border-error text-error rounded text-label-sm font-semibold hover:bg-error-container/20 flex items-center gap-2 px-2" data-action="ban"><span class="material-symbols-outlined text-[14px]">cancel</span>Ban seller</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Row menu -->
+<div class="row-menu" id="rowMenu">
+  <div class="menu-header">Open</div>
+  <button data-action="open"><span class="material-symbols-outlined">open_in_new</span>Open record</button>
+  <div class="sep"></div>
+  <div class="menu-header">Create from this</div>
+  <button data-action="create-ticket"><span class="material-symbols-outlined">support_agent</span>Support ticket</button>
+  <button data-action="create-note"><span class="material-symbols-outlined">note_add</span>Add note</button>
+  <div class="sep"></div>
+  <button class="danger" data-action="dismiss"><span class="material-symbols-outlined">delete</span>Dismiss</button>
+</div>
+
+<!-- Actions split menu -->
+<div class="row-menu" id="actionsSplitMenu">
+  <div class="menu-header">Seller actions</div>
+  <button data-split-action="edit-seller"><span class="material-symbols-outlined">edit</span>Edit seller</button>
+  <button data-split-action="edit-commission"><span class="material-symbols-outlined">percent</span>Edit commission</button>
+  <div class="sep"></div>
+  <div class="menu-header">Stripe</div>
+  <button data-split-action="stripe-portal"><span class="material-symbols-outlined">open_in_new</span>Open Stripe dashboard</button>
+  <button data-split-action="reset-stripe"><span class="material-symbols-outlined">refresh</span>Reset Stripe Connect</button>
+  <div class="sep"></div>
+  <div class="menu-header">Trust &amp; safety</div>
+  <button data-split-action="enforce"><span class="material-symbols-outlined">gavel</span>Record violation</button>
+  <button data-split-action="review-appeals"><span class="material-symbols-outlined">gavel</span>Review appeals</button>
+  <div class="sep"></div>
+  <button class="danger" data-split-action="suspend"><span class="material-symbols-outlined">pause</span>Suspend seller</button>
+  <button class="danger" data-split-action="ban"><span class="material-symbols-outlined">block</span>Ban seller</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================= */
+/* Seller Profile — canonical /marketplace/sellers/:id surface   */
+/* Backed by: sellers, seller_stripe_accounts,                   */
+/*   onboarding_cases, onboarding_gates, seller_settlements,     */
+/*   seller_settlement_reversals, seller_violations,             */
+/*   seller_appeals, seller_social_posts,                        */
+/*   partner_application_documents, seller_1099k_generations,    */
+/*   seller_policy_enforcement                                   */
+/* RPCs available: first_party_seller, trg_seller_status (guard) */
+/* ============================================================= */
+
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),1800);}
+const usd = cents => (cents/100).toLocaleString('en-US',{style:'currency',currency:'USD'});
+
+// Hydrated from GET /api/sellers/[id] + related tables
+const state = {
+  seller: {
+    id: 'sl-1',
+    display_name: 'Copper Kiln',
+    legal_name: 'Copper Kiln Pottery LLC',
+    email: 'hello@copperkiln.co',
+    seller_type: 'business',
+    commission_rate: 0.15,
+    status: 'active',
+    approved_at: 'Nov 08, 2026',
+    lifetime_sales_cents: 1842000,
+    stripe: { account_id: 'acct_1PqXa2', charges_enabled: true, payouts_enabled: true, onboarding_complete: true },
+    tax_id_last4: '4421',
+    tax_form_status: 'not_required'
+  },
+  // onboarding_cases + onboarding_gates
+  onboarding: {
+    case_id: 'case-401',
+    fsm_state: 'IN_GATES',
+    gates: [
+      { key: 'G1 · Age verification', status: 'pass', evidence: 'dob_verified_at: 2026-11-08' },
+      { key: 'G2 · Account verified', status: 'pass', evidence: 'email + phone OTP' },
+      { key: 'G3 · Identity check', status: 'pass', evidence: 'gov_id_last4: 8842' },
+      { key: 'G7 · Business license', status: 'fail', evidence: null, fix: 'Upload current business license PDF' },
+      { key: 'G12 · Payout setup', status: 'pending', evidence: null, fix: 'Complete Stripe Connect onboarding' },
+      { key: 'G14 · Tax form on file', status: 'pending', evidence: null, fix: 'Submit W-9 or 1099-K self-certification' }
+    ]
+  },
+  settlements: [
+    { id:'set-0998', order_id:'1028', gross_cents:98800, commission_cents:14820, fees_cents:640, net_cents:83340, state:'settled', when:'Nov 08' },
+    { id:'set-1001', order_id:'1042', gross_cents:172000, commission_cents:25800, fees_cents:1240, net_cents:144960, state:'pending', when:'Nov 15' }
+  ],
+  reversals: [
+    { id:'rev-201', settlement_id:'set-0988', reason:'Customer refund', amount_cents:14900, when:'Nov 05' }
+  ],
+  violations: [
+    { id:'v-201', type:'Late shipment', severity:'Low', status:'resolved', policy:'POL-SHP-04', description:'1 shipment exceeded SLA (Nov 03)', created:'Nov 04' }
+  ],
+  appeals: [],
+  feed: [
+    { id:'pst-1', network:'Instagram', title:'Copper Kiln fall launch', desc:'Posted Nov 07', status:'published', date:'2026-11-07' }
+  ],
+  documents: [
+    { name:'business_license_2026.pdf', kind:'Business license', size:'142 KB', uploaded:'Nov 08', status:'pending' },
+    { name:'W9_CopperKiln.pdf', kind:'W-9', size:'88 KB', uploaded:'Nov 08', status:'verified' }
+  ],
+  tax1099: [
+    { year: 2026, gross_cents: 1842000, txn_count: 38, status: 'pending' },
+    { year: 2025, gross_cents: 0, txn_count: 0, status: 'not_required' }
+  ],
+  tab: 'Overview'
+};
+
+// Sidebar helpers
+document.getElementById('sellerInitials').textContent = state.seller.display_name.split(' ').map(w=>w[0]).join('');
+document.getElementById('sellerName').textContent = state.seller.display_name;
+document.getElementById('crumb').textContent = state.seller.display_name;
+document.getElementById('lifetimeSales').textContent = usd(state.seller.lifetime_sales_cents);
+document.getElementById('openViolations').textContent = state.violations.filter(v=>v.status!=='resolved').length;
+document.getElementById('payoutsDue').textContent = usd(state.settlements.filter(s=>s.state==='pending').reduce((a,b)=>a+b.net_cents,0));
+
+// ---------- RENDER TABS ----------
+function render() {
+  const host = document.getElementById('contentHost');
+  
+  if (state.tab === 'Overview') {
+    host.innerHTML = `<div class="p-5 space-y-5">
+      <div>
+        <div class="section-h">Performance summary</div>
+        <div class="grid grid-cols-2 gap-3 text-body-sm">
+          <div class="border border-surface-dim rounded-lg p-3"><div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Total orders</div><div class="text-headline-sm mt-1 tabular-nums">38</div></div>
+          <div class="border border-surface-dim rounded-lg p-3"><div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Completion rate</div><div class="text-headline-sm mt-1 tabular-nums text-secondary">98.4%</div></div>
+          <div class="border border-surface-dim rounded-lg p-3"><div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Avg. rating</div><div class="text-headline-sm mt-1 tabular-nums">4.8</div></div>
+          <div class="border border-surface-dim rounded-lg p-3"><div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Open violations</div><div class="text-headline-sm mt-1 tabular-nums ${state.violations.filter(v=>v.status!=='resolved').length>0?'text-error':''}">${state.violations.filter(v=>v.status!=='resolved').length}</div></div>
+        </div>
+      </div>
+      <div>
+        <div class="section-h">Recent activity</div>
+        <div class="space-y-2 text-body-sm">
+          <div class="flex items-start gap-2"><span class="material-symbols-outlined text-[16px] text-qb-blue mt-0.5">payments</span><div><div class="font-medium">Settlement settled</div><div class="text-[11px] text-on-surface-variant">set-0998 · $833.40 · Nov 08</div></div></div>
+          <div class="flex items-start gap-2"><span class="material-symbols-outlined text-[16px] text-qb-green mt-0.5">local_shipping</span><div><div class="font-medium">Order #1042 posted</div><div class="text-[11px] text-on-surface-variant">$1,720 gross · commission $258</div></div></div>
+          <div class="flex items-start gap-2"><span class="material-symbols-outlined text-[16px] text-qb-teal mt-0.5">share</span><div><div class="font-medium">Instagram post published</div><div class="text-[11px] text-on-surface-variant">Copper Kiln fall launch · Nov 07</div></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="section-h">Compliance snapshot</div>
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2"><span class="stat ${state.seller.status==='active'?'success':'warn'}">${state.seller.status}</span></div>
+          <div class="flex items-center gap-2"><span class="stat ${state.seller.stripe.onboarding_complete?'success':'warn'}">Stripe ${state.seller.stripe.onboarding_complete?'ready':'pending'}</span></div>
+          <div class="flex items-center gap-2"><span class="stat ${state.seller.tax_form_status==='not_required'?'warn':'success'}">Tax ${state.seller.tax_form_status.replace('_',' ')}</span></div>
+        </div>
+      </div>
+    </div>`;
+  }
+  
+  else if (state.tab === 'Onboarding') {
+    host.innerHTML = `<div class="p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-label-sm uppercase tracking-wider font-bold text-on-surface-variant">Case ${state.onboarding.case_id}</div>
+          <div class="text-headline-sm mt-1">FSM: <span class="stat ${state.onboarding.fsm_state==='IN_GATES'?'warn':'info'}">${state.onboarding.fsm_state}</span></div>
+        </div>
+        <button class="h-8 px-3 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low" data-action="open-case">
+          <span class="material-symbols-outlined text-[14px] align-middle mr-1">open_in_new</span>Open case
+        </button>
+      </div>
+      <div>
+        <div class="section-h">Gates (G0–G14)</div>
+        ${state.onboarding.gates.map(g => `
+          <div class="gate-row">
+            <div class="gate-icon ${g.status}">
+              <span class="material-symbols-outlined text-[14px]">${g.status==='pass'?'check':g.status==='fail'?'close':'schedule'}</span>
+            </div>
+            <div class="gate-body">
+              <div class="gate-title">${g.key}</div>
+              ${g.evidence ? `<div class="gate-desc">Evidence: ${g.evidence}</div>` : ''}
+              ${g.fix && g.status !== 'pass' ? `<div class="gate-fix">${g.fix}</div>` : ''}
+            </div>
+            ${g.status==='fail' && !g.evidence ? `<button class="h-7 px-2 border border-surface-dim rounded text-[11px] font-semibold hover:bg-surface-container-low" data-gate-action="${g.key}">Upload</button>` : ''}
+            ${g.status==='pending' ? `<button class="h-7 px-2 border border-surface-dim rounded text-[11px] font-semibold hover:bg-surface-container-low" data-gate-action="${g.key}">Start</button>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+  
+  else if (state.tab === 'Settlements') {
+    host.innerHTML = `
+      <div class="p-4 border-b border-surface-dim flex items-center justify-between">
+        <div class="text-label-sm uppercase tracking-wider font-bold text-on-surface-variant">Settlements &amp; reversals</div>
+        <button class="h-7 px-2 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low" data-action="run-payout">
+          <span class="material-symbols-outlined text-[14px] align-middle mr-1">play_arrow</span>Run payout
+        </button>
+      </div>
+      <table class="w-full text-left text-body-sm">
+        <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+          <th class="px-4 py-2">Settlement</th><th class="px-4 py-2">Order</th><th class="px-4 py-2 text-right">Gross</th><th class="px-4 py-2 text-right">Commission</th><th class="px-4 py-2 text-right">Net</th><th class="px-4 py-2">State</th><th class="px-4 py-2">When</th>
+        </tr></thead>
+        <tbody class="divide-y divide-surface-dim">
+          ${state.settlements.map(s => `<tr>
+            <td class="px-4 py-2 font-mono text-[11px]">${s.id}</td>
+            <td class="px-4 py-2">#${s.order_id}</td>
+            <td class="px-4 py-2 text-right tabular-nums">${usd(s.gross_cents)}</td>
+            <td class="px-4 py-2 text-right tabular-nums text-secondary">-${usd(s.commission_cents)}</td>
+            <td class="px-4 py-2 text-right tabular-nums font-semibold">${usd(s.net_cents)}</td>
+            <td class="px-4 py-2"><span class="stat ${s.state==='settled'?'success':'info'}">${s.state}</span></td>
+            <td class="px-4 py-2 text-on-surface-variant">${s.when}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+      ${state.reversals.length ? `
+        <div class="p-4 border-t border-surface-dim">
+          <div class="section-h">Reversals</div>
+          ${state.reversals.map(r => `<div class="flex items-center justify-between text-body-sm py-2 border-b border-surface-dim last:border-0">
+            <div><div class="font-medium">${r.id}</div><div class="text-[11px] text-on-surface-variant">${r.reason} · ${r.when}</div></div>
+            <div class="text-right tabular-nums font-semibold text-error">-${usd(r.amount_cents)}</div>
+          </div>`).join('')}
+        </div>
+      ` : ''}`;
+  }
+  
+  else if (state.tab === 'Violations') {
+    host.innerHTML = state.violations.length ? `
+      <table class="w-full text-left text-body-sm">
+        <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+          <th class="px-4 py-2">ID</th><th class="px-4 py-2">Type</th><th class="px-4 py-2">Policy</th><th class="px-4 py-2">Severity</th><th class="px-4 py-2">Status</th><th class="px-4 py-2">Created</th>
+        </tr></thead>
+        <tbody class="divide-y divide-surface-dim">
+          ${state.violations.map(v => `<tr class="cursor-pointer v-row" data-id="${v.id}">
+            <td class="px-4 py-2 font-mono text-[11px]">${v.id}</td>
+            <td class="px-4 py-2 font-medium">${v.type}</td>
+            <td class="px-4 py-2 font-mono text-[11px] text-on-surface-variant">${v.policy}</td>
+            <td class="px-4 py-2"><span class="stat ${v.severity==='Critical'?'error':v.severity==='High'?'warn':'neutral'}">${v.severity}</span></td>
+            <td class="px-4 py-2"><span class="stat ${v.status==='resolved'?'success':'error'}">${v.status}</span></td>
+            <td class="px-4 py-2 text-on-surface-variant">${v.created}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    ` : `<div class="p-8 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined text-[40px] mb-2 block">gavel</span>
+      <div class="font-medium mb-1">No violations</div>
+      <div class="text-[12px]">This seller has a clean trust record.</div>
+    </div>`;
+  }
+  
+  else if (state.tab === 'Appeals') {
+    host.innerHTML = `<div class="p-8 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined text-[40px] mb-2 block">gavel</span>
+      <div class="font-medium mb-1">No appeals</div>
+      <div class="text-[12px]">Appeals appear here when a violation is contested.</div>
+    </div>`;
+  }
+  
+  else if (state.tab === 'Feed') {
+    host.innerHTML = state.feed.length ? `<div class="p-4 space-y-3">
+      ${state.feed.map(p => `<div class="border border-surface-dim rounded-lg p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="stat ${p.network.toLowerCase()}">${p.network}</span>
+          <span class="stat ${p.status==='published'?'success':'warn'}">${p.status}</span>
+          <span class="text-[11px] text-on-surface-variant ml-auto">${p.date}</span>
+        </div>
+        <div class="font-medium text-body-sm">${p.title}</div>
+        <div class="text-[12px] text-on-surface-variant mt-1">${p.desc}</div>
+      </div>`).join('')}
+    </div>` : `<div class="p-8 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined text-[40px] mb-2 block">share</span>
+      <div class="font-medium mb-1">No posts</div>
+    </div>`;
+  }
+  
+  else if (state.tab === 'Documents') {
+    host.innerHTML = `<table class="w-full text-left text-body-sm">
+      <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+        <th class="px-4 py-2">Name</th><th class="px-4 py-2">Kind</th><th class="px-4 py-2 text-right">Size</th><th class="px-4 py-2">Uploaded</th><th class="px-4 py-2">Status</th>
+      </tr></thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${state.documents.map(d => `<tr>
+          <td class="px-4 py-2"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px] text-qb-blue">description</span><span class="font-medium">${d.name}</span></div></td>
+          <td class="px-4 py-2 text-on-surface-variant">${d.kind}</td>
+          <td class="px-4 py-2 text-right text-on-surface-variant tabular-nums">${d.size}</td>
+          <td class="px-4 py-2 text-on-surface-variant">${d.uploaded}</td>
+          <td class="px-4 py-2"><span class="stat ${d.status==='verified'?'success':'warn'}">${d.status}</span></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+  
+  else if (state.tab === '1099K') {
+    host.innerHTML = `<table class="w-full text-left text-body-sm">
+      <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider"><tr>
+        <th class="px-4 py-2">Tax year</th><th class="px-4 py-2 text-right">Gross</th><th class="px-4 py-2 text-right">Transactions</th><th class="px-4 py-2">Status</th><th class="px-4 py-2"></th>
+      </tr></thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${state.tax1099.map(t => `<tr>
+          <td class="px-4 py-2 font-medium">${t.year}</td>
+          <td class="px-4 py-2 text-right tabular-nums">${usd(t.gross_cents)}</td>
+          <td class="px-4 py-2 text-right tabular-nums">${t.txn_count}</td>
+          <td class="px-4 py-2"><span class="stat ${t.status==='pending'?'warn':t.status==='not_required'?'neutral':'success'}">${t.status.replace('_',' ')}</span></td>
+          <td class="px-4 py-2 text-right">${t.status==='pending' ? `<button class="h-7 px-2 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low" data-action="gen-1099">Generate</button>` : ''}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  }
+}
+
+// ---------- TAB WIRING ----------
+document.querySelectorAll('[data-viewtab]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-viewtab]').forEach(x => x.classList.toggle('active', x === b));
+  state.tab = b.dataset.viewtab;
+  render();
+}));
+
+// ---------- Header actions ----------
+document.querySelector('[data-action="email"]').addEventListener('click', () => toast(`Email ${state.seller.email}`));
+document.querySelector('[data-action="view-portal"]').addEventListener('click', () => toast('Open seller portal'));
+document.querySelector('[data-action="edit-seller"]').addEventListener('click', () => toast('Edit seller drawer'));
+
+// Split menu
+const actionsSplit = document.getElementById('actionsSplitMenu');
+document.querySelector('[data-actions-split]').addEventListener('click', e => {
+  e.stopPropagation();
+  const r = e.currentTarget.getBoundingClientRect();
+  actionsSplit.style.top = (r.bottom + 4) + 'px';
+  actionsSplit.style.left = Math.min(r.right - 260, innerWidth - 280) + 'px';
+  actionsSplit.classList.toggle('open');
+});
+document.querySelectorAll('[data-split-action]').forEach(b => b.addEventListener('click', () => {
+  const a = b.dataset.splitAction;
+  actionsSplit.classList.remove('open');
+  if (a === 'edit-seller' || a === 'edit-commission' || a === 'stripe-portal' || a === 'reset-stripe') return toast(a);
+  if (a === 'enforce' || a === 'review-appeals') return toast(a);
+  if (a === 'suspend') { if (confirm('Suspend seller?')) { state.seller.status = 'suspended'; document.getElementById('sellerStatus').textContent = 'suspended'; document.getElementById('sellerStatus').className = 'stat error'; toast('Seller suspended'); } }
+  if (a === 'ban') { if (confirm('Ban seller? This is irreversible.')) toast('Seller banned'); }
+}));
+
+// Sidebar actions
+document.querySelectorAll('[data-action="payout"]').forEach(b => b.addEventListener('click', () => {
+  state.settlements.forEach(s => { if (s.state === 'pending') s.state = 'settled'; });
+  render();
+  toast('Payout executed');
+}));
+document.querySelector('[data-action="enforce"]')?.addEventListener('click', () => toast('Record violation — new drawer'));
+document.querySelector('[data-action="pause"]')?.addEventListener('click', () => toast('Pause operations'));
+document.querySelector('[data-action="suspend"]')?.addEventListener('click', () => { if (confirm('Suspend seller?')) toast('Seller suspended'); });
+document.querySelector('[data-action="ban"]')?.addEventListener('click', () => { if (confirm('Ban seller? This is irreversible.')) toast('Seller banned'); });
+document.querySelector('[data-action="reset-stripe"]')?.addEventListener('click', () => { if (confirm('Reset Stripe Connect?')) toast('Stripe reset'); });
+document.querySelector('[data-action="edit-commission"]')?.addEventListener('click', () => toast('Edit commission'));
+
+// Gate actions
+document.addEventListener('click', e => {
+  const g = e.target.closest('[data-gate-action]');
+  if (g) toast(`Gate action: ${g.dataset.gateAction}`);
+  if (e.target.closest('[data-action="open-case"]')) toast('Open onboarding case');
+  if (e.target.closest('[data-action="run-payout"]')) toast('Run payout');
+  if (e.target.closest('[data-action="gen-1099"]')) toast('Generate 1099-K');
+});
+
+// Global menu close
+document.addEventListener('click', e => {
+  if (!e.target.closest('#actionsSplitMenu') && !e.target.closest('[data-actions-split]')) actionsSplit.classList.remove('open');
+});
+
+render();
+</script>
+</body>
+</html>

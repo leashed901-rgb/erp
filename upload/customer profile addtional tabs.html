@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Customer Profile — Full Tabs</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{ extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69",
+    "primary":"#0a6400","primary-container":"#108000","secondary":"#006c47","error":"#ba1a1a","error-container":"#ffdad6",
+    "background":"#faf9fc","qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{ sans:["Inter"] },
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  
+  .tab-underline{border-bottom:2px solid transparent;cursor:pointer;color:#5a6355;font-weight:500;white-space:nowrap}
+  .tab-underline:hover{color:#1a1c1e}
+  .tab-underline.active{border-bottom-color:#0077c5;color:#0077c5;font-weight:600}
+  
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;border:1px solid transparent}
+  .stat.success,.stat.delivered,.stat.paid,.stat.active,.stat.completed{background:#8af5be;color:#00714b;border:none}
+  .stat.warn,.stat.unfulfilled,.stat.pending,.stat.draft,.stat.upcoming{background:#fff4dc;color:#8a5a00;border:none}
+  .stat.error,.stat.problem,.stat.overdue,.stat.cancelled,.stat.failed{background:#ffdad6;color:#93000a;border:none}
+  .stat.info,.stat.ready,.stat.sent,.stat.open{background:#e8f0fb;color:#0055a5;border:none}
+  .stat.neutral{background:#f4f3f7;color:#5a6355;border:none}
+  .stat.shipped,.stat.in-transit{background:#e8e8f8;color:#4a3fc4;border:none}
+  .stat.pickup{background:#f4e8f8;color:#6b1e8a;border:none}
+  
+  .lifecycle-btn{padding:4px 12px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid transparent;color:#5a6355}
+  .lifecycle-btn:hover{background:#f4f3f7}
+  .lifecycle-btn.active{background:#0a6400;color:#fff;border-color:#0a6400}
+  
+  .table-row{transition:background-color .12s}
+  .table-row:hover{background:#faf9fc}
+  .table-row .row-actions{opacity:0;transition:opacity .12s}
+  .table-row:hover .row-actions{opacity:1}
+  
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none;max-width:480px;text-align:center}
+  .toast.show{opacity:1}
+  
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:250px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e;border:none;background:none;cursor:pointer}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+  .row-menu .menu-header{padding:6px 10px 2px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <button class="w-8 h-8 rounded hover:bg-surface-container-low flex items-center justify-center" onclick="toast('Back to Customers')">
+      <span class="material-symbols-outlined text-[18px] text-on-surface-variant">arrow_back</span>
+    </button>
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">person</span>
+    <span class="text-label-md font-semibold">Customers</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold">ap@testvendor.com</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
+      <span class="material-symbols-outlined text-[16px]">mail</span>Email
+    </button>
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
+      <span class="material-symbols-outlined text-[16px]">add</span>New transaction
+    </button>
+  </div>
+</div>
+
+<main class="px-6 pb-12 max-w-[1600px] mx-auto pt-6 space-y-6">
+
+  <!-- HEADER CARD -->
+  <div class="bg-white rounded-xl border border-surface-dim p-8">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
+      
+      <!-- Left: Identity -->
+      <div class="md:col-span-3 flex flex-col items-center text-center">
+        <div class="w-24 h-24 rounded-full bg-surface-container-low border border-surface-dim flex items-center justify-center text-headline-lg font-semibold text-on-surface-variant mb-4">A</div>
+        <h1 class="text-headline-md font-semibold mb-1">ap@testvendor.com</h1>
+        <button class="text-[12px] text-primary hover:underline font-medium mb-3">Add company name</button>
+        <div class="flex items-center gap-2 mb-6">
+          <span class="stat success uppercase">Customer</span>
+          <span class="text-[12px] text-on-surface-variant">Retail</span>
+        </div>
+        <div class="flex gap-2">
+          <button class="w-8 h-8 rounded-full border border-surface-dim bg-white flex items-center justify-center hover:bg-surface-container-low">
+            <span class="material-symbols-outlined text-[16px] text-on-surface-variant">edit</span>
+          </button>
+          <button class="w-8 h-8 rounded-full border border-surface-dim bg-white flex items-center justify-center hover:bg-surface-container-low">
+            <span class="material-symbols-outlined text-[16px] text-on-surface-variant">task_alt</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Middle: Contact -->
+      <div class="md:col-span-6 grid grid-cols-2 gap-x-8 gap-y-6 py-2 md:border-l md:border-surface-dim md:pl-8">
+        <div><div class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Email</div><div class="text-[13px] text-primary">ap@testvendor.com</div></div>
+        <div><div class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Phone</div><button class="text-[13px] text-primary hover:underline font-medium">Add phone number</button></div>
+        <div><div class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Billing address</div><button class="text-[13px] text-primary hover:underline font-medium">Add billing address</button></div>
+        <div><div class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Shipping address</div><button class="text-[13px] text-primary hover:underline font-medium">Add shipping address</button></div>
+        <div><div class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Notes</div><button class="text-[13px] text-primary hover:underline font-medium">Add notes</button></div>
+        <div><div class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Custom Fields</div><button class="text-[16px] text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-[16px]">edit</span></button></div>
+      </div>
+
+      <!-- Right: Financials -->
+      <div class="md:col-span-3">
+        <div class="bg-[#f4f6f8] rounded-lg p-5">
+          <div class="flex items-center gap-2 mb-4">
+            <span class="material-symbols-outlined text-[18px] text-on-surface-variant">receipt_long</span>
+            <span class="text-[14px] font-semibold text-on-surface">Financial summary</span>
+          </div>
+          <div class="space-y-4 mb-4">
+            <div>
+              <div class="flex items-center gap-1.5 text-[11px] text-on-surface-variant mb-0.5"><div class="w-1.5 h-1.5 rounded-full bg-qb-green"></div>Open Balance</div>
+              <div class="text-[20px] font-semibold tabular-nums">$0.00</div>
+            </div>
+            <div>
+              <div class="flex items-center gap-1.5 text-[11px] text-on-surface-variant mb-0.5"><div class="w-1.5 h-1.5 rounded-full bg-qb-green"></div>Lifetime value</div>
+              <div class="text-[20px] font-semibold tabular-nums">$1,420.00</div>
+            </div>
+          </div>
+          <div class="border-t border-surface-dim pt-4 grid grid-cols-2 gap-4 text-[12px]">
+            <div><div class="text-on-surface-variant">Visits</div><div class="font-medium mt-0.5">42</div></div>
+            <div><div class="text-on-surface-variant">30d spend</div><div class="font-medium mt-0.5">$227.28</div></div>
+            <div><div class="text-on-surface-variant">Last activity</div><div class="font-medium mt-0.5">2h ago</div></div>
+            <div><div class="text-on-surface-variant">Added</div><div class="font-medium mt-0.5">Oct 12, 2023</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LIFECYCLE STAGE -->
+  <div class="bg-white rounded-xl border border-surface-dim p-4 flex items-center gap-4 overflow-x-auto">
+    <span class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider whitespace-nowrap">Lifecycle stage</span>
+    <div class="flex items-center gap-1">
+      <button class="lifecycle-btn">lead</button>
+      <button class="lifecycle-btn">new customer</button>
+      <button class="lifecycle-btn active">active</button>
+      <button class="lifecycle-btn">vip</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="bg-white rounded-xl border border-surface-dim overflow-hidden">
+    
+    <!-- Full tab strip -->
+    <div class="flex items-center gap-1 border-b border-surface-dim px-2 overflow-x-auto" style="scrollbar-width:thin">
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="transactions">Transaction List</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="activity">Activity Feed</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="statements">Statements</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="recurring">Recurring Transactions</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="details">Details</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="late-fees">Late Fees</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="notes">Notes</button>
+      <button class="tab-underline px-3 py-3 text-[13px] flex items-center gap-2" data-tab="tasks">Tasks <span class="bg-pink-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">New</span></button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="tracked">Tracked Records</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="calls">Calls</button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="files">Files</button>
+      
+      <div class="w-px h-4 bg-surface-dim mx-1"></div>
+      
+      <button class="tab-underline active px-3 py-3 text-[13px]" data-tab="orders">Orders <span class="text-[10px] text-outline ml-1" id="count-orders">12</span></button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="invoices">Invoices <span class="text-[10px] text-outline ml-1" id="count-invoices">8</span></button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="returns">Returns <span class="text-[10px] text-outline ml-1" id="count-returns">1</span></button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="tickets">Support tickets <span class="text-[10px] text-outline ml-1" id="count-tickets">2</span></button>
+      <button class="tab-underline px-3 py-3 text-[13px]" data-tab="sequences">Sequences <span class="text-[10px] text-outline ml-1" id="count-sequences">1</span></button>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="px-4 py-3 border-b border-surface-dim flex flex-wrap items-center gap-2">
+      <button class="h-8 px-3 border border-surface-dim rounded text-[12px] font-medium hover:bg-surface-container-low flex items-center gap-1">
+        <span class="material-symbols-outlined text-[16px]">playlist_add</span>Batch actions
+      </button>
+      <select class="h-8 px-2 border border-surface-dim rounded text-[12px] bg-white min-w-[140px]">
+        <option>All records</option>
+      </select>
+      <select class="h-8 px-2 border border-surface-dim rounded text-[12px] bg-white min-w-[120px]">
+        <option>All statuses</option>
+      </select>
+      <div class="ml-auto flex items-center gap-1">
+        <button class="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-low text-on-surface-variant">
+          <span class="material-symbols-outlined text-[18px]">print</span>
+        </button>
+        <button class="w-8 h-8 rounded flex items-center justify-center hover:bg-surface-container-low text-on-surface-variant">
+          <span class="material-symbols-outlined text-[18px]">download</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Content panels — one per tab -->
+    <div id="panel-orders" class="block"></div>
+    <div id="panel-invoices" class="hidden"></div>
+    <div id="panel-returns" class="hidden"></div>
+    <div id="panel-tickets" class="hidden"></div>
+    <div id="panel-sequences" class="hidden"></div>
+    <div id="panel-transactions" class="hidden"></div>
+    <div id="panel-activity" class="hidden"></div>
+    <div id="panel-statements" class="hidden"></div>
+    <div id="panel-recurring" class="hidden"></div>
+    <div id="panel-details" class="hidden"></div>
+    <div id="panel-late-fees" class="hidden"></div>
+    <div id="panel-notes" class="hidden"></div>
+    <div id="panel-tasks" class="hidden"></div>
+    <div id="panel-tracked" class="hidden"></div>
+    <div id="panel-calls" class="hidden"></div>
+    <div id="panel-files" class="hidden"></div>
+
+  </div>
+</main>
+
+<!-- Row Menu -->
+<div class="row-menu" id="rowMenu">
+  <div class="menu-header">Open</div>
+  <button data-action="view"><span class="material-symbols-outlined">open_in_new</span>Open record</button>
+  <div class="sep"></div>
+  <div class="menu-header">Fulfillment</div>
+  <button data-action="slip"><span class="material-symbols-outlined">receipt</span>Print packing slip</button>
+  <button data-action="label"><span class="material-symbols-outlined">print</span>Print shipping label</button>
+  <div class="sep"></div>
+  <div class="menu-header">Post-order</div>
+  <button data-action="refund"><span class="material-symbols-outlined">undo</span>Issue refund…</button>
+  <button data-action="return"><span class="material-symbols-outlined">assignment_return</span>Create return</button>
+  <div class="sep"></div>
+  <button class="danger" data-action="cancel"><span class="material-symbols-outlined">block</span>Cancel</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
+function usd(n){ return '$' + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* DATASETS — one per tab                                                */
+/* ══════════════════════════════════════════════════════════════════════ */
+const data = {
+  orders: [
+    { id: '1047', date: 'Nov 03, 2026', memo: 'Classic Tee ×2, Canvas Tote ×1', amount: 71.28, status: 'Unfulfilled' },
+    { id: '1042', date: 'Oct 29, 2026', memo: 'Classic Tee ×1, Hoodie ×1', amount: 156.00, status: 'Unfulfilled' },
+    { id: '1041', date: 'Oct 28, 2026', memo: 'Canvas Tote ×3', amount: 54.00, status: 'Ready' },
+    { id: '1039', date: 'Oct 22, 2026', memo: 'Hoodie ×1, Beanie ×2', amount: 128.00, status: 'Shipped' },
+    { id: '1032', date: 'Oct 15, 2026', memo: 'Canvas Tote ×2, Sticker pack ×4', amount: 168.00, status: 'Delivered' },
+    { id: '1028', date: 'Oct 08, 2026', memo: 'Hoodie ×1', amount: 58.00, status: 'Delivered' },
+    { id: '1021', date: 'Sep 28, 2026', memo: 'Mug ×2, Sticker pack ×2', amount: 92.00, status: 'Delivered' },
+    { id: '1018', date: 'Sep 14, 2026', memo: 'Classic Tee ×2', amount: 84.00, status: 'Delivered' },
+    { id: '1015', date: 'Sep 05, 2026', memo: 'Canvas Tote ×1', amount: 18.00, status: 'Cancelled' },
+    { id: '1012', date: 'Aug 22, 2026', memo: 'Hoodie ×1, Mug ×2', amount: 96.00, status: 'Delivered' },
+    { id: '1009', date: 'Aug 10, 2026', memo: 'Classic Tee ×1', amount: 24.00, status: 'Delivered' },
+    { id: '1004', date: 'Jul 18, 2026', memo: 'Beanie ×2', amount: 48.00, status: 'Delivered' }
+  ],
+  invoices: [
+    { id: 'INV-2847', date: 'Nov 03, 2026', memo: 'Order #1047', amount: 71.28, status: 'Paid' },
+    { id: 'INV-2846', date: 'Oct 29, 2026', memo: 'Order #1042', amount: 156.00, status: 'Paid' },
+    { id: 'INV-2845', date: 'Oct 28, 2026', memo: 'Order #1041', amount: 54.00, status: 'Paid' },
+    { id: 'INV-2840', date: 'Oct 22, 2026', memo: 'Order #1039', amount: 128.00, status: 'Paid' },
+    { id: 'INV-2834', date: 'Oct 15, 2026', memo: 'Order #1032', amount: 168.00, status: 'Paid' },
+    { id: 'INV-2830', date: 'Oct 08, 2026', memo: 'Order #1028', amount: 58.00, status: 'Paid' },
+    { id: 'INV-2821', date: 'Sep 28, 2026', memo: 'Order #1021', amount: 92.00, status: 'Paid' },
+    { id: 'INV-2815', date: 'Sep 14, 2026', memo: 'Order #1018', amount: 84.00, status: 'Paid' }
+  ],
+  returns: [
+    { id: 'RMA-099', date: 'Oct 30, 2026', memo: 'Hoodie ×1 — wrong size', amount: 58.00, status: 'In transit' }
+  ],
+  tickets: [
+    { id: 'TKT-412', date: 'Nov 04, 2026', memo: 'Question about shipping delay', amount: 0, status: 'Open' },
+    { id: 'TKT-388', date: 'Oct 20, 2026', memo: 'Request for invoice copy', amount: 0, status: 'Completed' }
+  ],
+  sequences: [
+    { id: 'SEQ-04', date: 'Nov 01, 2026', memo: 'Q4 re-engagement — step 2 of 4', amount: 0, status: 'Active' }
+  ],
+  transactions: [
+    { id: 'TX-9901', date: 'Nov 03, 2026', memo: 'Payment received — Visa •4421', amount: 71.28, status: 'Paid' },
+    { id: 'TX-9895', date: 'Oct 29, 2026', memo: 'Payment received — Visa •4421', amount: 156.00, status: 'Paid' },
+    { id: 'TX-9889', date: 'Oct 28, 2026', memo: 'Payment received — Visa •4421', amount: 54.00, status: 'Paid' },
+    { id: 'TX-9882', date: 'Oct 22, 2026', memo: 'Payment received — Visa •4421', amount: 128.00, status: 'Paid' }
+  ],
+  activity: [
+    { id: 'EVT-1', date: '2h ago', memo: 'Viewed product — Classic Tee', amount: 0, status: 'Info' },
+    { id: 'EVT-2', date: '1d ago', memo: 'Abandoned cart — $71.28', amount: 0, status: 'Info' },
+    { id: 'EVT-3', date: '2d ago', memo: 'Email opened — shipment tracking', amount: 0, status: 'Info' }
+  ],
+  statements: [
+    { id: 'STMT-11', date: 'Nov 01, 2026', memo: 'October 2026 statement', amount: 227.28, status: 'Sent' },
+    { id: 'STMT-10', date: 'Oct 01, 2026', memo: 'September 2026 statement', amount: 194.00, status: 'Sent' }
+  ],
+  recurring: [
+    { id: 'RC-04', date: 'Nov 15, 2026', memo: 'Monthly subscription — Pro plan', amount: 49.00, status: 'Upcoming' }
+  ],
+  details: [
+    { id: 'DTL-1', date: 'Oct 12, 2023', memo: 'Customer added', amount: 0, status: 'Info' }
+  ],
+  lateFees: [],
+  notes: [
+    { id: 'NT-1', date: 'Nov 03, 2026', memo: 'Prefers email over phone contact', amount: 0, status: 'Info' },
+    { id: 'NT-2', date: 'Oct 15, 2026', memo: 'Bulk order inquiry — 500 units Q1', amount: 0, status: 'Info' }
+  ],
+  tasks: [
+    { id: 'TSK-08', date: 'Nov 20, 2026', memo: 'Follow up on Q1 bulk inquiry', amount: 0, status: 'Pending' },
+    { id: 'TSK-04', date: 'Nov 10, 2026', memo: 'Review return RMA-099', amount: 0, status: 'Completed' }
+  ],
+  tracked: [
+    { id: 'TRK-01', date: 'Jan 12, 2024', memo: 'Acme warehouse — Property, 22 Park Ave', amount: 0, status: 'Active' }
+  ],
+  calls: [
+    { id: 'CALL-31', date: 'Nov 02, 2026', memo: 'Inbound — 4m 22s — shipment question', amount: 0, status: 'Completed' },
+    { id: 'CALL-22', date: 'Oct 15, 2026', memo: 'Outbound — 8m 11s — bulk order inquiry', amount: 0, status: 'Completed' }
+  ],
+  files: [
+    { id: 'FILE-01', date: 'Oct 15, 2026', memo: 'W9_Acme_2024.pdf · 88 KB', amount: 0, status: 'Info' },
+    { id: 'FILE-02', date: 'Sep 22, 2026', memo: 'Purchase_agreement_signed.pdf · 340 KB', amount: 0, status: 'Info' }
+  ]
+};
+
+const TAB_MAP = {
+  orders: { data: data.orders, cols: ['Date', 'No.', 'Memo', 'Amount', 'Status'], isOrder: true },
+  invoices: { data: data.invoices, cols: ['Date', 'No.', 'Memo', 'Amount', 'Status'] },
+  returns: { data: data.returns, cols: ['Date', 'No.', 'Memo', 'Amount', 'Status'] },
+  tickets: { data: data.tickets, cols: ['Date', 'No.', 'Memo', 'Status'] },
+  sequences: { data: data.sequences, cols: ['Date', 'No.', 'Progress', 'Status'] },
+  transactions: { data: data.transactions, cols: ['Date', 'No.', 'Memo', 'Amount', 'Status'] },
+  activity: { data: data.activity, cols: ['When', 'Type', 'Event', 'Status'] },
+  statements: { data: data.statements, cols: ['Date', 'No.', 'Statement', 'Amount', 'Status'] },
+  recurring: { data: data.recurring, cols: ['Next', 'No.', 'Schedule', 'Amount', 'Status'] },
+  details: { data: data.details, cols: ['Date', 'Type', 'Detail', 'Status'] },
+  'late-fees': { data: data.lateFees, cols: ['Date', 'No.', 'Fee', 'Amount', 'Status'] },
+  notes: { data: data.notes, cols: ['Date', 'No.', 'Note', 'Status'] },
+  tasks: { data: data.tasks, cols: ['Due', 'No.', 'Task', 'Status'] },
+  tracked: { data: data.tracked, cols: ['Added', 'No.', 'Record', 'Status'] },
+  calls: { data: data.calls, cols: ['When', 'No.', 'Call', 'Status'] },
+  files: { data: data.files, cols: ['Added', 'No.', 'File', 'Status'] }
+};
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* TABS                                                                  */
+/* ══════════════════════════════════════════════════════════════════════ */
+const allTabs = Object.keys(TAB_MAP);
+document.querySelectorAll('[data-tab]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const t = b.dataset.tab;
+    allTabs.forEach(name => {
+      const el = document.getElementById('panel-' + name);
+      if (el) el.classList.toggle('hidden', name !== t);
+    });
+    if (t === 'orders') renderOrders();
+    else if (t === 'invoices') renderInvoices();
+    else renderGeneric(t);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* RENDER: ORDERS (rich)                                                 */
+/* ══════════════════════════════════════════════════════════════════════ */
+function renderOrders() {
+  const panel = document.getElementById('panel-orders');
+  panel.innerHTML = `
+    <table class="w-full text-left text-[13px]">
+      <thead class="bg-surface-container-low text-[11px] text-on-surface-variant uppercase tracking-wider border-b border-surface-dim">
+        <tr>
+          <th class="w-10 px-4 py-2 text-center"><input type="checkbox" class="rounded border-surface-dim"></th>
+          <th class="px-4 py-2 font-semibold">Date</th>
+          <th class="px-4 py-2 font-semibold">Type</th>
+          <th class="px-4 py-2 font-semibold">No.</th>
+          <th class="px-4 py-2 font-semibold">Customer</th>
+          <th class="px-4 py-2 font-semibold">Memo</th>
+          <th class="px-4 py-2 font-semibold text-right">Amount</th>
+          <th class="px-4 py-2 font-semibold">Status</th>
+          <th class="w-10 px-4 py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${data.orders.map(o => `
+          <tr class="table-row cursor-pointer" data-id="${o.id}">
+            <td class="px-4 py-3 text-center"><input type="checkbox" class="rounded border-surface-dim"></td>
+            <td class="px-4 py-3 text-on-surface-variant whitespace-nowrap">${o.date}</td>
+            <td class="px-4 py-3">Order</td>
+            <td class="px-4 py-3 font-semibold text-primary hover:underline">#${o.id}</td>
+            <td class="px-4 py-3">Acme Corp</td>
+            <td class="px-4 py-3 text-on-surface-variant">${o.memo}</td>
+            <td class="px-4 py-3 text-right tabular-nums">${usd(o.amount)}</td>
+            <td class="px-4 py-3"><span class="stat ${o.status.toLowerCase()}">${o.status}</span></td>
+            <td class="px-4 py-3 text-right">
+              <button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center row-actions text-on-surface-variant" data-row-menu="${o.id}">
+                <span class="material-symbols-outlined text-[16px]">more_horiz</span>
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  wireRows(panel);
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* RENDER: INVOICES                                                      */
+/* ══════════════════════════════════════════════════════════════════════ */
+function renderInvoices() {
+  const panel = document.getElementById('panel-invoices');
+  panel.innerHTML = `
+    <table class="w-full text-left text-[13px]">
+      <thead class="bg-surface-container-low text-[11px] text-on-surface-variant uppercase tracking-wider border-b border-surface-dim">
+        <tr>
+          <th class="w-10 px-4 py-2 text-center"><input type="checkbox" class="rounded border-surface-dim"></th>
+          <th class="px-4 py-2 font-semibold">Date</th>
+          <th class="px-4 py-2 font-semibold">No.</th>
+          <th class="px-4 py-2 font-semibold">Memo</th>
+          <th class="px-4 py-2 font-semibold text-right">Amount</th>
+          <th class="px-4 py-2 font-semibold">Status</th>
+          <th class="w-10 px-4 py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${data.invoices.map(i => `
+          <tr class="table-row cursor-pointer" data-id="${i.id}">
+            <td class="px-4 py-3 text-center"><input type="checkbox" class="rounded border-surface-dim"></td>
+            <td class="px-4 py-3 text-on-surface-variant whitespace-nowrap">${i.date}</td>
+            <td class="px-4 py-3 font-semibold text-primary hover:underline">${i.id}</td>
+            <td class="px-4 py-3 text-on-surface-variant">${i.memo}</td>
+            <td class="px-4 py-3 text-right tabular-nums">${usd(i.amount)}</td>
+            <td class="px-4 py-3"><span class="stat ${i.status.toLowerCase()}">${i.status}</span></td>
+            <td class="px-4 py-3 text-right">
+              <button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center row-actions text-on-surface-variant" data-row-menu="${i.id}">
+                <span class="material-symbols-outlined text-[16px]">more_horiz</span>
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  wireRows(panel);
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* RENDER: GENERIC — covers all other tabs                               */
+/* ══════════════════════════════════════════════════════════════════════ */
+function renderGeneric(tabKey) {
+  const panel = document.getElementById('panel-' + tabKey);
+  const conf = TAB_MAP[tabKey];
+  if (!conf) return;
+  const { data: rows, cols } = conf;
+  if (!rows.length) {
+    panel.innerHTML = `
+      <div class="p-12 text-center text-on-surface-variant">
+        <span class="material-symbols-outlined text-[48px] text-surface-dim mb-3 block">inbox</span>
+        <div class="text-[14px] font-semibold text-on-surface mb-1">No ${tabKey.replace('-', ' ')}</div>
+        <div class="text-[12px]">Nothing here yet.</div>
+      </div>
+    `;
+    return;
+  }
+  panel.innerHTML = `
+    <table class="w-full text-left text-[13px]">
+      <thead class="bg-surface-container-low text-[11px] text-on-surface-variant uppercase tracking-wider border-b border-surface-dim">
+        <tr>
+          <th class="w-10 px-4 py-2 text-center"><input type="checkbox" class="rounded border-surface-dim"></th>
+          ${cols.map(c => `<th class="px-4 py-2 font-semibold ${c === 'Amount' ? 'text-right' : ''}">${c}</th>`).join('')}
+          <th class="w-10 px-4 py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-surface-dim">
+        ${rows.map(r => `
+          <tr class="table-row cursor-pointer" data-id="${r.id}">
+            <td class="px-4 py-3 text-center"><input type="checkbox" class="rounded border-surface-dim"></td>
+            <td class="px-4 py-3 text-on-surface-variant whitespace-nowrap">${r.date}</td>
+            <td class="px-4 py-3 font-semibold text-primary hover:underline">${r.id}</td>
+            <td class="px-4 py-3 text-on-surface-variant">${r.memo}</td>
+            ${cols.includes('Amount') ? `<td class="px-4 py-3 text-right tabular-nums">${usd(r.amount || 0)}</td>` : ''}
+            <td class="px-4 py-3"><span class="stat ${(r.status || 'info').toLowerCase().replace(' ', '-')}">${r.status}</span></td>
+            <td class="px-4 py-3 text-right">
+              <button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center row-actions text-on-surface-variant" data-row-menu="${r.id}">
+                <span class="material-symbols-outlined text-[16px]">more_horiz</span>
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+  wireRows(panel);
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* WIRE ROWS                                                             */
+/* ══════════════════════════════════════════════════════════════════════ */
+function wireRows(panel) {
+  panel.querySelectorAll('.table-row').forEach(tr => {
+    tr.addEventListener('click', e => {
+      if (e.target.closest('input,button,[data-row-menu]')) return;
+      toast(`Navigate → ${tr.dataset.id}`);
+    });
+    tr.querySelector('[data-row-menu]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      openMenu(e.currentTarget, tr.dataset.id);
+    });
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* ROW MENU                                                              */
+/* ══════════════════════════════════════════════════════════════════════ */
+const rowMenu = document.getElementById('rowMenu');
+function openMenu(btn, id) {
+  const r = btn.getBoundingClientRect();
+  rowMenu.style.top = (r.bottom + 4) + 'px';
+  rowMenu.style.left = Math.min(r.right - 250, innerWidth - 270) + 'px';
+  rowMenu.classList.add('open');
+  rowMenu._id = id;
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#rowMenu')) rowMenu.classList.remove('open');
+});
+rowMenu.querySelectorAll('[data-action]').forEach(b => {
+  b.addEventListener('click', () => {
+    rowMenu.classList.remove('open');
+    const id = rowMenu._id;
+    const act = b.dataset.action;
+    if (act === 'cancel') {
+      if (confirm(`Cancel ${id}? A refund will be issued.`)) toast(`${id} cancelled`);
+    } else {
+      toast(`${act} — ${id}`);
+    }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* LIFECYCLE                                                             */
+/* ══════════════════════════════════════════════════════════════════════ */
+document.querySelectorAll('.lifecycle-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.lifecycle-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    toast(`Lifecycle → ${b.textContent}`);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* INIT                                                                  */
+/* ══════════════════════════════════════════════════════════════════════ */
+renderOrders();
+</script>
+</body>
+</html>

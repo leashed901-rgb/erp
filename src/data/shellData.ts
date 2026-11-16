@@ -203,34 +203,35 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
     label: 'Catalog',
     icon: 'inventory_2',
     groups: [
+      // Each top-level area is its OWN GROUP — own icon, own badge, own
+      // chevron, own children list (flat leaves, no nested parents). This
+      // mirrors every other module: the parent owns its sub-views.
       {
-        name: 'Catalog',
+        name: 'Catalog Overview',
         icon: 'play_circle',
         bg: 'bg-qb-navy',
         screens: [
           { id: 'catalog-overview', label: 'Overview', type: 'overview' },
-          // Products is a PARENT row (same bar as Overview, but with a chevron
-          // that lets down to reveal Listings). Matches every other module
-          // where the top-level item owns its sub-views as children.
-          {
-            id: 'products',
-            label: 'Products',
-            type: 'list',
-            children: [
-              { id: 'listings', label: 'Listings', type: 'list' },
-            ],
-          },
-          // Categories is a top-level parent (chevron → children).
-          {
-            id: 'categories',
-            label: 'Categories',
-            type: 'list',
-            children: [
-              { id: 'bundles', label: 'Bundles', type: 'list' },
-              { id: 'brands', label: 'Brands', type: 'list' },
-              { id: 'pricing', label: 'Pricing', type: 'list' },
-            ],
-          },
+        ],
+      },
+      {
+        name: 'Products',
+        icon: 'inventory_2',
+        bg: 'bg-qb-green',
+        screens: [
+          { id: 'products', label: 'Products', type: 'list' },
+          { id: 'listings', label: 'Listings', type: 'list' },
+        ],
+      },
+      {
+        name: 'Categories',
+        icon: 'category',
+        bg: 'bg-qb-maroon',
+        screens: [
+          { id: 'categories', label: 'Categories', type: 'list' },
+          { id: 'bundles', label: 'Bundles', type: 'list' },
+          { id: 'brands', label: 'Brands', type: 'list' },
+          { id: 'pricing', label: 'Pricing', type: 'list' },
         ],
       },
     ],

@@ -41,12 +41,17 @@ interface SellerProfilePageProps {
  *  demo values the HTML shipped. Every interactive element still works.
  * ────────────────────────────────────────────────────────────────── */
 
-type Tab = 'Overview' | 'Onboarding' | 'Settlements' | 'Violations' | 'Appeals' | 'Feed' | 'Documents' | '1099K';
+type Tab = 'Overview' | 'Onboarding' | 'Settlements' | 'Statements' | 'Violations' | 'Appeals' | 'Feed' | 'Documents' | '1099K';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'Overview', label: 'Overview' },
   { id: 'Onboarding', label: 'Onboarding' },
   { id: 'Settlements', label: 'Settlements' },
+  // Statements = rolling 30-day SUMMARY of charges/transactions over time.
+  // Distinct from Settlements (instant per-order) and Invoices (instant single
+  // charge). Don't omit — the seller needs to see both their rolling statement
+  // AND their per-order settlements.
+  { id: 'Statements', label: 'Statements' },
   { id: 'Violations', label: 'Violations' },
   { id: 'Appeals', label: 'Appeals' },
   { id: 'Feed', label: 'Feed' },
@@ -96,6 +101,63 @@ const DOCS: DocRow[] = [
 const TAX_1099: Tax1099[] = [
   { year: 2026, gross_cents: 1842000, txn_count: 38, status: 'pending' },
   { year: 2025, gross_cents: 0, txn_count: 0, status: 'not_required' },
+];
+
+/* ── STATEMENTS — rolling 30-day summaries of charges over time.
+ *    Distinct from Settlements (instant per-order) and Invoices (instant
+ *    single charge). A statement is the periodic roll-up the seller
+ *    receives, usually monthly, summarizing all charges/settlements in
+ *    the window. */
+interface Statement {
+  id: string;
+  period: string;       // e.g. "Oct 1 – Oct 31, 2026"
+  gross_cents: number;
+  commission_cents: number;
+  fees_cents: number;
+  reversals_cents: number;
+  net_cents: number;
+  txn_count: number;
+  status: 'sent' | 'draft' | 'pending';
+  sent_at: string | null;
+}
+
+const STATEMENTS: Statement[] = [
+  {
+    id: 'STMT-2026-10',
+    period: 'Oct 1 – Oct 31, 2026',
+    gross_cents: 542000,
+    commission_cents: 81300,
+    fees_cents: 3240,
+    reversals_cents: 14900,
+    net_cents: 442560,
+    txn_count: 14,
+    status: 'sent',
+    sent_at: 'Nov 01, 2026',
+  },
+  {
+    id: 'STMT-2026-09',
+    period: 'Sep 1 – Sep 30, 2026',
+    gross_cents: 418800,
+    commission_cents: 62820,
+    fees_cents: 2480,
+    reversals_cents: 0,
+    net_cents: 353500,
+    txn_count: 11,
+    status: 'sent',
+    sent_at: 'Oct 01, 2026',
+  },
+  {
+    id: 'STMT-2026-11',
+    period: 'Nov 1 – Nov 30, 2026',
+    gross_cents: 270800,
+    commission_cents: 40620,
+    fees_cents: 1880,
+    reversals_cents: 0,
+    net_cents: 228300,
+    txn_count: 7,
+    status: 'pending',
+    sent_at: null,
+  },
 ];
 
 const usd = (cents: number) => (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -276,6 +338,9 @@ export default function SellerProfilePage({ onToast, onNavigate }: SellerProfile
               {tab === 'Onboarding' && <OnboardingTab onToast={onToast} />}
               {tab === 'Settlements' && (
                 <SettlementsTab settlements={settlements} reversals={REVERSALS} onRunPayout={runPayout} />
+              )}
+              {tab === 'Statements' && (
+                <StatementsTab statements={STATEMENTS} onToast={onToast} />
               )}
               {tab === 'Violations' && <ViolationsTab violations={violations} demoViolations={DEMO_VIOLATIONS} onToast={onToast} />}
               {tab === 'Appeals' && <AppealsTab appeals={appeals} />}
@@ -488,6 +553,131 @@ function SettlementsTab({
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════════ *
+ *  TAB: Statements — rolling 30-day summary of charges over time.
+ *  Distinct from Settlements (instant per-order) and Invoices (instant
+ *  single charge). A statement is the periodic roll-up the seller
+ *  receives, usually monthly, summarizing all charges/settlements in
+ *  the window. Don't omit — sellers need both their rolling statement
+ *  AND their per-order settlements.
+ * ═════════════════════════════════════════════════════════════════ */
+function StatementsTab({
+  statements,
+  onToast,
+}: {
+  statements: Statement[];
+  onToast: (m: string) => void;
+}) {
+  const totalNet = statements.reduce((s, st) => s + st.net_cents, 0);
+  const totalGross = statements.reduce((s, st) => s + st.gross_cents, 0);
+  const totalTxns = statements.reduce((s, st) => s + st.txn_count, 0);
+
+  return (
+    <>
+      {/* Summary header */}
+      <div className="p-4 border-b border-surface-dim grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Statements</div>
+          <div className="text-headline-md mt-1 tabular-nums">{statements.length}</div>
+          <div className="text-[11px] text-on-surface-variant mt-0.5">Rolling periods</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Total gross</div>
+          <div className="text-headline-md mt-1 tabular-nums">{usd(totalGross)}</div>
+          <div className="text-[11px] text-on-surface-variant mt-0.5">All periods</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Total net</div>
+          <div className="text-headline-md mt-1 tabular-nums text-secondary">{usd(totalNet)}</div>
+          <div className="text-[11px] text-on-surface-variant mt-0.5">After commission + fees</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Transactions</div>
+          <div className="text-headline-md mt-1 tabular-nums">{totalTxns}</div>
+          <div className="text-[11px] text-on-surface-variant mt-0.5">Across all periods</div>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="p-4 border-b border-surface-dim flex items-center justify-between">
+        <div className="text-label-sm uppercase tracking-wider font-bold text-on-surface-variant">
+          Statements &amp; periods
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            className="h-7 px-2 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-1"
+            onClick={() => onToast('Generate statement')}
+          >
+            <span className="material-symbols-outlined text-[14px]">add</span>Generate
+          </button>
+          <button
+            className="h-7 px-2 border border-surface-dim rounded text-label-sm font-semibold hover:bg-surface-container-low flex items-center gap-1"
+            onClick={() => onToast('Statements exported')}
+          >
+            <span className="material-symbols-outlined text-[14px]">download</span>Export
+          </button>
+        </div>
+      </div>
+
+      {/* Statements table — one row per 30-day period */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-body-sm">
+          <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+            <tr>
+              <th className="px-4 py-2">Statement</th>
+              <th className="px-4 py-2">Period (30 days)</th>
+              <th className="px-4 py-2 text-right">Gross</th>
+              <th className="px-4 py-2 text-right">Commission</th>
+              <th className="px-4 py-2 text-right">Fees</th>
+              <th className="px-4 py-2 text-right">Reversals</th>
+              <th className="px-4 py-2 text-right">Net</th>
+              <th className="px-4 py-2 text-right">Txns</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Sent</th>
+              <th className="w-10 px-2 py-2" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-surface-dim">
+            {statements.map(st => (
+              <tr key={st.id} className="hover:bg-surface-container-low cursor-pointer" onClick={() => onToast(`Open statement ${st.id}`)}>
+                <td className="px-4 py-2 font-mono text-[11px]">{st.id}</td>
+                <td className="px-4 py-2">{st.period}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{usd(st.gross_cents)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-secondary">-{usd(st.commission_cents)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-on-surface-variant">-{usd(st.fees_cents)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-error">-{usd(st.reversals_cents)}</td>
+                <td className="px-4 py-2 text-right tabular-nums font-semibold">{usd(st.net_cents)}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{st.txn_count}</td>
+                <td className="px-4 py-2">
+                  <span className={statClass(st.status === 'sent' ? 'success' : st.status === 'pending' ? 'warn' : 'neutral')}>
+                    {st.status}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-on-surface-variant">{st.sent_at ?? '—'}</td>
+                <td className="px-2 py-2 text-right">
+                  <button
+                    className="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center"
+                    onClick={e => { e.stopPropagation(); onToast(`Menu for ${st.id}`); }}
+                  >
+                    <span className="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span>
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Explanation footer — makes the statement/invoice/settlement distinction explicit */}
+      <div className="p-4 border-t border-surface-dim bg-surface-container-lowest text-[11px] text-on-surface-variant leading-relaxed">
+        <strong className="text-on-surface">Statement</strong> = a rolling 30-day summary of charges over time. &nbsp;
+        <strong className="text-on-surface">Settlement</strong> = an instant per-order payout row (see the Settlements tab). &nbsp;
+        <strong className="text-on-surface">Invoice</strong> = an instant single charge. &nbsp;All three live on this seller record.
+      </div>
     </>
   );
 }

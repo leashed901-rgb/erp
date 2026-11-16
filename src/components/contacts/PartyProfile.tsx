@@ -30,8 +30,34 @@ import { exportToCsv } from '@/lib/csvExport';
 import { useSellerStore } from '@/lib/sellerStore';
 import PartyFormDrawer, { type PartyFormEditTarget } from './PartyFormDrawer';
 import SequencingTab from './SequencingTab';
+import {
+  OrdersTab,
+  InvoicesTab,
+  ReturnsTab,
+  TicketsTab,
+  TrackedTab,
+  CallsTab,
+  FilesTab,
+  ADDL_COUNTS,
+} from './PartyAdditionalTabs';
 
-type Tab = 'transactions' | 'activity' | 'statements' | 'recurring' | 'details' | 'latefees' | 'notes' | 'tasks' | 'sequencing';
+type Tab =
+  | 'transactions'
+  | 'activity'
+  | 'statements'
+  | 'recurring'
+  | 'details'
+  | 'latefees'
+  | 'notes'
+  | 'tasks'
+  | 'sequencing'
+  | 'orders'
+  | 'invoices'
+  | 'returns'
+  | 'tickets'
+  | 'tracked'
+  | 'calls'
+  | 'files';
 
 const money = (n: number | null | undefined) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function initials(name: string) {
@@ -59,7 +85,17 @@ const TABS: { id: Tab; label: string; badge?: string }[] = [
   { id: 'latefees', label: 'Late Fees' },
   { id: 'notes', label: 'Notes' },
   { id: 'tasks', label: 'Tasks', badge: 'New' },
-  { id: 'sequencing', label: 'Sequencing', badge: 'New' },
+  { id: 'tracked', label: 'Tracked Records' },
+  { id: 'calls', label: 'Calls' },
+  { id: 'files', label: 'Files' },
+  { id: 'sequencing', label: 'Sequences', badge: 'New' },
+  // Customer-bound finance/commerce objects — these live ON the customer
+  // record, not in bifurcated views (USER-GUIDE: orders, finance, accounting
+  // all integrate back to the customer object).
+  { id: 'orders', label: 'Orders', badge: String(ADDL_COUNTS.orders) },
+  { id: 'invoices', label: 'Invoices', badge: String(ADDL_COUNTS.invoices) },
+  { id: 'returns', label: 'Returns', badge: String(ADDL_COUNTS.returns) },
+  { id: 'tickets', label: 'Support tickets', badge: String(ADDL_COUNTS.tickets) },
 ];
 
 /* "New transaction" menu — adapts to role: customers get Invoice/Receipt,
@@ -976,6 +1012,45 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
             partyName={displayName}
             onToast={onToast}
           />
+        )}
+
+        {/* 10. Tracked records — properties/addresses tracked against this party. */}
+        {tab === 'tracked' && (
+          <TrackedTab onToast={onToast} />
+        )}
+
+        {/* 11. Calls — inbound/outbound call log. */}
+        {tab === 'calls' && (
+          <CallsTab onToast={onToast} />
+        )}
+
+        {/* 12. Files — documents uploaded against this party. */}
+        {tab === 'files' && (
+          <FilesTab onToast={onToast} />
+        )}
+
+        {/* 13. Orders — every sales order this customer has placed. Row
+                click opens the full Order Detail page (same as the Orders
+                list → order-detail navigation). */}
+        {tab === 'orders' && (
+          <OrdersTab onToast={onToast} onNavigate={onNavigate} />
+        )}
+
+        {/* 14. Invoices — instant charges issued to this customer.
+                NOTE: distinct from Statements (which are 30-day rolling
+                summaries of charges over time — see the 'statements' tab). */}
+        {tab === 'invoices' && (
+          <InvoicesTab onToast={onToast} />
+        )}
+
+        {/* 15. Returns — RMAs linked to this customer. */}
+        {tab === 'returns' && (
+          <ReturnsTab onToast={onToast} />
+        )}
+
+        {/* 16. Support tickets — tickets opened by/for this customer. */}
+        {tab === 'tickets' && (
+          <TicketsTab onToast={onToast} />
         )}
         </>
         )}

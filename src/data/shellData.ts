@@ -154,6 +154,7 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
           { id: 'mkt-publishing-overview', label: 'Publishing Overview', type: 'overview' },
           { id: 'mkt-create-content', label: 'Create Content', type: 'wizard' },
           { id: 'mkt-oversight', label: 'Oversight', type: 'list' },
+          { id: 'ecommerce', label: 'Channels', type: 'list' },
         ],
       },
       {
@@ -203,45 +204,21 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
     icon: 'inventory_2',
     groups: [
       {
-        name: 'Catalog Overview',
+        name: 'Catalog',
         icon: 'play_circle',
         bg: 'bg-qb-navy',
-        screens: [{ id: 'catalog-overview', label: 'Overview', type: 'overview' }],
-      },
-      {
-        name: 'Products & Variants',
-        icon: 'checkroom',
-        bg: 'bg-qb-green',
         screens: [
+          { id: 'catalog-overview', label: 'Overview', type: 'overview' },
           { id: 'products', label: 'Products', type: 'list' },
-          { id: 'listings', label: 'Listings', type: 'list' },
-          { id: 'blanks', label: 'Blanks', type: 'list' },
-          { id: 'catalog-review', label: 'Catalog review', type: 'list' },
-          { id: 'catalog-items', label: 'Catalog items', type: 'list' },
-          { id: 'published-skus', label: 'Published Items & SKUs', type: 'list' },
-          { id: 'bundles', label: 'Bundles', type: 'list' },
-          { id: 'categories', label: 'Categories', type: 'list' },
-          { id: 'brands', label: 'Brands', type: 'list' },
-          { id: 'pricing', label: 'Pricing', type: 'list' },
-          { id: 'catalog-parties', label: 'Suppliers / Vendors / Sellers', type: 'list' },
-        ],
-      },
-      {
-        name: 'Channels',
-        icon: 'hub',
-        bg: 'bg-qb-teal',
-        screens: [
           {
-            id: 'ecommerce',
-            label: 'Ecommerce',
+            id: 'categories',
+            label: 'Categories',
             type: 'list',
             children: [
-              { id: 'tiktok', label: 'TikTok', type: 'list' },
-              { id: 'amazon', label: 'Amazon', type: 'list' },
-              { id: 'facebook-marketplace', label: 'Facebook Marketplace', type: 'list' },
-              { id: 'whatnot', label: 'What Not', type: 'list' },
-              { id: 'etsy', label: 'Etsy', type: 'list' },
-              { id: 'ebay', label: 'Ebay', type: 'list' },
+              { id: 'listings', label: 'Listings', type: 'list' },
+              { id: 'bundles', label: 'Bundles', type: 'list' },
+              { id: 'brands', label: 'Brands', type: 'list' },
+              { id: 'pricing', label: 'Pricing', type: 'list' },
             ],
           },
         ],
@@ -537,11 +514,11 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         screens: [{ id: 'crm-overview', label: 'Overview', type: 'overview' }],
       },
       {
-        name: 'Parties',
+        name: 'Contacts',
         icon: 'people',
         bg: 'bg-qb-teal',
         screens: [
-          { id: 'parties', label: 'Parties', type: 'list' },
+          { id: 'parties', label: 'Contacts', type: 'list' },
         ],
       },
       {

@@ -953,8 +953,9 @@ export default function GlobalShell() {
         // domain.
         openOrActivateTab('reports', 'reports-overview');
       } else if (id === 'inbox') {
-        // Inbox → Support omnichannel inbox (real screen).
-        openOrActivateTab('support', 'messages');
+        // Inbox → the serious mailbox inbox (MailboxInbox component —
+        // connected mailboxes, threaded conversations, compose, connect).
+        openOrActivateTab('contacts', 'mailbox-inbox');
       } else if (id === 'tasks') {
         // Tasks & calendar → opens the Tasks & Projects page (full screen).
         openOrActivateTab('dashboard', 'tasks');

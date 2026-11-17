@@ -546,6 +546,9 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
           { id: 'leads', label: 'Leads', type: 'list' },
           { id: 'deals', label: 'Deals', type: 'list' },
           { id: 'appointments', label: 'Appointments', type: 'list' },
+          // Mailbox inbox — opened from the main rail mail icon. Hidden from
+          // the sidebar (it's a main-rail action, not a sidebar leaf).
+          { id: 'mailbox-inbox', label: 'Inbox', type: 'list', hidden: true },
         ],
       },
       {

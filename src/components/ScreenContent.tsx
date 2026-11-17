@@ -73,6 +73,7 @@ import TemplatesScreen from './templates/TemplatesScreen';
 import AttentionQueueScreen from './queue/AttentionQueueScreen';
 import CustomerQueueScreen from './queue/CustomerQueueScreen';
 import ConversationInbox from './queue/ConversationInbox';
+import MailboxInbox from './contacts/MailboxInbox';
 import AppointmentsScreen from './contacts/AppointmentsScreen';
 import CustomersSupabase from './contacts/CustomersSupabase';
 import LeadsPipelineSupabase from './contacts/LeadsPipelineSupabase';
@@ -3064,6 +3065,12 @@ function TabScreenRenderer({
     // CRM Appointments — crm_appointments domain (day/week/list calendar,
     // create action, confirm→check-in→start→complete / cancel / no-show loop).
     return <AppointmentsScreen onToast={onToast} />;
+  }
+
+  if (screenId === 'mailbox-inbox') {
+    // The serious inbox — connected mailboxes + threaded conversations.
+    // Opened from the main rail mail icon (not a sidebar leaf).
+    return <MailboxInbox onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'segments') {

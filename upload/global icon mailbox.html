@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mailbox — CRM</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{ extend:{
+  colors:{
+    "surface-dim":"#dad9dd","surface-container-lowest":"#ffffff","surface-container-low":"#f4f3f7",
+    "surface-container":"#eeedf1","surface-container-high":"#e9e8eb","surface-container-highest":"#e3e2e6",
+    "on-surface":"#1a1c1e","on-surface-variant":"#5a6355","outline":"#6f7a69","outline-variant":"#becab6",
+    "primary":"#0a6400","primary-container":"#108000","on-primary":"#ffffff","on-primary-container":"#cfffbc",
+    "secondary":"#006c47","secondary-container":"#8af5be","on-secondary-container":"#00714b",
+    "tertiary":"#0055a5","tertiary-container":"#1e6dc9","error":"#ba1a1a","error-container":"#ffdad6",
+    "on-error-container":"#93000a","background":"#faf9fc",
+    "qb-blue":"#0077c5","qb-navy":"#1f2937","qb-maroon":"#6b1e28","qb-green":"#1e5a38","qb-teal":"#0e5e6f"
+  },
+  fontFamily:{ sans:["Inter"] },
+  fontSize:{
+    "label-sm":["11px",{lineHeight:"14px",letterSpacing:"0.02em",fontWeight:"600"}],
+    "label-md":["12px",{lineHeight:"16px",fontWeight:"500"}],
+    "body-sm":["12px",{lineHeight:"16px"}],
+    "body-md":["14px",{lineHeight:"20px"}],
+    "headline-sm":["16px",{lineHeight:"24px",letterSpacing:"-0.005em",fontWeight:"600"}],
+    "headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    "headline-lg":["24px",{lineHeight:"32px",letterSpacing:"-0.015em",fontWeight:"600"}]
+  }
+}}};
+</script>
+<style>
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:#dad9dd;border-radius:3px}
+  body{overscroll-behavior:none;background:#faf9fc}
+  .row-check{accent-color:#0077c5}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1c1e;color:#fff;padding:10px 16px;border-radius:8px;font:500 13px Inter;z-index:400;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .split-btn{border-radius:4px;display:inline-flex}
+  .split-btn-main{border-radius:4px 0 0 4px}
+  .split-btn-arrow{border-radius:0 4px 4px 0;border-left:1px solid rgba(0,0,0,.08)}
+  .bulk-bar{display:none;background:#0077c5;color:#fff;padding:8px 16px;gap:12px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+  .bulk-bar.show{display:flex}
+  .bulk-bar button{color:#fff;font-weight:600;font-size:12px;padding:4px 10px;border-radius:4px}
+  .bulk-bar button:hover{background:rgba(255,255,255,.15)}
+  .stat{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+  .stat.success{background:#8af5be;color:#00714b}
+  .stat.warn{background:#fff4dc;color:#8a5a00}
+  .stat.error{background:#ffdad6;color:#93000a}
+  .stat.info{background:#e8f0fb;color:#0055a5}
+  .stat.neutral{background:#f4f3f7;color:#5a6355}
+  .row-menu{position:fixed;background:#fff;border:1px solid #dad9dd;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);min-width:250px;padding:4px;z-index:200;display:none}
+  .row-menu.open{display:block}
+  .row-menu .menu-header{padding:6px 10px 4px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#5a6355}
+  .row-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;font-size:13px;border-radius:4px;text-align:left;color:#1a1c1e}
+  .row-menu button:hover{background:#f4f3f7}
+  .row-menu button .material-symbols-outlined{font-size:16px;color:#5a6355;flex-shrink:0}
+  .row-menu button.danger{color:#ba1a1a}
+  .row-menu button.danger .material-symbols-outlined{color:#ba1a1a}
+  .row-menu button.danger:hover{background:#ffdad6}
+  .row-menu .sep{height:1px;background:#eeedf1;margin:4px 0}
+  .drawer-scrim{position:fixed;inset:0;background:rgba(26,28,30,.35);z-index:80;display:none}
+  .drawer-scrim.open{display:block}
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:680px;max-width:96vw;background:#fff;z-index:81;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s ease}
+  .drawer.open{transform:translateX(0)}
+  .field-label{display:block;font:600 11px Inter;letter-spacing:.04em;text-transform:uppercase;color:#5a6355;margin-bottom:6px}
+  .field-input{width:100%;height:36px;padding:0 10px;border:1px solid #dad9dd;border-radius:6px;font-size:13px;background:#fff}
+  .field-input:focus{outline:none;border-color:#0077c5}
+  .section-h{font:700 11px Inter;letter-spacing:.08em;text-transform:uppercase;color:#1a1c1e;padding-bottom:6px;border-bottom:1px solid #dad9dd;margin-bottom:10px}
+  .modal-scrim{position:fixed;inset:0;background:rgba(26,28,30,.4);z-index:110;display:none;align-items:center;justify-content:center;padding:24px}
+  .modal-scrim.open{display:flex}
+</style>
+</head>
+<body class="font-sans text-body-md text-on-surface antialiased">
+
+<!-- Context header -->
+<div class="h-[52px] px-6 flex items-center justify-between bg-white border-b border-surface-dim sticky top-0 z-40">
+  <div class="flex items-center gap-3">
+    <span class="material-symbols-outlined text-[20px] text-on-surface-variant">mail</span>
+    <span class="text-label-md font-semibold">Contacts / CRM</span>
+    <span class="text-outline">/</span>
+    <span class="text-label-md text-primary font-semibold">Inbox</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-action="compose">
+      <span class="material-symbols-outlined text-[16px]">edit</span>Compose
+    </button>
+    <div class="split-btn">
+      <button class="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-action="connect-mailbox">
+        <span class="material-symbols-outlined text-[16px]">add</span>Connect mailbox
+      </button>
+      <button class="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" data-connect-split>
+        <span class="material-symbols-outlined text-[16px]">expand_more</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main class="px-6 pb-12">
+
+  <!-- Page header -->
+  <div class="py-4 flex items-center justify-between flex-wrap gap-4">
+    <div>
+      <h1 class="text-headline-lg">Inbox</h1>
+      <p class="text-body-sm text-on-surface-variant mt-0.5">Connected mailboxes and threaded conversations with your parties</p>
+    </div>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Connected mailboxes</div>
+      <div class="text-headline-md mt-1 tabular-nums" data-kpi="mailboxes">2</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Gmail · Outlook</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Unread threads</div>
+      <div class="text-headline-md mt-1 tabular-nums text-qb-maroon" data-kpi="unread">7</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Across both inboxes</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Linked to parties</div>
+      <div class="text-headline-md mt-1 tabular-nums text-secondary" data-kpi="linked">14</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Threads on party timelines</div>
+    </div>
+    <div class="bg-white border border-surface-dim rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Failed sends</div>
+      <div class="text-headline-md mt-1 tabular-nums text-error" data-kpi="failed">0</div>
+      <div class="text-[11px] text-on-surface-variant mt-0.5">Last 24h</div>
+    </div>
+  </div>
+
+  <!-- Table card -->
+  <div class="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
+
+    <div class="flex items-center gap-1 px-4 h-11 border-b border-surface-dim overflow-x-auto">
+      <button class="h-full px-3 text-label-md tab-underline active" data-viewtab="All">All threads</button>
+      <button class="h-full px-3 text-label-md tab-underline text-on-surface-variant" data-viewtab="Unread">Unread</button>
+      <button class="h-full px-3 text-label-md tab-underline text-on-surface-variant" data-viewtab="Party-linked">Party-linked</button>
+      <button class="h-full px-3 text-label-md tab-underline text-on-surface-variant" data-viewtab="Mailboxes">Mailboxes</button>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="px-4 py-2 flex items-center gap-2 border-b border-surface-dim flex-wrap">
+      <div class="relative flex items-center flex-1 max-w-sm min-w-[180px]">
+        <span class="material-symbols-outlined absolute left-2 text-[15px] text-outline">search</span>
+        <input class="w-full h-7 pl-7 pr-2 bg-surface-container-low border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search subjects, senders, party names…" data-filter/>
+      </div>
+      <button class="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1">
+        <span class="material-symbols-outlined text-[14px]">filter_list</span>Filter
+      </button>
+      <span class="ml-auto text-[11px] text-on-surface-variant" data-row-count>—</span>
+    </div>
+
+    <!-- Bulk bar -->
+    <div class="bulk-bar" data-bulk-bar>
+      <span class="text-[12px] font-semibold" data-bulk-count>0 selected</span>
+      <span class="w-px h-4 bg-white/30"></span>
+      <button data-bulk="mark-read">Mark read</button>
+      <button data-bulk="link">Link to party</button>
+      <button data-bulk="archive">Archive</button>
+      <button class="ml-auto" data-bulk="close"><span class="material-symbols-outlined text-[16px]">close</span></button>
+    </div>
+
+    <!-- Content host — swaps between threads and mailboxes -->
+    <div id="contentHost"></div>
+  </div>
+
+</main>
+
+<!-- Row menu -->
+<div class="row-menu" id="rowMenu">
+  <div class="menu-header">Open</div>
+  <button data-action="open"><span class="material-symbols-outlined">open_in_new</span>Open thread</button>
+  <button data-action="open-party"><span class="material-symbols-outlined">person</span>Open party profile</button>
+  <div class="sep"></div>
+  <div class="menu-header">Communicate</div>
+  <button data-action="reply"><span class="material-symbols-outlined">reply</span>Reply</button>
+  <button data-action="forward"><span class="material-symbols-outlined">forward</span>Forward</button>
+  <button data-action="add-note"><span class="material-symbols-outlined">note_add</span>Add note to timeline</button>
+  <div class="sep"></div>
+  <div class="menu-header">Create from this</div>
+  <button data-action="create-deal"><span class="material-symbols-outlined">trending_up</span>New deal</button>
+  <button data-action="create-task"><span class="material-symbols-outlined">task_alt</span>New task</button>
+  <button data-action="create-ticket"><span class="material-symbols-outlined">support_agent</span>Support ticket</button>
+  <div class="sep"></div>
+  <div class="menu-header">Organize</div>
+  <button data-action="pin"><span class="material-symbols-outlined">push_pin</span>Pin</button>
+  <button data-action="tag"><span class="material-symbols-outlined">label</span>Tag</button>
+  <div class="sep"></div>
+  <button class="danger" data-action="archive"><span class="material-symbols-outlined">archive</span>Archive</button>
+</div>
+
+<!-- Mailbox row menu -->
+<div class="row-menu" id="mailboxMenu">
+  <div class="menu-header">This mailbox</div>
+  <button data-mb-action="edit"><span class="material-symbols-outlined">edit</span>Edit settings</button>
+  <button data-mb-action="sync"><span class="material-symbols-outlined">sync</span>Sync now</button>
+  <button data-mb-action="test"><span class="material-symbols-outlined">send</span>Send test email</button>
+  <div class="sep"></div>
+  <button data-mb-action="default"><span class="material-symbols-outlined">star</span>Make default</button>
+  <div class="sep"></div>
+  <button class="danger" data-mb-action="disconnect"><span class="material-symbols-outlined">link_off</span>Disconnect</button>
+</div>
+
+<!-- ═══════════ CONNECT MAILBOX DRAWER ═══════════ -->
+<div class="drawer-scrim" id="mailboxScrim"></div>
+<div class="drawer" id="mailboxDrawer">
+  <div class="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="material-symbols-outlined text-[20px] text-primary">mail</span>
+      <div class="min-w-0">
+        <div class="text-headline-sm truncate" id="mailboxDrawerTitle">Connect mailbox</div>
+        <div class="text-[11px] text-on-surface-variant">Writes to platform_mailboxes · uses platform_send_email RPC</div>
+      </div>
+    </div>
+    <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-mailbox>
+      <span class="material-symbols-outlined text-[18px]">close</span>
+    </button>
+  </div>
+
+  <div class="flex-1 overflow-y-auto p-5 space-y-4">
+    <div>
+      <div class="section-h">Provider</div>
+      <div class="grid grid-cols-3 gap-2">
+        <button class="border border-qb-blue bg-qb-blue/5 rounded-lg p-3 text-left" data-provider="gmail">
+          <div class="text-body-sm font-semibold text-qb-blue">Gmail</div>
+          <div class="text-[11px] text-on-surface-variant">Google Workspace</div>
+        </button>
+        <button class="border border-surface-dim rounded-lg p-3 text-left hover:bg-surface-container-low" data-provider="outlook">
+          <div class="text-body-sm font-semibold">Outlook</div>
+          <div class="text-[11px] text-on-surface-variant">Microsoft 365</div>
+        </button>
+        <button class="border border-surface-dim rounded-lg p-3 text-left hover:bg-surface-container-low" data-provider="smtp">
+          <div class="text-body-sm font-semibold">SMTP / IMAP</div>
+          <div class="text-[11px] text-on-surface-variant">Custom server</div>
+        </button>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-h">Identity</div>
+      <div class="space-y-3">
+        <div>
+          <label class="field-label">Display name</label>
+          <input class="field-input" placeholder="e.g. Sales team" data-f-display/>
+        </div>
+        <div>
+          <label class="field-label">Email address</label>
+          <input class="field-input" type="email" placeholder="sales@yourcompany.com" data-f-email/>
+        </div>
+        <div>
+          <label class="field-label">Reply-to (optional)</label>
+          <input class="field-input" type="email" placeholder="falls back to primary" data-f-replyto/>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-h">Sending</div>
+      <div class="space-y-2">
+        <label class="flex items-center gap-2 text-body-sm"><input type="checkbox" class="row-check" checked data-f-default-sender/>Use as default sender</label>
+        <label class="flex items-center gap-2 text-body-sm"><input type="checkbox" class="row-check" checked data-f-track/>Track opens and clicks</label>
+        <label class="flex items-center gap-2 text-body-sm"><input type="checkbox" class="row-check" data-f-auto-link/>Auto-link incoming mail to party by email match</label>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-h">Signature</div>
+      <textarea class="field-input" style="height:80px;padding:8px 10px;font-family:inherit" placeholder="Appended to every outbound email" data-f-signature></textarea>
+    </div>
+  </div>
+
+  <div class="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
+    <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-mailbox>Cancel</button>
+    <button class="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" data-save-mailbox>
+      <span class="material-symbols-outlined text-[16px] align-middle mr-1">check</span>Connect mailbox
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════ COMPOSE MODAL ═══════════ -->
+<div class="modal-scrim" id="composeModal">
+  <div class="w-full max-w-2xl bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col" style="max-height: 85vh">
+    <div class="flex items-center justify-between px-5 h-14 border-b border-surface-dim">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-[20px] text-primary">edit</span>
+        <h2 class="text-headline-sm">New message</h2>
+      </div>
+      <button class="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-compose>
+        <span class="material-symbols-outlined text-[18px]">close</span>
+      </button>
+    </div>
+    <div class="flex-1 overflow-y-auto p-5 space-y-3">
+      <div>
+        <label class="field-label">From</label>
+        <select class="field-input" data-compose-from>
+          <option>sales@yourcompany.com</option>
+          <option>support@yourcompany.com</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">To</label>
+        <input class="field-input" placeholder="name@company.com, party@company.com" data-compose-to/>
+      </div>
+      <div>
+        <label class="field-label">Subject</label>
+        <input class="field-input" placeholder="Subject line" data-compose-subject/>
+      </div>
+      <div>
+        <label class="field-label">Body</label>
+        <textarea class="field-input" style="height:200px;padding:10px;font-family:inherit" placeholder="Write your message…" data-compose-body></textarea>
+      </div>
+      <div class="flex items-center gap-2 text-[12px] text-on-surface-variant">
+        <input type="checkbox" class="row-check" checked data-compose-link/>
+        <span>Link to party timeline (uses <code class="font-mono">email_enqueue</code> with related_type/related_id)</span>
+      </div>
+    </div>
+    <div class="h-14 border-t border-surface-dim px-5 flex items-center justify-between">
+      <button class="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-compose>Cancel</button>
+      <div class="flex items-center gap-2">
+        <button class="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low" data-compose-draft>Save draft</button>
+        <button class="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" data-compose-send>
+          <span class="material-symbols-outlined text-[16px] align-middle mr-1">send</span>Send
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Connect split menu -->
+<div class="row-menu" id="connectSplitMenu">
+  <div class="menu-header">Connect mailbox</div>
+  <button data-provider="gmail"><span class="material-symbols-outlined">mail</span>Gmail / Google Workspace</button>
+  <button data-provider="outlook"><span class="material-symbols-outlined">mail</span>Outlook / Microsoft 365</button>
+  <div class="sep"></div>
+  <button data-provider="smtp"><span class="material-symbols-outlined">settings</span>Custom SMTP / IMAP</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================= */
+/* Mailbox + Inbox — backed by platform_mailboxes + platform_send_email */
+/* Docs contract: pages.md → Contacts/CRM tools/Inbox              */
+/*               actions.md → create.mailbox, email.send           */
+/*               functions.md → platform_send_email, email_enqueue */
+/* ============================================================= */
+
+function toast(m){ const t = document.getElementById('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(()=>t.classList.remove('show'), 1800); }
+
+// ---------- STATE (production: hydrate from GET /api/crm/conversations + GET /api/mailboxes) ----------
+const state = {
+  tab: 'All',
+  q: '',
+  sel: new Set(),
+  mailboxes: [
+    { id: 'mb-1', provider: 'gmail', display: 'Sales team', email: 'sales@managekube.io', default: true, status: 'Connected', threads: 42, lastSync: '2 min ago' },
+    { id: 'mb-2', provider: 'outlook', display: 'Support', email: 'support@managekube.io', default: false, status: 'Connected', threads: 18, lastSync: '11 min ago' }
+  ],
+  threads: [
+    { id: 'th-1', mailbox: 'mb-1', party: 'Acme Corp', partyId: 'p-1047', subject: 'Re: Q4 wholesale pricing', snippet: 'Thanks — we can lock 500 units at $18…', unread: true, linked: true, last: '12 min ago', direction: 'inbound' },
+    { id: 'th-2', mailbox: 'mb-1', party: 'Blue Ridge Co.', partyId: 'p-1046', subject: 'Order #1046 — tracking', snippet: 'Your order ships tomorrow via USPS…', unread: false, linked: true, last: '2h ago', direction: 'outbound' },
+    { id: 'th-3', mailbox: 'mb-2', party: 'Northwind Labs', partyId: 'p-1045', subject: 'Question about the Soy candle line', snippet: 'Do you offer a fragrance-free version?', unread: true, linked: true, last: '4h ago', direction: 'inbound' },
+    { id: 'th-4', mailbox: 'mb-2', party: null, partyId: null, subject: 'Wholesale inquiry from website', snippet: 'We are interested in stocking your mugs…', unread: true, linked: false, last: '1d ago', direction: 'inbound' },
+    { id: 'th-5', mailbox: 'mb-1', party: 'Lakeside Design', partyId: 'p-1042', subject: 'Re: design approval', snippet: 'Approved — go ahead with the print run.', unread: false, linked: true, last: '1d ago', direction: 'inbound' }
+  ]
+};
+
+// ---------- KPI strip ----------
+function renderKpis(){
+  document.querySelector('[data-kpi="mailboxes"]').textContent = state.mailboxes.length;
+  const unread = state.threads.filter(t => t.unread).length;
+  document.querySelector('[data-kpi="unread"]').textContent = unread;
+  const linked = state.threads.filter(t => t.linked).length;
+  document.querySelector('[data-kpi="linked"]').textContent = linked;
+  const failed = 0; // production: read from /api/crm/messages?status=failed
+  document.querySelector('[data-kpi="failed"]').textContent = failed;
+}
+
+// ---------- Filtering ----------
+function filteredThreads(){
+  return state.threads.filter(t => {
+    if (state.tab === 'Unread' && !t.unread) return false;
+    if (state.tab === 'Party-linked' && !t.linked) return false;
+    if (state.tab === 'Mailboxes') return false;
+    if (state.q) {
+      const hay = (t.subject + ' ' + t.snippet + ' ' + (t.party||'')).toLowerCase();
+      if (!hay.includes(state.q.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+
+// ---------- Render threads table ----------
+function renderThreads(){
+  const rows = filteredThreads();
+  document.querySelector('[data-row-count]').textContent = `${rows.length} of ${state.threads.length} threads`;
+
+  if (rows.length === 0){
+    document.getElementById('contentHost').innerHTML = `<div class="p-12 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined text-[40px] mb-2 block">mail</span>
+      <div class="font-medium mb-1">No threads match</div>
+      <div class="text-[12px]">Try clearing the filter or connecting another mailbox.</div>
+    </div>`;
+    return;
+  }
+
+  document.getElementById('contentHost').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="w-8 px-3 py-2"><input type="checkbox" class="row-check" data-check-all></th>
+        <th class="px-3 py-2">Subject</th>
+        <th class="px-3 py-2">Party</th>
+        <th class="px-3 py-2">Mailbox</th>
+        <th class="px-3 py-2">Direction</th>
+        <th class="px-3 py-2 text-right">Last activity</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${rows.map(t => {
+        const mb = state.mailboxes.find(m => m.id === t.mailbox);
+        return `<tr class="hover:bg-surface-container-low cursor-pointer thread-row" data-id="${t.id}">
+          <td class="px-3 py-2"><input type="checkbox" class="row-check thread-check" ${state.sel.has(t.id)?'checked':''}></td>
+          <td class="px-3 py-2">
+            <div class="flex items-start gap-2">
+              ${t.unread ? '<span class="w-2 h-2 rounded-full bg-qb-blue mt-1.5 shrink-0"></span>' : '<span class="w-2 h-2 rounded-full bg-transparent mt-1.5 shrink-0"></span>'}
+              <div class="min-w-0">
+                <div class="font-medium truncate ${t.unread ? 'text-on-surface' : 'text-on-surface-variant'}">${t.subject}</div>
+                <div class="text-[11px] text-on-surface-variant truncate">${t.snippet}</div>
+              </div>
+            </div>
+          </td>
+          <td class="px-3 py-2">
+            ${t.party ? `<div class="text-body-sm">${t.party}</div>` : `<span class="stat warn">Unlinked</span>`}
+          </td>
+          <td class="px-3 py-2 text-on-surface-variant text-[12px]">${mb ? mb.display : '—'}</td>
+          <td class="px-3 py-2">
+            <span class="stat ${t.direction === 'inbound' ? 'info' : 'neutral'}">${t.direction}</span>
+          </td>
+          <td class="px-3 py-2 text-right text-on-surface-variant text-[12px]">${t.last}</td>
+          <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-row-menu><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table></div>`;
+
+  wireThreadRows();
+}
+
+// ---------- Render mailboxes ----------
+function renderMailboxes(){
+  document.querySelector('[data-row-count]').textContent = `${state.mailboxes.length} connected`;
+  document.getElementById('contentHost').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-left text-body-sm">
+    <thead class="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+      <tr>
+        <th class="px-3 py-2">Mailbox</th>
+        <th class="px-3 py-2">Address</th>
+        <th class="px-3 py-2 text-right">Threads</th>
+        <th class="px-3 py-2">Last sync</th>
+        <th class="px-3 py-2">Status</th>
+        <th class="w-8"></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-dim">
+      ${state.mailboxes.map(m => `<tr class="hover:bg-surface-container-low cursor-pointer mailbox-row" data-id="${m.id}">
+        <td class="px-3 py-2">
+          <div class="flex items-center gap-2">
+            <div class="w-7 h-7 rounded bg-qb-blue text-white flex items-center justify-center text-[10px] font-bold">${m.provider === 'gmail' ? 'G' : m.provider === 'outlook' ? 'O' : 'S'}</div>
+            <div><div class="font-medium">${m.display}</div>${m.default ? '<div class="text-[10px] text-secondary font-semibold">DEFAULT</div>' : ''}</div>
+          </div>
+        </td>
+        <td class="px-3 py-2 text-on-surface-variant font-mono text-[11px]">${m.email}</td>
+        <td class="px-3 py-2 text-right tabular-nums">${m.threads}</td>
+        <td class="px-3 py-2 text-on-surface-variant">${m.lastSync}</td>
+        <td class="px-3 py-2"><span class="stat success">${m.status}</span></td>
+        <td class="px-2 py-2 text-right"><button class="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" data-mailbox-menu><span class="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+  wireMailboxRows();
+}
+
+// ---------- Render entry ----------
+function render(){
+  renderKpis();
+  if (state.tab === 'Mailboxes') renderMailboxes(); else renderThreads();
+}
+
+// ---------- Wiring: rows ----------
+function wireThreadRows(){
+  document.querySelectorAll('.thread-row').forEach(tr => {
+    tr.addEventListener('click', e => {
+      if (e.target.closest('input,button,[data-row-menu]')) return;
+      openThread(tr.dataset.id);
+    });
+    tr.querySelector('[data-row-menu]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      openRowMenu(e.currentTarget, tr.dataset.id);
+    });
+  });
+  document.querySelectorAll('.thread-check').forEach(cb => cb.addEventListener('change', updateBulk));
+  document.querySelector('[data-check-all]')?.addEventListener('change', e => {
+    document.querySelectorAll('.thread-check').forEach(c => c.checked = e.target.checked);
+    document.querySelectorAll('.thread-check').forEach(c => {
+      const id = c.closest('tr').dataset.id;
+      if (c.checked) state.sel.add(id); else state.sel.delete(id);
+    });
+    updateBulk();
+  });
+}
+
+function wireMailboxRows(){
+  document.querySelectorAll('.mailbox-row').forEach(tr => {
+    tr.querySelector('[data-mailbox-menu]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const menu = document.getElementById('mailboxMenu');
+      menu.querySelector('[data-mb-action]');
+      const r = e.currentTarget.getBoundingClientRect();
+      menu.style.top = (r.bottom + 4) + 'px';
+      menu.style.left = Math.min(r.right - 250, window.innerWidth - 270) + 'px';
+      menu.classList.add('open');
+      menu._id = tr.dataset.id;
+    });
+  });
+}
+
+// ---------- Bulk ----------
+function updateBulk(){
+  const bar = document.querySelector('[data-bulk-bar]');
+  const cnt = document.querySelector('[data-bulk-count]');
+  if (state.sel.size > 0){ bar.classList.add('show'); cnt.textContent = `${state.sel.size} selected`; }
+  else bar.classList.remove('show');
+}
+
+document.querySelectorAll('[data-bulk]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.bulk;
+  if (act === 'close'){
+    state.sel.clear();
+    document.querySelectorAll('.thread-check').forEach(c => c.checked = false);
+    updateBulk();
+    render();
+    return;
+  }
+  if (act === 'mark-read'){
+    state.threads.forEach(t => { if (state.sel.has(t.id)) t.unread = false; });
+  }
+  if (act === 'archive'){
+    state.threads = state.threads.filter(t => !state.sel.has(t.id));
+  }
+  if (act === 'link'){
+    toast('Open party picker to link selected threads');
+  }
+  toast(`${act} on ${state.sel.size} thread${state.sel.size !== 1 ? 's' : ''}`);
+  state.sel.clear();
+  document.querySelectorAll('.thread-check').forEach(c => c.checked = false);
+  updateBulk();
+  render();
+}));
+
+// ---------- Tabs ----------
+document.querySelectorAll('[data-viewtab]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-viewtab]').forEach(x => x.classList.toggle('active', x === b));
+  state.tab = b.dataset.viewtab;
+  render();
+}));
+
+// ---------- Search ----------
+document.querySelector('[data-filter]').addEventListener('input', e => {
+  state.q = e.target.value;
+  render();
+});
+
+// ---------- Row menu ----------
+const rowMenu = document.getElementById('rowMenu');
+let currentThreadId = null;
+function openRowMenu(btn, id){
+  currentThreadId = id;
+  rowMenu.classList.remove('open');
+  const r = btn.getBoundingClientRect();
+  rowMenu.style.top = (r.bottom + 4) + 'px';
+  rowMenu.style.left = Math.min(r.right - 250, window.innerWidth - 270) + 'px';
+  rowMenu.classList.add('open');
+}
+
+rowMenu.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.action;
+  rowMenu.classList.remove('open');
+  const t = state.threads.find(x => x.id === currentThreadId);
+  if (!t) return;
+  switch (act){
+    case 'open': openThread(t.id); break;
+    case 'open-party': t.partyId ? toast(`Navigate → /crm/parties/${t.partyId}`) : toast('No party linked — use Link to party'); break;
+    case 'reply': openCompose({ to: t.party, subject: 'Re: ' + t.subject }); break;
+    case 'forward': openCompose({ subject: 'Fwd: ' + t.subject }); break;
+    case 'add-note': toast(`Note queued for ${t.party || 'unlinked thread'}`); break;
+    case 'create-deal': toast(`Create deal from "${t.subject}" — prefilled customer`); break;
+    case 'create-task': toast(`Create task from "${t.subject}"`); break;
+    case 'create-ticket': toast(`Create support ticket from "${t.subject}"`); break;
+    case 'pin': toast('Pinned thread'); break;
+    case 'tag': toast('Open tag picker'); break;
+    case 'archive':
+      state.threads = state.threads.filter(x => x.id !== t.id);
+      render();
+      toast('Archived');
+      break;
+  }
+}));
+
+// ---------- Mailbox menu ----------
+const mailboxMenu = document.getElementById('mailboxMenu');
+mailboxMenu.querySelectorAll('[data-mb-action]').forEach(b => b.addEventListener('click', () => {
+  const act = b.dataset.mbAction;
+  mailboxMenu.classList.remove('open');
+  if (act === 'edit'){ openMailboxDrawer(); return; }
+  if (act === 'sync'){ toast('Mailbox synced'); return; }
+  if (act === 'test'){ toast('Test email sent — check your inbox'); return; }
+  if (act === 'default'){
+    state.mailboxes.forEach(m => m.default = m.id === mailboxMenu._id);
+    render();
+    return;
+  }
+  if (act === 'disconnect'){
+    state.mailboxes = state.mailboxes.filter(m => m.id !== mailboxMenu._id);
+    render();
+    toast('Mailbox disconnected');
+  }
+}));
+
+// ---------- Open thread (production: route to /crm/inbox/:threadId) ----------
+function openThread(id){
+  const t = state.threads.find(x => x.id === id);
+  if (!t) return;
+  t.unread = false;
+  render();
+  toast(`Opening thread — ${t.subject}`);
+}
+
+// ---------- Mailbox drawer ----------
+const mailboxScrim = document.getElementById('mailboxScrim');
+const mailboxDrawer = document.getElementById('mailboxDrawer');
+
+function openMailboxDrawer(provider){
+  document.getElementById('mailboxDrawerTitle').textContent = provider ? `Connect ${provider.charAt(0).toUpperCase() + provider.slice(1)} mailbox` : 'Connect mailbox';
+  mailboxScrim.classList.add('open');
+  mailboxDrawer.classList.add('open');
+}
+function closeMailboxDrawer(){
+  mailboxScrim.classList.remove('open');
+  mailboxDrawer.classList.remove('open');
+}
+document.querySelectorAll('[data-close-mailbox]').forEach(b => b.addEventListener('click', closeMailboxDrawer));
+mailboxScrim.addEventListener('click', closeMailboxDrawer);
+
+document.querySelectorAll('[data-provider]').forEach(b => b.addEventListener('click', () => {
+  closeConnectMenu();
+  openMailboxDrawer(b.dataset.provider);
+}));
+
+document.querySelector('[data-action="connect-mailbox"]').addEventListener('click', () => openMailboxDrawer('gmail'));
+
+document.querySelector('[data-save-mailbox]').addEventListener('click', () => {
+  const email = document.querySelector('[data-f-email]').value.trim();
+  const display = document.querySelector('[data-f-display]').value.trim();
+  if (!email){ toast('Email required'); return; }
+  // Production: POST /api/mailboxes → platform_mailboxes
+  const isDefault = document.querySelector('[data-f-default-sender]').checked;
+  state.mailboxes.push({
+    id: 'mb-' + (state.mailboxes.length + 1),
+    provider: 'gmail',
+    display: display || email.split('@')[0],
+    email,
+    default: isDefault,
+    status: 'Connected',
+    threads: 0,
+    lastSync: 'just now'
+  });
+  if (isDefault) state.mailboxes.forEach(m => { if (m.email !== email) m.default = false; });
+  closeMailboxDrawer();
+  render();
+  toast(`Mailbox ${email} connected`);
+});
+
+// ---------- Connect split menu ----------
+const connectMenu = document.getElementById('connectSplitMenu');
+document.querySelector('[data-connect-split]').addEventListener('click', e => {
+  e.stopPropagation();
+  const r = e.currentTarget.getBoundingClientRect();
+  connectMenu.style.top = (r.bottom + 4) + 'px';
+  connectMenu.style.left = Math.min(r.right - 260, window.innerWidth - 280) + 'px';
+  connectMenu.classList.toggle('open');
+});
+function closeConnectMenu(){ connectMenu.classList.remove('open'); }
+
+// ---------- Compose ----------
+const composeModal = document.getElementById('composeModal');
+function openCompose(prefill = {}){
+  if (prefill.to) document.querySelector('[data-compose-to]').value = prefill.to;
+  if (prefill.subject) document.querySelector('[data-compose-subject]').value = prefill.subject;
+  composeModal.classList.add('open');
+}
+function closeCompose(){ composeModal.classList.remove('open'); }
+document.querySelector('[data-action="compose"]').addEventListener('click', () => openCompose());
+document.querySelectorAll('[data-close-compose]').forEach(b => b.addEventListener('click', closeCompose));
+
+document.querySelector('[data-compose-send]').addEventListener('click', () => {
+  const to = document.querySelector('[data-compose-to]').value.trim();
+  const subject = document.querySelector('[data-compose-subject]').value.trim();
+  const body = document.querySelector('[data-compose-body]').value.trim();
+  if (!to || !subject){ toast('To and subject required'); return; }
+  // Production: POST /rpc/platform_send_email OR /rpc/email_enqueue
+  // params: tenant_id, idempotency_key, from, to[], subject, html, text, category, related_type, related_id
+  closeCompose();
+  toast(`Email sent to ${to}`);
+  // Optimistic: add a thread
+  state.threads.unshift({
+    id: 'th-' + (state.threads.length + 1),
+    mailbox: 'mb-1',
+    party: null,
+    partyId: null,
+    subject,
+    snippet: body.slice(0, 60) + (body.length > 60 ? '…' : ''),
+    unread: false,
+    linked: false,
+    last: 'just now',
+    direction: 'outbound'
+  });
+  render();
+});
+
+document.querySelector('[data-compose-draft]').addEventListener('click', () => {
+  toast('Draft saved'); closeCompose();
+});
+
+// ---------- Global click closes menus ----------
+document.addEventListener('click', e => {
+  if (!e.target.closest('#rowMenu')) rowMenu.classList.remove('open');
+  if (!e.target.closest('#mailboxMenu')) mailboxMenu.classList.remove('open');
+  if (!e.target.closest('#connectSplitMenu') && !e.target.closest('[data-connect-split]')) closeConnectMenu();
+});
+
+// ---------- Init ----------
+render();
+</script>
+</body>
+</html>

@@ -30,8 +30,10 @@ import { exportToCsv } from '@/lib/csvExport';
 import { useSellerStore } from '@/lib/sellerStore';
 import { platformActions } from '@/hooks/usePlatformApi';
 import PartyFormDrawer, { type PartyFormEditTarget } from './PartyFormDrawer';
+import SequencingTab from './SequencingTab';
+import { OrdersTab, InvoicesTab, ReturnsTab, TicketsTab } from './PartyAdditionalTabs';
 
-type Tab = 'transactions' | 'activity' | 'statements' | 'recurring' | 'details' | 'latefees' | 'notes' | 'tasks' | 'records' | 'calls' | 'files';
+type Tab = 'transactions' | 'activity' | 'statements' | 'recurring' | 'details' | 'latefees' | 'notes' | 'tasks' | 'records' | 'calls' | 'files' | 'sequencing' | 'orders' | 'invoices' | 'returns' | 'tickets';
 
 const money = (n: number | null | undefined) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function initials(name: string) {
@@ -62,6 +64,11 @@ const TABS: { id: Tab; label: string; badge?: string }[] = [
   { id: 'records', label: 'Tracked Records' },
   { id: 'calls', label: 'Calls' },
   { id: 'files', label: 'Files' },
+  { id: 'sequencing', label: 'Sequences', badge: 'New' },
+  { id: 'orders', label: 'Orders' },
+  { id: 'invoices', label: 'Invoices' },
+  { id: 'returns', label: 'Returns' },
+  { id: 'tickets', label: 'Support tickets' },
 ];
 
 /* "New transaction" menu — adapts to role: customers get Invoice/Receipt,
@@ -1422,6 +1429,37 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
               </button>
             </div>
           </div>
+        )}
+
+        {/* 12. Sequencing — CRM sequences + route builder + this party's enrolled sequences */}
+        {tab === 'sequencing' && (
+          <SequencingTab
+            partyId={partyId}
+            partyName={displayName}
+            onToast={onToast}
+          />
+        )}
+
+        {/* 13. Orders — every sales order this customer has placed. Row click
+                opens the full Order Detail page. */}
+        {tab === 'orders' && (
+          <OrdersTab onToast={onToast} onNavigate={onNavigate} />
+        )}
+
+        {/* 14. Invoices — instant charges issued to this customer. Distinct
+                from Statements (which are 30-day rolling summaries). */}
+        {tab === 'invoices' && (
+          <InvoicesTab onToast={onToast} />
+        )}
+
+        {/* 15. Returns — RMAs linked to this customer. */}
+        {tab === 'returns' && (
+          <ReturnsTab onToast={onToast} />
+        )}
+
+        {/* 16. Support tickets — tickets opened by/for this customer. */}
+        {tab === 'tickets' && (
+          <TicketsTab onToast={onToast} />
         )}
 
         {/* 8. Tasks */}

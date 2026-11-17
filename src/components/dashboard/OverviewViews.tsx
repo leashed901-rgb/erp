@@ -258,7 +258,11 @@ function AnalyticsSwitcher({
 }
 
 function monthLabel(): string {
-  return new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  // Use a fixed format that doesn't depend on timezone — avoids hydration
+  // mismatch (server UTC vs client local). Format: "Nov 2026"
+  const d = new Date();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 function GmvAnalyticsView({ onNavigate }: { onNavigate: (d: DomainKey, s: string) => void }) {

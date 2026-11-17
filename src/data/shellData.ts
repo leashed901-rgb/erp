@@ -664,6 +664,7 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
         screens: [
           { id: 'sellers', label: 'Sellers', type: 'list' },
           { id: 'seller-detail', label: 'Seller detail', type: 'list' },
+          { id: 'seller-profile', label: 'Seller profile', type: 'list' },
           { id: 'seller-feed', label: 'Seller feed', type: 'list' },
           { id: 'seller-onboarding', label: 'Onboarding Queue', type: 'list' },
         ],

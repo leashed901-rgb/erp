@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './OrdersWorkbench.module.css';
 import { importCsvFile, resolvePartyId } from '@/lib/csvImport';
 import { VIEW_DEFS } from '@/lib/viewDefs';
+import { useOrderStore } from '@/lib/orderStore';
 
 /* ══════════════════════════════════════════════════════════════════ */
 /* TYPES — the four unified row shapes                                */
@@ -281,6 +282,7 @@ interface RowMenuState {
 }
 
 export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbenchProps) {
+  const setSelectedOrder = useOrderStore(s => s.setSelectedOrder);
   // State hooks
   const [scope, setScope] = useState<Scope>('orders');
   const [status, setStatus] = useState<string>('All');
@@ -1140,7 +1142,25 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
                         className={`hover:bg-surface-container-low cursor-pointer ${isSel ? 'bg-surface-container-low' : ''}`}
                         onClick={(e) => {
                           if ((e.target as HTMLElement).closest('input,button')) return;
-                          openDrawer(id);
+                          // Navigate to the full Order Detail page (same pattern
+                          // as PartyProfile / SellerProfilePage — row click opens
+                          // the full page, not a drawer).
+                          if (scope === 'orders') {
+                            const o = orders.find(x => x.id === id);
+                            setSelectedOrder(id, o ? {
+                              id: o.id,
+                              customer: o.customer,
+                              total: o.total,
+                              status: o.status,
+                              items: o.items,
+                              supplier: o.supplier,
+                              sla: o.sla,
+                              slaPast: o.slaPast,
+                            } : undefined);
+                            onNavigate?.('orders', 'order-detail');
+                          } else {
+                            openDrawer(id);
+                          }
                         }}
                       >
                         <td className="px-3 py-2">

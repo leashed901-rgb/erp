@@ -81,6 +81,13 @@ import CrmOverviewSupabase from './contacts/CrmOverviewSupabase';
 import SellersScreen from './sellers/SellersScreen';
 import StaffScreen from './staff/StaffScreen';
 import SellerDetailScreen from './sellers/SellerDetailScreen';
+import SellerProfilePage from './sellers/SellerProfilePage';
+import OrderDetailPage from './orders/OrderDetailPage';
+import CatalogOverviewPage from './catalog/CatalogOverviewPage';
+import ListingsPage from './catalog/ListingsPage';
+import BundlesPage from './catalog/BundlesPage';
+import BrandsPage from './catalog/BrandsPage';
+import CollectionsPage from './catalog/CollectionsPage';
 import SellerFeedScreen from './sellers/SellerFeedScreen';
 import SellerOnboardingScreen from './sellers/SellerOnboardingScreen';
 import SellerQueueScreen from './sellers/SellerQueueScreen';
@@ -3347,6 +3354,9 @@ function TabScreenRenderer({
         return <FulfillmentQueue {...ordersProps} />;
       case 'batch-slips':
         return <BatchSlips {...ordersProps} />;
+      case 'order-detail':
+        // Full order detail page — opened by clicking a row in Orders.
+        return <OrderDetailPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
       case 'shipping-settings':
         return <ShippingSettings {...ordersProps} />;
       case 'inventory':
@@ -3852,10 +3862,11 @@ function TabScreenRenderer({
     return <SellersScreen onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
-  if (screenId === 'seller-detail') {
-    // Dossier for the seller selected in the Sellers list (sellerStore carries
-    // the selection): profile, violations, appeals, posts.
-    return <SellerDetailScreen onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  if (screenId === 'seller-detail' || screenId === 'seller-profile') {
+    // Full seller profile page — opened by clicking a row in the Sellers
+    // list. The production SellerDetailScreen is the fallback; our custom
+    // SellerProfilePage (ported from the HTML mockup) is the primary.
+    return <SellerProfilePage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'seller-feed') {
@@ -4075,6 +4086,31 @@ function TabScreenRenderer({
         onNavigate={onNavigate as (d: string, s: string) => void}
       />
     );
+  }
+
+  // ── Custom catalog pages (ported from HTML mockups) ──
+  // These are the pixel-perfect HTML ports we built. They overlay on top
+  // of the production routing — the production ScreenContent didn't have
+  // these screen IDs, so we add them here.
+  if (screenId === 'catalog-overview') {
+    return <CatalogOverviewPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+  if (screenId === 'listings') {
+    return <ListingsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+  if (screenId === 'bundles') {
+    return <BundlesPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+  if (screenId === 'brands') {
+    return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+  if (screenId === 'categories') {
+    return <CollectionsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+
+  // ── Order Detail page — opened by clicking a row in the Orders list ──
+  if (screenId === 'order-detail') {
+    return <OrderDetailPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'blanks') {

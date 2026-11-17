@@ -48,19 +48,21 @@ export default function Header({
   onToast,
   hideTabs = false,
 }: HeaderProps) {
-  // The header date is the actual current date, refreshed every minute —
-  // it was a hardcoded "Sun, Nov 1, 2026" string.
-  const formatToday = () =>
-    new Date().toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  const [todayLabel, setTodayLabel] = useState<string>(formatToday);
+  // The header date is the actual current date, refreshed every minute.
+  // SSR renders in UTC, client renders in the user's timezone — the date
+  // can differ by a day (hydration mismatch). Fix: render empty on SSR,
+  // set the real label in useEffect (client-only).
+  const [todayLabel, setTodayLabel] = useState<string>('');
   useEffect(() => {
-    setTodayLabel(formatToday());
-    const t = setInterval(() => setTodayLabel(formatToday()), 60_000);
+    const fmt = () =>
+      new Date().toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    setTodayLabel(fmt());
+    const t = setInterval(() => setTodayLabel(fmt()), 60_000);
     return () => clearInterval(t);
   }, []);
   const [userMenuOpen, setUserMenuOpen] = useState(false);

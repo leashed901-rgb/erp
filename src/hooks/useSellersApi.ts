@@ -399,8 +399,8 @@ export async function resolveViolation(
    ──────────────────────────────────────────────────────────── */
 
 /** Display label for any seller row — profile name, or an honest enforcement fallback. */
-export function sellerDisplayName(s: { display_name?: string | null; legal_name?: string | null; seller_id: string }): string {
-  return s.display_name || s.legal_name || `Seller ${s.seller_id.slice(0, 8)}`;
+export function sellerDisplayName(s: { display_name?: string | null; legal_name?: string | null; seller_id: string | null }): string {
+  return s.display_name || s.legal_name || `Seller ${(s.seller_id ?? 'unknown').slice(0, 8)}`;
 }
 
 export function initials(name: string): string {

@@ -153,6 +153,37 @@ export default function Header({
           </div>
         </div>
         <div className={styles.rightGroup}>
+          {/* Favorites, Reports, Inbox — moved from the main rail to the top bar */}
+          <button
+            id="btn-favorites"
+            type="button"
+            className={styles.quickActionBtn}
+            title="Favorites"
+            aria-label="Favorites"
+            onClick={() => onToast?.('Favorites')}
+          >
+            <span className={`material-symbols-outlined ${styles.icon18}`}>star</span>
+          </button>
+          <button
+            id="btn-reports"
+            type="button"
+            className={styles.quickActionBtn}
+            title="Reports"
+            aria-label="Reports"
+            onClick={() => onToast?.('Reports')}
+          >
+            <span className={`material-symbols-outlined ${styles.icon18}`}>bar_chart</span>
+          </button>
+          <button
+            id="btn-inbox"
+            type="button"
+            className={styles.quickActionBtn}
+            title="Inbox"
+            aria-label="Inbox"
+            onClick={() => onToast?.('Inbox')}
+          >
+            <span className={`material-symbols-outlined ${styles.icon18}`}>mail</span>
+          </button>
           <button
             id="btn-create"
             type="button"

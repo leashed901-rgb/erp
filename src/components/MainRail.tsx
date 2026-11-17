@@ -18,13 +18,12 @@ interface MainRailProps {
 }
 
 // Pinned utility items (bottom section). These are the persistent quick-access
-// tools that live below the domain rail, separated by a grouping divider.
-// The 'favorites' slot is the dual pin: bookmark or favorite, user's choice.
+// tools that live below the domain rail. Favorites/Bookmarks, Reports, and
+// Inbox/Mail have been MOVED to the top bar (Header). Tasks moved up to
+// replace the Create button. LMS (learning) and Hours (staff) are new.
 const PINNED_UTIL: { id: string; icon: string; label: string; badge?: number }[] = [
-  { id: 'tasks', icon: 'calendar_month', label: 'Tasks / calendar' },
-  { id: 'favorites', icon: 'bookmark', label: 'Bookmarks' },
-  { id: 'inbox', icon: 'mail', label: 'Inbox / notifications', badge: 4 },
-  { id: 'reports', icon: 'bar_chart', label: 'Reports' },
+  { id: 'lms', icon: 'school', label: 'Learning (LMS)' },
+  { id: 'hours', icon: 'schedule', label: 'Staff hours' },
 ];
 
 export default function MainRail({
@@ -41,15 +40,16 @@ export default function MainRail({
   return (
     <aside className={styles.rail}>
       <div className={styles.topSection}>
-        {/* Create */}
+        {/* Tasks — moved up from the pinned area to replace the Create button.
+            Create is now only in the top bar (Header) and the hamburger flyout. */}
         <button
-          id="rail-create"
+          id="rail-tasks"
           type="button"
           className={styles.createBtn}
-          title="Create"
-          onClick={onOpenCreateFlyout}
+          title="Tasks / calendar"
+          onClick={() => onRailAction('tasks')}
         >
-          <span className={`material-symbols-outlined ${styles.icon20}`}>add</span>
+          <span className={`material-symbols-outlined ${styles.icon20}`}>calendar_month</span>
         </button>
 
         {/* Grouping divider — separates Create from the domain rail */}
@@ -81,60 +81,24 @@ export default function MainRail({
         {/* Pinned utility section */}
         <span className={styles.pinnedLabel}>Pinned</span>
         <div id="rail-pinned" className={styles.pinnedList}>
-          {PINNED_UTIL.map((item) => {
-            const isDualPin = item.id === 'favorites';
-            const favActive = isDualPin && favoritesOpen;
-            // Dual pin identity follows the user's switcher choice.
-            const pinIcon = isDualPin
-              ? pinMode === 'bookmarks'
-                ? 'bookmark'
-                : 'star'
-              : item.icon;
-            const pinCount = isDualPin
-              ? pinMode === 'bookmarks'
-                ? bookmarksCount
-                : favoritesCount
-              : 0;
-            const pinLabel = isDualPin
-              ? pinMode === 'bookmarks'
-                ? 'Bookmarks'
-                : 'Favorites'
-              : item.label;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                data-rail={item.id}
-                data-pinmode={isDualPin ? pinMode : undefined}
-                className={`${styles.railBtn} ${favActive ? styles.railBtnActive : ''} ${
-                  isDualPin && pinCount > 0 ? styles.railBtnHasFavorites : ''
-                }`}
-                title={isDualPin ? `${pinLabel} — switcher inside` : item.label}
-                onClick={() => {
-                  if (isDualPin && onToggleFavorites) {
-                    onToggleFavorites();
-                  } else {
-                    onRailAction(item.id);
-                  }
-                }}
-                aria-label={pinLabel}
-              >
-                <span
-                  className={`material-symbols-outlined ${styles.icon19} ${
-                    isDualPin && pinCount > 0 ? styles.starFilled : ''
-                  }`}
-                >
-                  {pinIcon}
-                </span>
-                {isDualPin && pinCount > 0 && (
-                  <span className={styles.starBadge}>{pinCount}</span>
-                )}
-                {item.badge != null && !isDualPin && (
-                  <span className={styles.inboxBadge}>{item.badge}</span>
-                )}
-              </button>
-            );
-          })}
+          {PINNED_UTIL.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              data-rail={item.id}
+              className={styles.railBtn}
+              title={item.label}
+              onClick={() => onRailAction(item.id)}
+              aria-label={item.label}
+            >
+              <span className={`material-symbols-outlined ${styles.icon19}`}>
+                {item.icon}
+              </span>
+              {item.badge != null && item.badge > 0 && (
+                <span className={styles.inboxBadge}>{item.badge}</span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
     </aside>

@@ -55,7 +55,8 @@ export default function MainRail({
         {/* Grouping divider — separates Create from the domain rail */}
         <div className={styles.divider} />
 
-        {/* Domain rail — the 7 primary domains, in PINNED order */}
+        {/* Domain rail — the 7 primary domains + LMS + HRIS, all inline.
+            No separate "Pinned" section — they're all just rail icons. */}
         <div id="rail-domains" className={styles.pinnedList}>
           {PINNED.map((key) => {
             const domain = DOMAINS[key];
@@ -73,20 +74,13 @@ export default function MainRail({
               </button>
             );
           })}
-        </div>
-
-        {/* Grouping divider — separates domain rail from the pinned utilities */}
-        <div className={styles.divider} />
-
-        {/* Pinned utility section */}
-        <span className={styles.pinnedLabel}>Pinned</span>
-        <div id="rail-pinned" className={styles.pinnedList}>
+          {/* LMS + HRIS — inline with the domain icons, no separator */}
           {PINNED_UTIL.map((item) => (
             <button
               key={item.id}
               type="button"
               data-rail={item.id}
-              className={styles.railBtn}
+              className={styles.pinnedBtn}
               title={item.label}
               onClick={() => onRailAction(item.id)}
               aria-label={item.label}
@@ -94,9 +88,6 @@ export default function MainRail({
               <span className={`material-symbols-outlined ${styles.icon19}`}>
                 {item.icon}
               </span>
-              {item.badge != null && item.badge > 0 && (
-                <span className={styles.inboxBadge}>{item.badge}</span>
-              )}
             </button>
           ))}
         </div>

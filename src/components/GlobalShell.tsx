@@ -555,6 +555,26 @@ export default function GlobalShell() {
     [activeDomain, activeScreen, openTabs]
   );
 
+  // Close all tabs except the one right-clicked.
+  const handleCloseOtherTabs = useCallback(
+    (tabKey: string) => {
+      const keep = openTabs.find((t) => t.key === tabKey);
+      if (!keep) return;
+      setOpenTabs([keep]);
+      setActiveDomain(keep.domain);
+      setActiveScreen(keep.screenId);
+    },
+    [openTabs]
+  );
+
+  // Close every open tab — falls back to the dashboard.
+  const handleCloseAllTabs = useCallback(() => {
+    const fallback = buildWorkspaceTab('dashboard', 'ops');
+    setOpenTabs([fallback]);
+    setActiveDomain(fallback.domain);
+    setActiveScreen(fallback.screenId);
+  }, []);
+
   const handleToggleGroup = useCallback(
     (groupName: string) => {
       setOpenGroupsByDomain((prev) => {
@@ -1019,6 +1039,14 @@ export default function GlobalShell() {
         activeTabKey={activeTabKey}
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
+        onCloseOtherTabs={(tab) => handleCloseOtherTabs(tab.key)}
+        onCloseAllTabs={handleCloseAllTabs}
+        onBookmarkTab={(tab) => {
+          handleAddBookmark(tab.domain, tab.screenId);
+        }}
+        onOpenTabStandalone={(tab) => {
+          window.open(`/?view=${tab.domain}:${tab.screenId}&focus=1`, '_blank');
+        }}
         onOpenCreateFlyout={() => setCreateFlyoutOpen(true)}
         onOpenNavigationHub={() => setNavigationHubOpen(true)}
         onOpenSettings={(screenId) => openOrActivateTab('settings', screenId ?? 'ws-home')}

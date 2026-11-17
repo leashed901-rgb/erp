@@ -19,6 +19,7 @@ interface HeaderProps {
   onOpenCreateFlyout: () => void;
   onOpenNavigationHub: () => void;
   onOpenSettings: (screenId?: string) => void;
+  onRailAction?: (id: string) => void;
   viewMode: 'business' | 'accountant';
   onChangeViewMode: (mode: 'business' | 'accountant') => void;
   onToast?: (message: string) => void;
@@ -34,6 +35,7 @@ export default function Header({
   onOpenCreateFlyout,
   onOpenNavigationHub,
   onOpenSettings,
+  onRailAction,
   viewMode,
   onChangeViewMode,
   onToast,
@@ -160,7 +162,7 @@ export default function Header({
             className={styles.quickActionBtn}
             title="Favorites"
             aria-label="Favorites"
-            onClick={() => onToast?.('Favorites')}
+            onClick={() => onRailAction?.('favorites')}
           >
             <span className={`material-symbols-outlined ${styles.icon18}`}>star</span>
           </button>
@@ -170,7 +172,7 @@ export default function Header({
             className={styles.quickActionBtn}
             title="Reports"
             aria-label="Reports"
-            onClick={() => onToast?.('Reports')}
+            onClick={() => onRailAction?.('reports')}
           >
             <span className={`material-symbols-outlined ${styles.icon18}`}>bar_chart</span>
           </button>
@@ -180,7 +182,7 @@ export default function Header({
             className={styles.quickActionBtn}
             title="Inbox"
             aria-label="Inbox"
-            onClick={() => onToast?.('Inbox')}
+            onClick={() => onRailAction?.('inbox')}
           >
             <span className={`material-symbols-outlined ${styles.icon18}`}>mail</span>
           </button>

@@ -1022,6 +1022,7 @@ export default function GlobalShell() {
         onOpenCreateFlyout={() => setCreateFlyoutOpen(true)}
         onOpenNavigationHub={() => setNavigationHubOpen(true)}
         onOpenSettings={(screenId) => openOrActivateTab('settings', screenId ?? 'ws-home')}
+        onRailAction={handleRailAction}
         viewMode={viewMode}
         onChangeViewMode={(mode) => {
           setViewMode(mode);

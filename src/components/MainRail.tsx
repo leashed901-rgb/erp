@@ -23,7 +23,7 @@ interface MainRailProps {
 // replace the Create button. LMS (learning) and Hours (staff) are new.
 const PINNED_UTIL: { id: string; icon: string; label: string; badge?: number }[] = [
   { id: 'lms', icon: 'school', label: 'Learning (LMS)' },
-  { id: 'hours', icon: 'schedule', label: 'Staff hours' },
+  { id: 'hris', icon: 'schedule', label: 'HRIS' },
 ];
 
 export default function MainRail({

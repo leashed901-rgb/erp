@@ -89,13 +89,10 @@ const TABS: { id: Tab; label: string; badge?: string }[] = [
   { id: 'calls', label: 'Calls' },
   { id: 'files', label: 'Files' },
   { id: 'sequencing', label: 'Sequences' },
-  // Customer-bound finance/commerce objects — these live ON the customer
-  // record, not in bifurcated views (USER-GUIDE: orders, finance, accounting
-  // all integrate back to the customer object).
-  { id: 'orders', label: 'Orders', badge: String(ADDL_COUNTS.orders) },
-  { id: 'invoices', label: 'Invoices', badge: String(ADDL_COUNTS.invoices) },
-  { id: 'returns', label: 'Returns', badge: String(ADDL_COUNTS.returns) },
-  { id: 'tickets', label: 'Support tickets', badge: String(ADDL_COUNTS.tickets) },
+  { id: 'orders', label: 'Orders' },
+  { id: 'invoices', label: 'Invoices' },
+  { id: 'returns', label: 'Returns' },
+  { id: 'tickets', label: 'Support tickets' },
 ];
 
 /* "New transaction" menu — adapts to role: customers get Invoice/Receipt,

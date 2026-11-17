@@ -84,11 +84,11 @@ const TABS: { id: Tab; label: string; badge?: string }[] = [
   { id: 'details', label: 'Details' },
   { id: 'latefees', label: 'Late Fees' },
   { id: 'notes', label: 'Notes' },
-  { id: 'tasks', label: 'Tasks', badge: 'New' },
+  { id: 'tasks', label: 'Tasks' },
   { id: 'tracked', label: 'Tracked Records' },
   { id: 'calls', label: 'Calls' },
   { id: 'files', label: 'Files' },
-  { id: 'sequencing', label: 'Sequences', badge: 'New' },
+  { id: 'sequencing', label: 'Sequences' },
   // Customer-bound finance/commerce objects — these live ON the customer
   // record, not in bifurcated views (USER-GUIDE: orders, finance, accounting
   // all integrate back to the customer object).

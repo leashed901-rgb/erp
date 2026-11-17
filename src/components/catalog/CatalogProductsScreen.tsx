@@ -17,6 +17,7 @@ import {
 import { exportToCsv } from '@/lib/csvExport';
 import ProductProfile from './ProductProfile';
 import ProductFormDrawer, { type ProductFormEditTarget } from './ProductFormDrawer';
+import PricingDrawer from './PricingDrawer';
 
 interface CatalogProductsScreenProps {
   onToast: (m: string) => void;
@@ -72,6 +73,9 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
   const [showCreate, setShowCreate] = useState(false);
   const [rowMenuForId, setRowMenuForId] = useState<string | null>(null);
   const [rowEditId, setRowEditId] = useState<string | null>(null);
+  // Pricing quick-action drawer — opens for a specific product row. Pricing
+  // is NOT a standalone sidebar page; it lives ON the item as a quick action.
+  const [pricingForProduct, setPricingForProduct] = useState<CatalogProductSummary | null>(null);
 
   // Client-side status filter on top of the cached list (search is debounced
   // by the API query param — we pass it straight through).
@@ -126,14 +130,12 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
     onToast(`Exported ${filtered.length} products`);
   }
 
-  /** Row quick action — publish/unpublish through the registry RPC
-   *  `app_publish_product` (guard: needs at least one active, priced variant).
-   *  The old version PATCHed status directly, bypassing that guard. */
+  /** Row quick action — publish/unpublish without opening the profile. */
   async function rowTogglePublish(p: CatalogProductSummary) {
     setRowMenuForId(null);
-    const publish = p.status !== 'published';
-    const res = await fetchJson<{ data: string }>(`/api/products/${p.id}/publish`, { method: 'POST', body: JSON.stringify({ publish }) });
-    onToast(res.ok ? `${p.name} → ${publish ? 'published' : 'draft'}` : `Publish failed: ${res.error}`);
+    const next = p.status === 'published' ? 'draft' : 'published';
+    const res = await fetchJson(`/api/products/${p.id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) });
+    onToast(res.ok ? `${p.name} → ${next}` : `Update failed: ${res.error}`);
     if (res.ok) refetch();
   }
 
@@ -146,22 +148,15 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
     if (res.ok) refetch();
   }
 
-  /** Bulk publish/unpublish — per row through the publish RPC so the
-   *  priced-variant guard applies; archive goes through DELETE (app_archive_record). */
+  /** Bulk publish — PATCH status on every selected row. */
   async function bulkSetStatus(status: string) {
     const sel = [...selected];
     let done = 0;
-    let firstErr = '';
     for (const id of sel) {
-      const res = status === 'archived'
-        ? await fetchJson(`/api/products/${id}`, { method: 'DELETE' })
-        : await fetchJson(`/api/products/${id}/publish`, { method: 'POST', body: JSON.stringify({ publish: status === 'published' }) });
+      const res = await fetchJson(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
       if (res.ok) done++;
-      else if (!firstErr) firstErr = res.error || '';
     }
-    onToast(done === sel.length
-      ? `${status} applied to ${done} of ${sel.length} products`
-      : `${status} applied to ${done} of ${sel.length} products — ${firstErr}`);
+    onToast(`${status} applied to ${done} of ${sel.length} products`);
     setSelected(new Set());
     refetch();
   }
@@ -312,6 +307,9 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
                           <div className="menu-header">{p.name}</div>
                           <button onClick={() => { setRowMenuForId(null); setProfileId(p.id); }}><span className="material-symbols-outlined">inventory_2</span>Open profile</button>
                           <button onClick={() => { setRowMenuForId(null); setRowEditId(p.id); }}><span className="material-symbols-outlined">edit</span>Edit product</button>
+                          {/* Pricing lives ON the item — quick-action drawer showing
+                              variant matrix + supplier price comparison. */}
+                          <button onClick={() => { setRowMenuForId(null); setPricingForProduct(p); }}><span className="material-symbols-outlined">payments</span>Compare pricing</button>
                           <button onClick={() => rowTogglePublish(p)}>
                             <span className="material-symbols-outlined">{p.status === 'published' ? 'unpublished' : 'publish'}</span>
                             {p.status === 'published' ? 'Unpublish (draft)' : 'Publish'}
@@ -361,6 +359,20 @@ export default function CatalogProductsScreen({ onToast, onNavigate, backLabel }
         onSaved={() => { refetch(); }}
         onToast={onToast}
       />
+
+      {/* Pricing quick-action drawer — opens for the row that triggered it.
+          Variant matrix + supplier price comparison. Pricing is NOT a
+          standalone sidebar page; it lives ON the item. */}
+      {pricingForProduct && (
+        <PricingDrawer
+          item={{
+            name: pricingForProduct.name,
+            category: pricingForProduct.category?.name ?? undefined,
+          }}
+          onClose={() => setPricingForProduct(null)}
+          onToast={onToast}
+        />
+      )}
     </main>
   );
 }

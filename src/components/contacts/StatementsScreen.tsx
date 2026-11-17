@@ -5,15 +5,7 @@
 import { useState, useEffect } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 import type { Invoice } from '@/lib/accountingTypes';
-
-/* Row shape returned by GET /api/parties (the party DTO). */
-interface ApiParty {
-  id: string;
-  name: string;
-  email: string | null;
-  roles: string[];
-  source: string;
-}
+import type { Party } from '@/lib/platformStore';
 
 interface StatementsScreenProps { onToast: (m: string) => void; onNavigate?: (d: string, s: string) => void; }
 
@@ -33,24 +25,8 @@ function statusClass(s: string) { return s === 'Sent' ? 'sent' : s === 'Overdue'
 
 export default function StatementsScreen({ onToast }: StatementsScreenProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [customers, setCustomers] = useState<ApiParty[]>([]);
+  const [customers, setCustomers] = useState<Party[]>([]);
   const [loaded, setLoaded] = useState(false);
-
-  // ── Batch E: recorded statements + batches (acct_customer_statements /
-  //    acct_statement_batches). The table above is derived live from
-  //    invoices; these are the stored statement rows. ──
-  const [recorded, setRecorded] = useState<{ id: string; customerName: string; statementNumber: string; periodStart: string; periodEnd: string; closingBalance: number; status: string; sentAt: string | null; reminderCount: number }[]>([]);
-  const [batches, setBatches] = useState<{ id: string; periodStart: string; periodEnd: string; status: string; statementCount: number }[]>([]);
-  const [sendingId, setSendingId] = useState<string | null>(null);
-
-  const loadRecorded = async () => {
-    const [s, b] = await Promise.all([
-      fetch('/api/customer-statements').then(r => r.json()).catch(() => null),
-      fetch('/api/statement-batches').then(r => r.json()).catch(() => null),
-    ]);
-    if (s?.data) setRecorded(s.data);
-    if (b?.data) setBatches(b.data);
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -60,10 +36,9 @@ export default function StatementsScreen({ onToast }: StatementsScreenProps) {
     ]).then(([inv, parties]) => {
       if (cancelled) return;
       setInvoices(inv);
-      setCustomers(parties.filter((p: ApiParty) => p.roles?.includes('Customer') || p.source === 'crm_customers'));
+      setCustomers(parties.filter((p: Party) => p.roles?.includes('Customer') || p.source === 'crm_customers'));
       setLoaded(true);
     }).catch(() => setLoaded(true));
-    void loadRecorded();
     return () => { cancelled = true; };
   }, []);
 
@@ -125,24 +100,9 @@ export default function StatementsScreen({ onToast }: StatementsScreenProps) {
       case 'print': window.print(); break;
       case 'mark-paid': {
         // Real money movement: record payment against each open invoice
-        // via the Document Engine receive endpoint (receipt + application
-        // + GL journal), not the legacy /api/invoices PATCH — that route
-        // returns 0 rows for this tenant and the old toast claimed success
-        // while nothing was recorded.
-        const open = invoices.filter(inv => inv.customerId === s.partyId && Number(inv.balanceDue || 0) > 0);
-        Promise.all(open.map(inv =>
-          fetch(`/api/v1/documents/${inv.id}/receive?type=Invoice`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount: Number(inv.balanceDue), method: 'cash' }),
-          }).then(r => r.ok),
-        )).then((results) => {
-          const done = results.filter(Boolean).length;
-          onToast(done === open.length
-            ? `${s.customer} marked as paid — ${done} payment${done !== 1 ? 's' : ''} recorded`
-            : `${done} of ${open.length} payments recorded for ${s.customer} — the rest failed, check the invoice`);
-          fetch('/api/invoices').then(r => r.json()).then(j => setInvoices(j.data || []));
-        });
+        const open = store.documents.filter(d => d.partyId === s.partyId && d.type === 'Invoice' && d.balance > 0);
+        open.forEach(d => store.recordPayment(d.id, d.balance, 'Check', 'Checking'));
+        onToast(`${s.customer} marked as paid — ${open.length} payment${open.length !== 1 ? 's' : ''} recorded`);
         break;
       }
       case 'receive-payment': onToast(`Receive payment for ${s.customer} — use the Receive payment workspace`); break;
@@ -275,52 +235,6 @@ export default function StatementsScreen({ onToast }: StatementsScreenProps) {
         </table>
       </div>
 
-      {/* Recorded statements — the stored rows (Batch E) */}
-      <div className="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden mt-5">
-        <div className="flex items-center justify-between px-4 h-11 border-b border-surface-dim">
-          <span className="text-label-md font-semibold">Recorded statements ({recorded.length})</span>
-          {batches.length > 0 && <span className="text-[11px] text-on-surface-variant">{batches.length} batch{batches.length !== 1 ? 'es' : ''} · latest {batches[0].statementCount} statements, {batches[0].status}</span>}
-        </div>
-        {recorded.length === 0 ? (
-          <div className="px-4 py-4 text-body-sm text-on-surface-variant">No statements generated yet. Open a customer above and use “Generate recorded statement”, or run a batch send.</div>
-        ) : (
-          <table className="w-full text-left text-body-sm">
-            <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
-              <tr><th className="px-3 py-2">Statement</th><th className="px-3 py-2">Customer</th><th className="px-3 py-2">Period</th><th className="px-3 py-2 text-right">Balance</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Sent</th><th className="w-8" /></tr>
-            </thead>
-            <tbody className="divide-y divide-surface-dim">
-              {recorded.map(r => (
-                <tr key={r.id} className="hover:bg-surface-container-low">
-                  <td className="px-3 py-2 font-medium">{r.statementNumber}</td>
-                  <td className="px-3 py-2">{r.customerName || '—'}</td>
-                  <td className="px-3 py-2 text-on-surface-variant">{r.periodStart} → {r.periodEnd}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{money(r.closingBalance)}</td>
-                  <td className="px-3 py-2"><span className={`st ${statusClass(r.status === 'sent' ? 'Sent' : r.status === 'draft' ? 'Draft' : 'Sent')}`}>{r.status}</span></td>
-                  <td className="px-3 py-2 text-on-surface-variant">{r.sentAt ? r.sentAt.slice(0, 10) : '—'}{r.reminderCount > 0 ? ` · ${r.reminderCount} reminder${r.reminderCount !== 1 ? 's' : ''}` : ''}</td>
-                  <td className="px-2 py-2 text-right">
-                    <button
-                      className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low disabled:opacity-50"
-                      disabled={sendingId === r.id}
-                      onClick={async () => {
-                        setSendingId(r.id);
-                        const res = await fetch(`/api/customer-statements/${r.id}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-                        const j = await res.json().catch(() => null);
-                        setSendingId(null);
-                        if (!res.ok) { onToast(j?.error?.message || 'Statement send failed'); return; }
-                        await loadRecorded();
-                        onToast(`Statement ${r.statementNumber} sent to ${r.customerName}`);
-                      }}
-                    >
-                      {r.sentAt ? 'Remind' : 'Send'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
       {/* New split menu */}
       {newMenuOpen && (
         <div className="row-menu open" style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4 }} onClick={() => setNewMenuOpen(false)}>
@@ -378,28 +292,7 @@ export default function StatementsScreen({ onToast }: StatementsScreenProps) {
               <div className="flex items-center gap-2">
                 <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-1" onClick={() => { onToast('Printing statement PDF'); }}><span className="material-symbols-outlined text-[16px] align-middle mr-1">print</span>Print</button>
                 <div className="split-btn flex"><button className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={() => { onToast('Statement saved as draft'); setDrawerId(null); }}>Save draft</button><button className="h-8 px-1.5 border border-surface-dim hover:bg-surface-container-low split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button></div>
-                <div className="split-btn flex"><button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={async () => {
-                  if (!drawerStmt) return;
-                  // Generate the recorded statement for this customer's
-                  // period, then send it — the old toast claimed a send
-                  // while no statement row existed.
-                  const months: Record<string, string> = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
-                  const [mon, yr] = (drawerStmt.period || 'Nov 2026').split(' ');
-                  const ym = `${yr || '2026'}-${months[mon] || '11'}`;
-                  const lastDay = new Date(Number(yr || 2026), Number(months[mon] || '11'), 0).getDate();
-                  const gen = await fetch('/api/customer-statements', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ customerId: drawerStmt.partyId, from: `${ym}-01`, to: `${ym}-${String(lastDay).padStart(2, '0')}` }),
-                  });
-                  const gj = await gen.json().catch(() => null);
-                  if (!gen.ok || gj?.error) { onToast(gj?.error?.message || 'Statement generation failed'); return; }
-                  const sendRes = await fetch(`/api/customer-statements/${gj.data.id}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-                  const sj = await sendRes.json().catch(() => null);
-                  await loadRecorded();
-                  setDrawerId(null);
-                  if (!sendRes.ok) { onToast(sj?.error?.message || 'Statement send failed — the statement is recorded as a draft'); return; }
-                  onToast(`Statement ${gj.data.statementNumber} sent to ${drawerStmt.customer}`);
-                }}>Send to customer</button><button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button></div>
+                <div className="split-btn flex"><button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={() => { onToast('Statement sent to customer'); setDrawerId(null); }}>Send to customer</button><button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button></div>
               </div>
             </div>
           </div>
@@ -410,21 +303,8 @@ export default function StatementsScreen({ onToast }: StatementsScreenProps) {
       {batchOpen && (
         <div className="modal-scrim open" onClick={() => setBatchOpen(false)}>
           <div className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="p-6"><div className="flex items-center gap-2 mb-3"><span className="material-symbols-outlined text-[20px] text-primary">campaign</span><h2 className="text-headline-sm">Batch send statements</h2></div><p className="text-body-sm text-on-surface-variant mb-4">Generate a statement for every customer with an open balance for the selected period.</p><div className="space-y-3"><div><label className="field-label">Period</label><select className="field-input" id="batch-period"><option value="2026-11">Nov 2026</option><option value="2026-10">Oct 2026</option><option value="2026-09">Sep 2026</option></select></div><div className="bg-surface-container-low rounded-lg p-3 text-[11px] text-on-surface-variant"><div className="flex items-center gap-2 mb-1"><span className="material-symbols-outlined text-[14px] text-secondary">check</span>{items.filter(s => parseFloat(s.dueAmt.replace(/[$,]/g, '')) > 0).length} customers have open balances</div><div className="flex items-center gap-2 mb-1"><span className="material-symbols-outlined text-[14px] text-secondary">check</span>{items.filter(s => s.status === 'Overdue').length} have overdue balances</div><div className="flex items-center gap-2"><span className="material-symbols-outlined text-[14px] text-tertiary">info</span>Statements are generated first — send each one from the recorded list</div></div></div></div>
-            <div className="flex gap-2 px-4 pb-4"><button className="flex-1 h-9 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => setBatchOpen(false)}>Cancel</button><button className="flex-1 h-9 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={async () => {
-              const sel = (document.getElementById('batch-period') as HTMLSelectElement)?.value || '2026-11';
-              const [y, m] = sel.split('-').map(Number);
-              const lastDay = new Date(y, m, 0).getDate();
-              const res = await fetch('/api/statement-batches', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ periodStart: `${sel}-01`, periodEnd: `${sel}-${String(lastDay).padStart(2, '0')}` }),
-              });
-              const j = await res.json().catch(() => null);
-              setBatchOpen(false);
-              if (!res.ok || j?.error) { onToast(j?.error?.message || 'Batch generation failed'); return; }
-              await loadRecorded();
-              onToast(`Batch generated ${j.meta?.generated ?? 0} statement${(j.meta?.generated ?? 0) !== 1 ? 's' : ''}${(j.meta?.failed?.length || 0) > 0 ? ` — ${j.meta.failed.length} failed` : ''}`);
-            }}><span className="material-symbols-outlined text-[16px] align-middle mr-1">send</span>Generate statements</button></div>
+            <div className="p-6"><div className="flex items-center gap-2 mb-3"><span className="material-symbols-outlined text-[20px] text-primary">campaign</span><h2 className="text-headline-sm">Batch send statements</h2></div><p className="text-body-sm text-on-surface-variant mb-4">Send statements to all customers with an open balance for the selected period.</p><div className="space-y-3"><div><label className="field-label">Period</label><select className="field-input"><option>Oct 2026</option><option>Sep 2026</option><option>Nov 2026</option></select></div><div className="bg-surface-container-low rounded-lg p-3 text-[11px] text-on-surface-variant"><div className="flex items-center gap-2 mb-1"><span className="material-symbols-outlined text-[14px] text-secondary">check</span>3 customers have open balances</div><div className="flex items-center gap-2 mb-1"><span className="material-symbols-outlined text-[14px] text-secondary">check</span>2 have overdue balances</div><div className="flex items-center gap-2"><span className="material-symbols-outlined text-[14px] text-tertiary">info</span>Statements will be emailed as PDFs</div></div></div></div>
+            <div className="flex gap-2 px-4 pb-4"><button className="flex-1 h-9 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => setBatchOpen(false)}>Cancel</button><button className="flex-1 h-9 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={() => { setBatchOpen(false); onToast('Statements sent to 3 customers'); }}><span className="material-symbols-outlined text-[16px] align-middle mr-1">send</span>Send to 3 customers</button></div>
           </div>
         </div>
       )}

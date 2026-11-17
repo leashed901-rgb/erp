@@ -105,37 +105,6 @@ export default function CustomersSupabase({ onToast, onNavigate, onCreate }: Cus
     return customers.filter(c => c.lifecycle_stage === tab);
   }, [customers, tab]);
 
-  // Column sorting — click a header cycles asc → desc → unsorted, same as the
-  // generic list screens. (GAP-1: this screen had no sort at all.)
-  type SortKey = 'name' | 'type' | 'stage' | 'ar' | 'ltv' | 'last_activity';
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  function cycleSort(key: SortKey) {
-    if (sortKey !== key) { setSortKey(key); setSortDir('asc'); }
-    else if (sortDir === 'asc') setSortDir('desc');
-    else { setSortKey(null); setSortDir('asc'); }
-  }
-  const sorted = useMemo(() => {
-    if (!sortKey) return filtered;
-    const dir = sortDir === 'asc' ? 1 : -1;
-    const val = (c: CrmCustomer): string | number => {
-      switch (sortKey) {
-        case 'name': return fullName(c).toLowerCase();
-        case 'type': return (c.customer_type || '').toLowerCase();
-        case 'stage': return (c.lifecycle_stage || '').toLowerCase();
-        case 'ar': return c.outstanding_balance || 0;
-        case 'ltv': return c.lifetime_value || 0;
-        case 'last_activity': return c.last_activity_at ? new Date(c.last_activity_at).getTime() : 0;
-      }
-    };
-    return [...filtered].sort((a, b) => {
-      const av = val(a); const bv = val(b);
-      if (av < bv) return -1 * dir;
-      if (av > bv) return 1 * dir;
-      return 0;
-    });
-  }, [filtered, sortKey, sortDir]);
-
   const tabCounts = useMemo(() => {
     const counts: Record<string, number> = { all: customers.length };
     STATUS_TABS.forEach(t => {
@@ -368,13 +337,13 @@ export default function CustomersSupabase({ onToast, onNavigate, onCreate }: Cus
             <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider sticky top-0">
               <tr>
                 <th className="px-3 py-2 w-8"><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
-                <th className="px-3 py-2 cursor-pointer select-none" onClick={() => cycleSort('name')} title="Click to sort">Name{sortKey === 'name' && <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginLeft: 2 }}>{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</th>
-                <th className="px-3 py-2 cursor-pointer select-none" onClick={() => cycleSort('type')} title="Click to sort">Type{sortKey === 'type' && <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginLeft: 2 }}>{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</th>
-                <th className="px-3 py-2 cursor-pointer select-none" onClick={() => cycleSort('stage')} title="Click to sort">Stage{sortKey === 'stage' && <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginLeft: 2 }}>{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</th>
+                <th className="px-3 py-2">Name</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">Stage</th>
                 <th className="px-3 py-2">Contact</th>
-                <th className="px-3 py-2 text-right cursor-pointer select-none" onClick={() => cycleSort('ar')} title="Click to sort">AR{sortKey === 'ar' && <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginLeft: 2 }}>{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</th>
-                <th className="px-3 py-2 text-right cursor-pointer select-none" onClick={() => cycleSort('ltv')} title="Click to sort">LTV{sortKey === 'ltv' && <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginLeft: 2 }}>{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</th>
-                <th className="px-3 py-2 cursor-pointer select-none" onClick={() => cycleSort('last_activity')} title="Click to sort">Last activity{sortKey === 'last_activity' && <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginLeft: 2 }}>{sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}</span>}</th>
+                <th className="px-3 py-2 text-right">AR</th>
+                <th className="px-3 py-2 text-right">LTV</th>
+                <th className="px-3 py-2">Last activity</th>
                 <th className="px-2 py-2 w-10 text-right">Actions</th>
               </tr>
             </thead>
@@ -384,7 +353,7 @@ export default function CustomersSupabase({ onToast, onNavigate, onCreate }: Cus
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-8 text-on-surface-variant">No customers found.</td></tr>
               ) : (
-                sorted.map(c => (
+                filtered.map(c => (
                   <tr key={c.id} className="hover:bg-surface-container-low cursor-pointer" onClick={() => setProfileId(c.id)}>
                     <td className="px-3 py-2" onClick={e => { e.stopPropagation(); }}>
                       <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleRow(c.id)} />

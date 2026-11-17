@@ -12,7 +12,7 @@ export interface OrderRow {
   total: string;
   sla: string;
   slaPast: boolean;
-  status: 'Unfulfilled' | 'Ready to Ship' | 'Local Pickup' | 'Shipped' | 'Delivered' | 'Needs Attention';
+  status: 'Unfulfilled' | 'Ready to Ship' | 'Local Pickup' | 'Shipped' | 'Delivered';
 }
 
 /* Orders = SalesOrder documents in the shared store */
@@ -58,7 +58,7 @@ export interface PurchaseOrderRow {
   expected: string;
   expectedOverdue: boolean;
   total: string;
-  status: 'Draft' | 'Confirmed' | 'Receiving' | 'Received' | 'Overdue' | 'Cancelled';
+  status: 'Draft' | 'Confirmed' | 'Receiving' | 'Received' | 'Overdue';
 }
 
 /* Purchase orders = PurchaseOrder documents */

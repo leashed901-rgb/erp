@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTenantNav, groupActionsByArea, type DbAction } from '@/hooks/useTenantNav';
-import { ALL_ACTION_GROUPS } from './QuickActionsDrawer';
+import { CREATE_REGISTRY, CreateDotToken } from '@/data/shellData';
+import { useTenantActions } from '@/hooks/useTenant';
 import styles from './CreateFlyout.module.css';
 
 interface CreateFlyoutProps {
   open: boolean;
   onClose: () => void;
-  /** The full registry action (tenant items) or a label (fallback items). */
-  onSelectCreate: (action: DbAction | string) => void;
+  onSelectCreate: (label: string) => void;
 }
+
+const DOT_CLASS_MAP: Record<CreateDotToken, string> = {
+  'bg-primary': styles.dotPrimary,
+  'bg-secondary': styles.dotSecondary,
+  'bg-tertiary': styles.dotTertiary,
+  'bg-qb-navy': styles.dotQbNavy,
+  'bg-primary-container': styles.dotPrimaryContainer,
+  'bg-error': styles.dotError,
+};
 
 export default function CreateFlyout({
   open,
@@ -18,22 +26,8 @@ export default function CreateFlyout({
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // REAL tenant actions from /api/v1/nav's 181-action registry
-  // (platform_quick_action_registry). The flyout is for CREATING, so it
-  // lists only kind='create' (72) — the 103 'option' actions (Archive,
-  // Acknowledge page, …) are row/context actions, not creates, and the
-  // 6 'standard' ones are navigation. Falls back to ALL_ACTION_GROUPS
-  // when the fetch is in-flight or fails — the app never shows an
-  // empty Create menu.
-  // The Create menu lists CREATE actions only: the registry's other
-  // entries (archive/delete/follow/…) are record actions that execute
-  // on a record from its list/peek menus, not from Create.
-  const { actions: tenantActions, loading: actionsLoading } = useTenantNav();
-  // Filter by kind, not by action_code prefix: 4 kind='create' actions
-  // (email.send, route.build, tenant.provision, learn.enroll) have codes
-  // that don't start with 'create.' and a prefix filter drops them.
-  const creates = tenantActions.filter((a) => (a.kind || 'create') === 'create');
-  const grouped = groupActionsByArea(creates);
+  // REAL tenant actions from the database — replaces CREATE_REGISTRY
+  const { grouped: tenantActions, loaded: actionsLoaded } = useTenantActions();
 
   useEffect(() => {
     if (!open) return;
@@ -45,10 +39,8 @@ export default function CreateFlyout({
 
   const query = search.toLowerCase().trim();
 
-  // If tenant actions are loaded with content, use them; otherwise fall
-  // back to ALL_ACTION_GROUPS (the hardcoded registry from
-  // QuickActionsDrawer).
-  const useTenant = !actionsLoading && Object.keys(grouped).length > 0;
+  // If tenant actions are loaded, use them; otherwise fall back to CREATE_REGISTRY
+  const useTenant = actionsLoaded && Object.keys(tenantActions).length > 0;
 
   return (
     <div
@@ -103,7 +95,7 @@ export default function CreateFlyout({
 
         <div id="create-grid" className={styles.grid}>
           {useTenant
-            ? Object.entries(grouped).map(([area, actions]) => (
+            ? Object.entries(tenantActions).map(([area, actions]) => (
                 <div key={area} className={styles.categoryCard}>
                   <div className={styles.categoryHeader}>
                     <div className={styles.categoryHeaderLeft}>
@@ -116,14 +108,14 @@ export default function CreateFlyout({
                   </div>
                   <nav className={styles.itemsNav}>
                     {actions
-                      .filter((a) => !query || (a.display_name || '').toLowerCase().includes(query) || (a.action_code || '').toLowerCase().includes(query))
+                      .filter((a) => !query || a.display_name.toLowerCase().includes(query) || a.action_code.toLowerCase().includes(query))
                       .map((action) => (
                         <button
-                          key={action.action_code || action.display_name}
+                          key={action.action_code}
                           type="button"
                           data-create-item={action.display_name}
                           className={styles.createItem}
-                          onClick={() => onSelectCreate(action)}
+                          onClick={() => onSelectCreate(action.display_name)}
                         >
                           <span className={styles.itemLabel}>
                             <span className={`material-symbols-outlined ${styles.itemIcon}`}>
@@ -137,43 +129,41 @@ export default function CreateFlyout({
                             </span>
                             {action.display_name}
                           </span>
-                          <span className={styles.itemDesc}>
-                            {action.object_type ? action.object_type.replace(/_/g, ' ') : action.area}
-                          </span>
+                          <span className={styles.itemDesc}>{action.ui_route || action.module}</span>
                         </button>
                       ))}
                   </nav>
                 </div>
               ))
-            : ALL_ACTION_GROUPS.map((cat) => (
-            <div key={cat.id} className={styles.categoryCard}>
+            : CREATE_REGISTRY.map((cat) => (
+            <div key={cat.title} className={styles.categoryCard}>
               <div className={styles.categoryHeader}>
                 <div className={styles.categoryHeaderLeft}>
-                  <span className={`${styles.dot} ${styles.dotPrimary}`} />
-                  <span className={styles.categoryTitle}>{cat.name}</span>
+                  <span className={`${styles.dot} ${DOT_CLASS_MAP[cat.dot]}`} />
+                  <span className={styles.categoryTitle}>{cat.title}</span>
                 </div>
-                <span className={styles.categoryCount}>{cat.actions.length}</span>
+                <span className={styles.categoryCount}>{cat.items.length}</span>
               </div>
               <nav className={styles.itemsNav}>
-                {cat.actions.map((item) => {
-                  const fullText = `${item.icon}${item.name}`.toLowerCase();
+                {cat.items.map((item) => {
+                  const fullText = `${item.icon}${item.label} ${item.desc}`.toLowerCase();
                   const visible = !query || fullText.includes(query);
                   if (!visible) return null;
                   return (
                     <button
-                      key={item.id}
+                      key={item.label}
                       type="button"
-                      data-create-item={item.name}
+                      data-create-item={item.label}
                       className={styles.createItem}
-                      onClick={() => onSelectCreate(item.name)}
+                      onClick={() => onSelectCreate(item.label)}
                     >
                       <span className={styles.itemLabel}>
                         <span className={`material-symbols-outlined ${styles.itemIcon}`}>
                           {item.icon}
                         </span>
-                        {item.name}
+                        {item.label}
                       </span>
-                      <span className={styles.itemDesc}>{item.group}</span>
+                      <span className={styles.itemDesc}>{item.desc}</span>
                     </button>
                   );
                 })}

@@ -17,7 +17,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   DOMAINS,
-  DomainConfig,
   DomainKey,
   GroupBgToken,
   ScreenItem,
@@ -41,17 +40,9 @@ interface SideRailProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   screenBadges?: Record<string, number>;
-  /** DB-driven domain map (from useTenantNav). Falls back to shellData's
-   *  static DOMAINS when not provided — so callers that haven't been
-   *  wired yet still render the original navigation. */
-  domains?: Record<DomainKey, DomainConfig>;
   /** Launch the Create Wizard for a category (and optional subcategory).
    *  Wired as an icon next to every catalog child. */
   onLaunchWizard?: (category: string, subcategory?: string) => void;
-  /** Footer Workspace button — opens Settings → Workspace home. */
-  onOpenWorkspace?: () => void;
-  /** Footer Export button — downloads the workspace data export. */
-  onExportWorkspace?: () => void;
 }
 
 const GROUP_BG_CLASS: Record<GroupBgToken, string> = {
@@ -76,16 +67,9 @@ export default function SideRail({
   collapsed,
   onToggleCollapse,
   screenBadges,
-  domains,
   onLaunchWizard,
-  onOpenWorkspace,
-  onExportWorkspace,
 }: SideRailProps) {
-  // DB-driven when useTenantNav() resolved; shellData's static DOMAINS
-  // as the safe fallback (same Record<DomainKey, DomainConfig> shape).
-  const effectiveDomains = domains ?? DOMAINS;
-  const domain = effectiveDomains[activeDomain];
-  const navCategories = useDesignCanvas((s) => s.navCategories);
+  const domain = DOMAINS[activeDomain];
   const query = sideFilter.toLowerCase();
 
   // ── Storefront nav (hard-coded — no API/DB) ──
@@ -253,7 +237,7 @@ export default function SideRail({
             // The Design Studio's Catalog group renders the REAL tree once
             // loaded — every link maps to a node that actually exists.
             const groupScreens =
-              group.name === 'Catalog' && realCatalogScreens ? realCatalogScreens : group.screens;
+              activeDomain === 'design' && group.name === 'Catalog' && realCatalogScreens ? realCatalogScreens : group.screens;
             // Filter: a screen matches on its own label or a child's label.
             // Children filter independently unless the parent itself matches.
             // Hidden screens never render in the sidebar (they are opened
@@ -272,7 +256,7 @@ export default function SideRail({
                 return null;
               })
               .filter((s): s is ScreenItem => s !== null);
-            if (visibleScreens.length === 0) return null;
+            if (query && visibleScreens.length === 0) return null;
 
             const isOpen =
               !collapsed && (openGroups.includes(group.name) || Boolean(query && visibleScreens.length > 0));
@@ -497,16 +481,16 @@ export default function SideRail({
 
       <div className={`${styles.footer} ${collapsed ? styles.footerCollapsed : ''}`}>
         {collapsed ? (
-          <button type="button" className={styles.footerBtnIconOnly} title="Workspace" onClick={onOpenWorkspace}>
+          <button type="button" className={styles.footerBtnIconOnly} title="Workspace">
             <span className={`material-symbols-outlined ${styles.icon14}`}>add_box</span>
           </button>
         ) : (
           <div className={styles.footerGrid}>
-            <button type="button" className={styles.footerBtn} onClick={onOpenWorkspace}>
+            <button type="button" className={styles.footerBtn}>
               <span className={`material-symbols-outlined ${styles.icon14}`}>add_box</span>
               Workspace
             </button>
-            <button type="button" className={styles.footerBtn} onClick={onExportWorkspace}>
+            <button type="button" className={styles.footerBtn}>
               <span className={`material-symbols-outlined ${styles.icon14}`}>download</span>
               Export
             </button>
@@ -514,8 +498,11 @@ export default function SideRail({
         )}
         {!collapsed && (
           <div className={styles.syncRow}>
-            <span>Unleashe</span>
-            <span>v0.1.0</span>
+            <span>
+              <span className={styles.syncDot} />
+              Sync: 2s ago
+            </span>
+            <span>v3.8.4</span>
           </div>
         )}
       </div>

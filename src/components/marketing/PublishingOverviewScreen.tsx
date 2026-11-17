@@ -5,9 +5,6 @@
    The HTML's <script> is ported to React state + handlers below. */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
-import { useSocialPosts, useSocialAccounts, useMediaAssets, useSocialPerformance, socialMutations } from '@/hooks/useSocialApi';
-import { fetchJson } from '@/hooks/useCrmApi';
-import type { SocialPost, SocialAccount, MediaAsset } from '@/lib/socialTypes';
 
 interface MarketingScreenProps {
   onToast: (msg: string) => void;
@@ -15,41 +12,29 @@ interface MarketingScreenProps {
 }
 
 /* ─── data (verbatim from HTML <script>) ─── */
-interface Channel { id: string; name: string; network: string; handle: string; connected: boolean; kind: string; letter: string; }
-interface Post { id: string; title: string; caption: string; channels: string[]; date: string; status: string; }
-
-const NET_DISPLAY: Record<string, { name: string; kind: string; letter: string }> = {
-  instagram: { name: 'Instagram', kind: 'ig', letter: '◎' },
-  facebook: { name: 'Facebook', kind: 'fb', letter: 'f' },
-  linkedin: { name: 'LinkedIn', kind: 'li', letter: 'in' },
-  tiktok: { name: 'TikTok', kind: 'tt', letter: '♪' },
-  youtube: { name: 'YouTube', kind: 'yt', letter: '▶' },
-  pinterest: { name: 'Pinterest', kind: 'pin', letter: 'p' },
-  x: { name: 'X', kind: 'x', letter: '𝕏' },
-  threads: { name: 'Threads', kind: 'th', letter: '@' },
-};
-const netName = (network: string) => NET_DISPLAY[network]?.name || network;
-const netKey = (display: string) => Object.keys(NET_DISPLAY).find(k => NET_DISPLAY[k].name === display) || display.toLowerCase();
-
-function postToLocal(p: SocialPost): Post {
-  return {
-    id: p.id,
-    title: p.title || (p.caption || '').slice(0, 42) || 'Untitled post',
-    caption: p.caption,
-    channels: p.channels.map(netName),
-    date: p.scheduledAt || p.publishedAt || '',
-    status: p.status,
-  };
-}
-function accountToLocal(a: SocialAccount): Channel {
-  const d = NET_DISPLAY[a.network] || { name: a.network, kind: 'x', letter: '?' };
-  return { id: a.id, name: d.name, network: a.network, handle: a.handle || a.displayName || '', connected: a.status === 'connected', kind: d.kind, letter: d.letter };
-}
+interface Channel { name: string; handle: string; connected: boolean; kind: string; letter: string; }
+interface Post { id: number; title: string; caption: string; channels: string[]; date: string; status: string; }
 interface AttachItem { id: string; label: string; meta: string; }
 interface AttachTarget { type: AttachType; id: string; label: string; }
 type AttachType = 'product' | 'collection' | 'design';
 type PageId = 'overview' | 'create' | 'calendar' | 'queue' | 'library' | 'channels' | 'performance';
 
+const ATTACH_DATA: Record<AttachType, AttachItem[]> = {
+  product: [
+    { id: 'TEE-001', label: 'Classic Tee', meta: 'TEE-001 · $24.00' },
+    { id: 'TOTE-014', label: 'Canvas Tote', meta: 'TOTE-014 · $18.00' },
+    { id: 'MUG-003', label: 'Mug 11oz', meta: 'MUG-003 · $14.00' },
+  ],
+  collection: [
+    { id: 'COL-FALL', label: 'Fall 2026 Drop', meta: '12 products' },
+    { id: 'COL-HOLIDAY', label: 'Holiday Capsule', meta: '8 products' },
+    { id: 'COL-CORE', label: 'Core Essentials', meta: '22 products' },
+  ],
+  design: [
+    { id: 'DSG-001', label: 'Sunburst Tee design', meta: '2 variants · 1 product' },
+    { id: 'DSG-002', label: 'Minimal Tote art', meta: '1 variant · 1 product' },
+  ],
+};
 
 const ATTACH_TITLES: Record<AttachType, string> = {
   product: 'Attach to a product',
@@ -62,9 +47,22 @@ const ATTACH_SUBS: Record<AttachType, string> = {
   design: 'Pick an existing design to open in Design Studio, or create a new one.',
 };
 
+const POSTS_INIT: Post[] = [
+  { id: 1, title: 'October product spotlight', caption: "A closer look at what's new this month.", channels: ['Instagram'], date: '2026-10-31T15:30', status: 'scheduled' },
+  { id: 2, title: 'Behind the scenes', caption: 'A little look behind the scenes.', channels: ['TikTok'], date: '2026-11-01T10:00', status: 'scheduled' },
+  { id: 3, title: 'Weekly company update', caption: "This week's updates from our team.", channels: ['LinkedIn'], date: '2026-11-03T09:00', status: 'scheduled' },
+];
 
+const CHANNELS_INIT: Channel[] = [
+  { name: 'Instagram', handle: '@unsaidcompany', connected: true, kind: 'ig', letter: '◎' },
+  { name: 'Facebook', handle: 'Unsaid Company', connected: true, kind: 'fb', letter: 'f' },
+  { name: 'LinkedIn', handle: 'Unsaid Company', connected: true, kind: 'li', letter: 'in' },
+  { name: 'TikTok', handle: '@unsaidcompany', connected: true, kind: 'tt', letter: '♪' },
+  { name: 'YouTube', handle: 'Unsaid Company', connected: false, kind: 'yt', letter: '▶' },
+  { name: 'Pinterest', handle: 'Unsaid Company', connected: false, kind: 'pin', letter: 'p' },
+];
 
-const PERF_FALLBACK: [string, number][] = [];
+const PERF_DATA: [string, number][] = [['Instagram', 82], ['Facebook', 64], ['LinkedIn', 71], ['TikTok', 91]];
 
 const PAGE_TABS: { id: PageId; label: string }[] = [
   { id: 'overview', label: 'Publishing Overview' },
@@ -113,12 +111,8 @@ function renderStatusPill(status: string) {
 export default function PublishingOverviewScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's `step`, `publishMode`, `selectedChannels`, etc.) ─── */
   const [activePage, setActivePage] = useState<PageId>('overview');
-  const { posts: apiPosts, setPosts: setApiPosts } = useSocialPosts();
-  const { accounts: apiAccounts, setAccounts: setApiAccounts } = useSocialAccounts();
-  const { assets: apiAssets, refresh: refreshAssets } = useMediaAssets();
-  const { performance } = useSocialPerformance();
-  const posts = useMemo(() => apiPosts.map(postToLocal), [apiPosts]);
-  const channels = useMemo(() => apiAccounts.map(accountToLocal), [apiAccounts]);
+  const [posts, setPosts] = useState<Post[]>(POSTS_INIT);
+  const [channels, setChannels] = useState<Channel[]>(CHANNELS_INIT);
 
   // composer state
   const [step, setStep] = useState(1);
@@ -142,16 +136,12 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
   const [queueFilter, setQueueFilter] = useState<'all' | 'scheduled' | 'published' | 'draft' | 'failed'>('all');
 
   // calendar
-  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
+  const [calendarDate, setCalendarDate] = useState<Date>(new Date(2026, 9, 1));
   const [calendarView, setCalendarView] = useState<'month' | 'week' | 'list'>('month');
   const [calChannelFilter, setCalChannelFilter] = useState('All');
 
   // library
-  const libraryFiles = useMemo(() => apiAssets.map(a => ({
-    name: a.storagePath.split('/').pop() || a.storagePath,
-    type: a.mimeType,
-    size: a.sizeBytes ?? 0,
-  })), [apiAssets]);
+  const [libraryFiles, setLibraryFiles] = useState<File[]>([]);
   const [librarySearch, setLibrarySearch] = useState('');
   const [libraryType, setLibraryType] = useState<'All types' | 'Images' | 'Videos'>('All types');
 
@@ -176,16 +166,8 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
   const upcomingPosts = useMemo(() => posts.filter(p => p.status === 'scheduled').slice(0, 3), [posts]);
   const queueRows = useMemo(() => posts.filter(p => queueFilter === 'all' || p.status === queueFilter), [posts, queueFilter]);
 
-  const [mktStats, setMktStats] = useState<{ campaignsActive: number; emailsSent30d: number; openRate: number | null; promotionsActive: number; webformSubmissions7d: number; socialScheduled: number } | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetch('/api/marketing/stats')
-      .then((r) => r.json())
-      .then((j) => { if (alive && j?.data) setMktStats(j.data); })
-      .catch(() => undefined);
-    return () => { alive = false; };
-  }, []);
-
+  const statScheduled = posts.filter(p => p.status === 'scheduled').length + 9;
+  const statDrafts = posts.filter(p => p.status === 'draft').length + 5;
   const connectedCount = channels.filter(c => c.connected).length;
 
   const calendarData = useMemo(() => {
@@ -214,34 +196,12 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
     return files;
   }, [libraryFiles, librarySearch, libraryType]);
 
-  const [attachData, setAttachData] = useState<Record<AttachType, AttachItem[]>>({ product: [], collection: [], design: [] });
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [productsRes, collectionsRes] = await Promise.all([
-        fetchJson<{ data: Record<string, unknown>[] }>('/api/products?limit=50'),
-        fetchJson<{ data: Record<string, unknown>[] }>('/api/v1/collections'),
-      ]);
-      if (cancelled) return;
-      const products = productsRes.ok ? (productsRes.data.data || []).map(p => ({
-        id: String(p.id), label: String(p.name || p.title || 'Product'), meta: String(p.slug || p.sku || ''),
-      })) : [];
-      const collections = collectionsRes.ok ? (collectionsRes.data.data || []).map(c => ({
-        id: String(c.id), label: String(c.name || c.title || 'Collection'), meta: c.product_count != null ? `${c.product_count} products` : '',
-      })) : [];
-      setAttachData(prev => ({ ...prev, product: products, collection: collections }));
-    })();
-    return () => { cancelled = true; };
-  }, []);
-  useEffect(() => {
-    setAttachData(prev => ({ ...prev, design: apiAssets.map(a => ({ id: a.id, label: a.storagePath.split('/').pop() || a.storagePath, meta: a.mimeType })) }));
-  }, [apiAssets]);
   const attachFiltered = useMemo(() => {
     const q = attachSearch.toLowerCase();
-    return (attachData[attachType] || []).filter(it =>
+    return (ATTACH_DATA[attachType] || []).filter(it =>
       it.label.toLowerCase().includes(q) || it.meta.toLowerCase().includes(q)
     );
-  }, [attachType, attachSearch, attachData]);
+  }, [attachType, attachSearch]);
 
   const previewCaption = postCaption.trim() || 'Your post caption will appear here as you write.';
   const previewPlatform = selectedChannels[0] || 'Social channel preview';
@@ -321,14 +281,10 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
     setMediaFiles(prev => prev.filter((_, i) => i !== idx));
   }
 
-  async function onLibraryInput(e: React.ChangeEvent<HTMLInputElement>) {
+  function onLibraryInput(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
+    setLibraryFiles(prev => [...prev, ...files]);
     e.target.value = '';
-    for (const f of files) {
-      const res = await socialMutations.createAsset({ storagePath: f.name, mimeType: f.type || 'application/octet-stream', sizeBytes: f.size });
-      if (!res.ok) { onToast('Could not register ' + f.name + ': ' + (res.error || '')); return; }
-    }
-    if (files.length) { refreshAssets(); onToast(files.length === 1 ? 'Asset added to the library' : `${files.length} assets added to the library`); }
   }
 
   function collectPayload() {
@@ -349,78 +305,66 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
     };
   }
 
-  async function submitPost() {
+  function submitPost() {
     const payload = collectPayload();
-    const networks = payload.channels.map(netKey);
-    const res = await socialMutations.createPost({
-      caption: payload.caption,
-      title: payload.title,
-      channels: networks,
-      scheduledAt: payload.publishMode === 'schedule' && payload.date ? `${payload.date}T${payload.time || '10:00'}` : null,
-      publishNow: payload.publishMode === 'now',
-      linkUrl: payload.link || undefined,
-      sourceType: payload.attach?.type || 'custom',
-      sourceId: undefined,
-      productUrl: payload.attach?.type === 'product' ? payload.attach.id : undefined,
-    });
-    if (!res.ok || !res.data) { onToast('Could not save the post: ' + (res.error || 'unknown error')); return; }
-    setApiPosts([res.data!, ...apiPosts]);
-    onToast(payload.approval === 'approval' ? 'Post saved — awaiting approval in Oversight' : payload.publishMode === 'now' ? 'Post queued for publishing' : 'Post scheduled');
+    if (payload.approval === 'approval') {
+      setPosts(prev => [{
+        id: Date.now(),
+        title: payload.title,
+        caption: payload.caption,
+        channels: payload.channels,
+        date: 'Pending approval',
+        status: 'draft',
+      }, ...prev]);
+      onToast('Saved for approval in this prototype');
+    } else {
+      setPosts(prev => [{
+        id: Date.now(),
+        title: payload.title,
+        caption: payload.caption,
+        channels: payload.channels,
+        date: payload.date ? payload.date + 'T' + payload.time : 'Publishing now',
+        status: publishMode === 'now' ? 'published' : 'scheduled',
+      }, ...prev]);
+      onToast('Post request prepared — connect backend to deliver it');
+    }
     navigate('queue');
   }
 
-  async function saveDraft() {
+  function saveDraft() {
     const p = collectPayload();
-    const res = await socialMutations.createPost({
-      caption: p.caption || 'Untitled draft',
+    setPosts(prev => [{
+      id: Date.now(),
       title: p.title,
-      channels: p.channels.map(netKey),
-      linkUrl: p.link || undefined,
-      sourceType: p.attach?.type || 'custom',
-      productUrl: p.attach?.type === 'product' ? p.attach.id : undefined,
-    });
-    if (!res.ok || !res.data) { onToast('Could not save the draft: ' + (res.error || 'unknown error')); return; }
-    setApiPosts([res.data!, ...apiPosts]);
-    onToast('Draft saved');
+      caption: p.caption,
+      channels: p.channels,
+      date: '—',
+      status: 'draft',
+    }, ...prev]);
+    onToast('Draft saved in this prototype');
     navigate('queue');
   }
 
-  async function postAction(id: string) {
+  function postAction(id: number) {
     const p = posts.find(x => x.id === id);
     if (!p) return;
     if (p.status === 'draft') {
       if (confirm('Delete this draft?')) {
-        const res = await socialMutations.deletePost(id);
-        if (!res.ok) { onToast('Delete failed: ' + (res.error || '')); return; }
-        setApiPosts(apiPosts.filter(x => x.id !== id));
+        setPosts(prev => prev.filter(x => x.id !== id));
         onToast('Draft deleted');
       }
-    } else if (p.status === 'failed') {
-      const res = await socialMutations.retryPost(id);
-      if (!res.ok) { onToast('Retry failed: ' + (res.error || '')); return; }
-      setApiPosts(apiPosts.map(x => x.id === id ? { ...x, status: 'scheduled' } : x));
-      onToast('Publish retry queued');
-    } else if (p.status === 'scheduled' || p.status === 'publishing') {
-      if (confirm('Cancel this scheduled post?')) {
-        const res = await socialMutations.updatePost(id, { status: 'cancelled' });
-        if (!res.ok || !res.data) { onToast('Cancel failed: ' + (res.error || '')); return; }
-        setApiPosts(apiPosts.map(x => x.id === id ? res.data! : x));
-        onToast('Post cancelled');
-      }
     } else {
-      onToast('This post is already ' + p.status);
+      onToast('Post details and retry actions connect to the publishing API');
     }
   }
 
-  async function toggleProvider(name: string) {
+  function toggleProvider(name: string) {
     const c = channels.find(x => x.name === name);
-    if (!c) { setConnectProvider(name); setConnectModalOpen(true); return; }
+    if (!c) return;
     if (c.connected) {
       if (confirm(`Disconnect ${name}?`)) {
-        const res = await socialMutations.updateAccount(c.id, { status: 'disconnected' });
-        if (!res.ok || !res.data) { onToast('Disconnect failed: ' + (res.error || '')); return; }
-        setApiAccounts(apiAccounts.map(x => x.id === c.id ? res.data! : x));
-        onToast(name + ' disconnected');
+        setChannels(prev => prev.map(x => x.name === name ? { ...x, connected: false } : x));
+        onToast(name + ' disconnected in local demo state');
       }
     } else {
       setConnectProvider(name);
@@ -428,21 +372,8 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
     }
   }
 
-  async function confirmConnect() {
-    const network = netKey(connectProvider);
-    const existing = apiAccounts.find(a => a.network === network);
-    if (existing) {
-      const res = await socialMutations.updateAccount(existing.id, { status: 'connected' });
-      if (!res.ok || !res.data) { onToast('Connect failed: ' + (res.error || '')); return; }
-      setApiAccounts(apiAccounts.map(x => x.id === existing.id ? res.data! : x));
-    } else {
-      const created = await socialMutations.createAccount({ network, handle: connectAccount || '@unsaid' });
-      if (!created.ok || !created.data) { onToast('Connect failed: ' + (created.error || '')); return; }
-      const res = await socialMutations.updateAccount(created.data.id, { status: 'connected' });
-      if (!res.ok || !res.data) { onToast('Connect failed: ' + (res.error || '')); return; }
-      setApiAccounts([...apiAccounts, res.data!]);
-    }
-    onToast(connectProvider + ' connected');
+  function confirmConnect() {
+    onToast('OAuth start endpoint ready for ' + connectProvider + ' — wire backend redirect');
     setConnectModalOpen(false);
     setConnectAccount('');
   }
@@ -523,38 +454,26 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
             </div>
           </div>
 
-          {/* Marketing KPIs (kpis-3.md) — live counts from /api/marketing/stats.
-              The old "Published this month: 48" card was a hardcoded number. */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
             <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Campaigns active</span>
-              <div className="text-headline-lg mt-1">{mktStats ? mktStats.campaignsActive : '—'}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Email campaigns running now</div>
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Scheduled posts</span>
+              <div className="text-headline-lg mt-1">{statScheduled}</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Across all connected channels</div>
             </div>
             <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Emails sent (30d)</span>
-              <div className="text-headline-lg mt-1">{mktStats ? mktStats.emailsSent30d : '—'}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Accepted by Resend in the last 30 days</div>
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Published this month</span>
+              <div className="text-headline-lg mt-1">48</div>
+              <div className="text-[11px] text-secondary mt-1">+12% from last month</div>
             </div>
             <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Open rate</span>
-              <div className="text-headline-lg mt-1">{mktStats ? (mktStats.openRate == null ? '—' : `${mktStats.openRate}%`) : '—'}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Opens / sends — no sends yet, no rate</div>
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Drafts</span>
+              <div className="text-headline-lg mt-1">{statDrafts}</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Ready for review or editing</div>
             </div>
             <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Promotions active</span>
-              <div className="text-headline-lg mt-1">{mktStats ? mktStats.promotionsActive : '—'}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Within their live window</div>
-            </div>
-            <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Webform submissions (7d)</span>
-              <div className="text-headline-lg mt-1">{mktStats ? mktStats.webformSubmissions7d : '—'}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Leads captured in the last 7 days</div>
-            </div>
-            <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Social posts scheduled</span>
-              <div className="text-headline-lg mt-1">{mktStats ? mktStats.socialScheduled : '—'}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Across all channels</div>
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Connected channels</span>
+              <div className="text-headline-lg mt-1">{connectedCount}</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Across 4 social platforms</div>
             </div>
           </div>
 
@@ -874,7 +793,7 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
                     <div style={{ whiteSpace: 'pre-wrap' }}>{postCaption}</div>
                   </div>
                   <div className="mt-3 p-3 border border-outline-variant bg-surface-container-low rounded text-[10px] text-on-surface-variant">
-                    Submitting saves this post to the publishing queue. Delivery runs through the platform publishing worker to your connected channels.
+                    This prototype prepares the publishing request. Actual delivery requires connected provider credentials and your backend publishing workers.
                   </div>
                 </div>
               )}
@@ -1121,7 +1040,7 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
             <div className="flex items-center justify-between px-4 h-11 border-b border-surface-dim">
               <div>
                 <h2 className="text-headline-sm">All assets</h2>
-                <div className="text-[11px] text-on-surface-variant">Media registered to this workspace</div>
+                <div className="text-[11px] text-on-surface-variant">Files uploaded in this browser prototype</div>
               </div>
               <div className="flex items-center gap-2">
                 <input className="h-7 px-2 border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary" placeholder="Search assets..." value={librarySearch} onChange={e => setLibrarySearch(e.target.value)} />
@@ -1175,7 +1094,7 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
             <div className="flex items-center justify-between px-5 py-3 border-b border-surface-dim">
               <div>
                 <h2 className="text-headline-sm">Your social accounts</h2>
-                <div className="text-[11px] text-on-surface-variant">Connection state from your linked social accounts.</div>
+                <div className="text-[11px] text-on-surface-variant">Connection state shown here is local demo data until OAuth is wired up.</div>
               </div>
               <span className="px-2 py-0.5 rounded-full text-label-sm bg-secondary-container text-on-secondary-container">{connectedCount} connected</span>
             </div>
@@ -1233,24 +1152,24 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
             <div className="bg-white rounded-xl border border-surface-dim p-4">
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Total reach</span>
+              <div className="text-headline-lg mt-1">128.4K</div>
+              <div className="text-[11px] text-secondary mt-1">+8.4% vs previous period</div>
+            </div>
+            <div className="bg-white rounded-xl border border-surface-dim p-4">
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Engagement</span>
+              <div className="text-headline-lg mt-1">6.8%</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Across connected channels</div>
+            </div>
+            <div className="bg-white rounded-xl border border-surface-dim p-4">
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Link clicks</span>
+              <div className="text-headline-lg mt-1">2,416</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Tracked post link clicks</div>
+            </div>
+            <div className="bg-white rounded-xl border border-surface-dim p-4">
               <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Published posts</span>
-              <div className="text-headline-lg mt-1">{performance?.posts?.published || 0}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Delivered to at least one channel</div>
-            </div>
-            <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Scheduled</span>
-              <div className="text-headline-lg mt-1">{performance?.posts?.scheduled || 0}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Waiting in the queue</div>
-            </div>
-            <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Failed</span>
-              <div className="text-headline-lg mt-1">{performance?.posts?.failed || 0}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Need a retry from the queue</div>
-            </div>
-            <div className="bg-white rounded-xl border border-surface-dim p-4">
-              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Drafts</span>
-              <div className="text-headline-lg mt-1">{performance?.posts?.draft || 0}</div>
-              <div className="text-[11px] text-on-surface-variant mt-1">Not yet scheduled</div>
+              <div className="text-headline-lg mt-1">48</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">In selected period</div>
             </div>
           </div>
 
@@ -1261,34 +1180,32 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
                 <div className="text-[11px] text-on-surface-variant">Illustrative metrics — replace with provider analytics</div>
               </div>
               <div className="p-5">
-                {(performance?.byNetwork || []).length === 0 ? (
-                  <div className="py-6 text-center text-body-sm text-on-surface-variant">No delivery data yet — published posts will appear here.</div>
-                ) : (performance?.byNetwork || []).map(n => {
-                  const total = n.published + n.failed + n.scheduled + n.draft;
-                  const pct = total ? Math.round((n.published / total) * 100) : 0;
-                  return (
-                    <div key={n.network} className="mb-4">
-                      <div className="flex justify-between text-[11px] mb-1"><strong>{netName(n.network)}</strong><span className="text-on-surface-variant">{n.published} published · {pct}% of its queue</span></div>
-                      <div className="bar"><span style={{ width: `${pct}%` }}></span></div>
-                    </div>
-                  );
-                })}
+                {PERF_DATA.map(([n, v]) => (
+                  <div key={n} className="mb-4">
+                    <div className="flex justify-between text-[11px] mb-1"><strong>{n}</strong><span className="text-on-surface-variant">{v}% index</span></div>
+                    <div className="bar"><span style={{ width: `${v}%` }}></span></div>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="bg-white rounded-xl border border-surface-dim">
               <div className="px-5 py-3 border-b border-surface-dim">
                 <h2 className="text-headline-sm">Top content</h2>
-                <div className="text-[11px] text-on-surface-variant">Most recently published</div>
+                <div className="text-[11px] text-on-surface-variant">Highest engagement this month</div>
               </div>
               <div className="p-5 divide-y divide-surface-dim">
-                {posts.filter(p => p.status === 'published').slice(0, 3).length === 0 ? (
-                  <div className="py-6 text-center text-body-sm text-on-surface-variant">Nothing published yet.</div>
-                ) : posts.filter(p => p.status === 'published').slice(0, 3).map((p, i) => (
-                  <div key={p.id} className="flex items-center gap-3 py-2">
-                    <div className="w-10 h-10 rounded-lg bg-surface-container text-on-surface-variant flex items-center justify-center text-label-sm font-semibold">{String(i + 1).padStart(2, '0')}</div>
-                    <div className="min-w-0"><div className="text-body-sm font-medium truncate">{p.title}</div><div className="text-[11px] text-on-surface-variant">{p.channels.join(', ') || 'No channels'}</div></div>
-                  </div>
-                ))}
+                <div className="flex items-center gap-3 py-2">
+                  <div className="w-10 h-10 rounded-lg bg-surface-container text-on-surface-variant flex items-center justify-center text-label-sm font-semibold">01</div>
+                  <div className="min-w-0"><div className="text-body-sm font-medium truncate">Product launch announcement</div><div className="text-[11px] text-on-surface-variant">Instagram · 8.2% engagement</div></div>
+                </div>
+                <div className="flex items-center gap-3 py-2">
+                  <div className="w-10 h-10 rounded-lg bg-surface-container text-on-surface-variant flex items-center justify-center text-label-sm font-semibold">02</div>
+                  <div className="min-w-0"><div className="text-body-sm font-medium truncate">Behind the scenes video</div><div className="text-[11px] text-on-surface-variant">TikTok · 7.9% engagement</div></div>
+                </div>
+                <div className="flex items-center gap-3 py-2">
+                  <div className="w-10 h-10 rounded-lg bg-surface-container text-on-surface-variant flex items-center justify-center text-label-sm font-semibold">03</div>
+                  <div className="min-w-0"><div className="text-body-sm font-medium truncate">Team spotlight</div><div className="text-[11px] text-on-surface-variant">LinkedIn · 6.4% engagement</div></div>
+                </div>
               </div>
             </div>
           </div>
@@ -1339,7 +1256,7 @@ export default function PublishingOverviewScreen({ onToast }: MarketingScreenPro
         <div className="modal-scrim open" onClick={() => setConnectModalOpen(false)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
             <h3 className="text-headline-sm mb-1">Connect a social channel</h3>
-            <p className="text-body-sm text-on-surface-variant mb-3">Choose a provider and account label to link the channel to this workspace.</p>
+            <p className="text-body-sm text-on-surface-variant mb-3">Choose a provider to begin the authorization flow. OAuth must be implemented by your backend.</p>
             <div className="mb-3">
               <label className="block text-label-sm text-on-surface-variant mb-1">Provider</label>
               <select className="w-full h-9 px-2 border border-surface-dim rounded text-body-md focus:outline-none focus:border-primary" value={connectProvider} onChange={e => setConnectProvider(e.target.value)}>

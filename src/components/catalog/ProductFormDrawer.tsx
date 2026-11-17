@@ -4,10 +4,7 @@
  * Mirrors PartyFormDrawer: every "New product" button and every profile Edit
  * opens this drawer. Create → POST /api/products; edit → PATCH /api/products/[id].
  * Fields map to real `products` columns (name, description, status, category,
- * brand, tags, merchandising flags, fulfillment type, supplier, income/COGS
- * accounts). Tabs mirror the doc-18 Product drawer: Basic / Sales /
- * Purchasing / Accounting. There is no tax field on `products` — none is
- * invented here.
+ * brand, tags, merchandising flags, fulfillment type).
  */
 import { useEffect, useMemo, useState } from 'react';
 import { fetchJson, useProductCategories } from '@/hooks/useCrmApi';
@@ -26,10 +23,6 @@ export interface ProductFormEditTarget {
   is_best_seller?: boolean;
   is_house_favorite?: boolean;
   fulfillment_type?: string | null;
-  supplier_id?: string | null;
-  preferred_supplier_id?: string | null;
-  income_account_id?: string | null;
-  cogs_account_id?: string | null;
 }
 
 interface ProductFormDrawerProps {
@@ -49,25 +42,12 @@ const STATUSES = [
 const FULFILLMENT_TYPES = [
   { id: 'stocked', label: 'Stocked (warehouse)' },
   { id: 'pod', label: 'Print-on-demand' },
-  { id: 'print_on_demand', label: 'Print-on-demand (Printful)' },
   { id: 'digital', label: 'Digital' },
 ];
-
-const DRAWER_TABS = [
-  { id: 'basic', label: 'Basic' },
-  { id: 'sales', label: 'Sales' },
-  { id: 'purchasing', label: 'Purchasing' },
-  { id: 'accounting', label: 'Accounting' },
-] as const;
-type DrawerTab = (typeof DRAWER_TABS)[number]['id'];
-
-interface Supplier { id: string; name: string }
-interface Account { id: string; code: string; name: string; account_type: string; subtype: string | null }
 
 export default function ProductFormDrawer({ open, editing, onClose, onSaved, onToast }: ProductFormDrawerProps) {
   const isEdit = !!editing;
 
-  const [tab, setTab] = useState<DrawerTab>('basic');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('draft');
@@ -79,23 +59,9 @@ export default function ProductFormDrawer({ open, editing, onClose, onSaved, onT
   const [isNew, setIsNew] = useState(false);
   const [isBestSeller, setIsBestSeller] = useState(false);
   const [isHouseFavorite, setIsHouseFavorite] = useState(false);
-  const [supplierId, setSupplierId] = useState('');
-  const [preferredSupplierId, setPreferredSupplierId] = useState('');
-  const [incomeAccountId, setIncomeAccountId] = useState('');
-  const [cogsAccountId, setCogsAccountId] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [showNewCategory, setShowNewCategory] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const [newCatParent, setNewCatParent] = useState('');
-  const [catSaving, setCatSaving] = useState(false);
-
-  const { data: categories, refresh: refreshCategories } = useProductCategories();
-
-  const incomeAccounts = useMemo(() => accounts.filter(a => a.account_type === 'revenue'), [accounts]);
-  const cogsAccounts = useMemo(() => accounts.filter(a => a.subtype === 'cogs'), [accounts]);
+  const { data: categories } = useProductCategories();
 
   // Group categories by parent for <optgroup>-style selects
   const grouped = useMemo(() => {
@@ -112,19 +78,9 @@ export default function ProductFormDrawer({ open, editing, onClose, onSaved, onT
     return { roots, childrenOf, byId };
   }, [categories]);
 
-  // Pickers for the Sales / Purchasing / Accounting tabs
+  // Prefill on open
   useEffect(() => {
     if (!open) return;
-    fetchJson<{ data: Supplier[] }>('/api/products/suppliers').then(r => { if (r.ok && r.data) setSuppliers(r.data.data); });
-    fetchJson<{ data: Account[] }>('/api/accounts').then(r => { if (r.ok && r.data) setAccounts(r.data.data); });
-  }, [open]);
-
-  // Prefill on open — the four supplier/account fields come from the full
-  // product record (the list summary does not carry them).
-  useEffect(() => {
-    if (!open) return;
-    setTab('basic');
-    setShowNewCategory(false);
     if (editing) {
       setName(editing.name || '');
       setDescription(editing.description || '');
@@ -137,22 +93,6 @@ export default function ProductFormDrawer({ open, editing, onClose, onSaved, onT
       setIsNew(!!editing.is_new);
       setIsBestSeller(!!editing.is_best_seller);
       setIsHouseFavorite(!!editing.is_house_favorite);
-      setSupplierId(editing.supplier_id || '');
-      setPreferredSupplierId(editing.preferred_supplier_id || '');
-      setIncomeAccountId(editing.income_account_id || '');
-      setCogsAccountId(editing.cogs_account_id || '');
-      // The list summary lacks the supplier/account fields — fetch the full
-      // record so editing from the list still prefills them.
-      fetchJson<{ data: { product: { supplier_id: string | null; preferred_supplier_id: string | null; income_account_id: string | null; cogs_account_id: string | null } } }>(`/api/products/${editing.id}`)
-        .then(r => {
-          if (r.ok && r.data?.data.product) {
-            const p = r.data.data.product;
-            if (p.supplier_id) setSupplierId(p.supplier_id);
-            if (p.preferred_supplier_id) setPreferredSupplierId(p.preferred_supplier_id);
-            if (p.income_account_id) setIncomeAccountId(p.income_account_id);
-            if (p.cogs_account_id) setCogsAccountId(p.cogs_account_id);
-          }
-        });
     } else {
       setName('');
       setDescription('');
@@ -165,31 +105,12 @@ export default function ProductFormDrawer({ open, editing, onClose, onSaved, onT
       setIsNew(false);
       setIsBestSeller(false);
       setIsHouseFavorite(false);
-      setSupplierId('');
-      setPreferredSupplierId('');
-      setIncomeAccountId('');
-      setCogsAccountId('');
     }
   }, [open, editing]);
 
   if (!open) return null;
 
   const tags = tagsText.split(',').map(t => t.trim()).filter(Boolean);
-
-  async function handleCreateCategory() {
-    if (!newCatName.trim()) { onToast('Category name is required'); return; }
-    setCatSaving(true);
-    const res = await fetchJson<{ data: { id: string; name: string } }>('/api/products/categories', {
-      method: 'POST',
-      body: JSON.stringify({ name: newCatName.trim(), parent_id: newCatParent || null }),
-    });
-    setCatSaving(false);
-    if (!res.ok) { onToast(`Category failed: ${res.error}`); return; }
-    refreshCategories();
-    setCategoryId(res.data?.data.id || '');
-    onToast(`Category "${newCatName.trim()}" created`);
-    setNewCatName(''); setNewCatParent(''); setShowNewCategory(false);
-  }
 
   async function handleSave() {
     if (!name.trim()) {
@@ -210,10 +131,6 @@ export default function ProductFormDrawer({ open, editing, onClose, onSaved, onT
         is_new: isNew,
         is_best_seller: isBestSeller,
         is_house_favorite: isHouseFavorite,
-        supplier_id: supplierId || null,
-        preferred_supplier_id: preferredSupplierId || null,
-        income_account_id: incomeAccountId || null,
-        cogs_account_id: cogsAccountId || null,
       };
       const res = isEdit && editing
         ? await fetchJson(`/api/products/${editing.id}`, { method: 'PATCH', body: JSON.stringify(payload) })
@@ -249,169 +166,76 @@ export default function ProductFormDrawer({ open, editing, onClose, onSaved, onT
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 px-6 pt-3 shrink-0 border-b border-surface-dim">
-          {DRAWER_TABS.map(t => (
-            <button
-              key={t.id}
-              className={`px-3 py-2 text-label-md tab-underline ${tab === t.id ? 'active' : 'text-on-surface-variant'}`}
-              onClick={() => setTab(t.id)}
-            >{t.label}</button>
-          ))}
-        </div>
-
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {tab === 'basic' && (
-            <>
-              <div>
-                <label className="field-label" htmlFor="pf-name">Product name</label>
-                <input id="pf-name" className="field-input" autoFocus placeholder="e.g. Kin Keeper Ceramic Mug" value={name} onChange={e => setName(e.target.value)} />
-              </div>
+          <div>
+            <label className="field-label" htmlFor="pf-name">Product name</label>
+            <input id="pf-name" className="field-input" autoFocus placeholder="e.g. Kin Keeper Ceramic Mug" value={name} onChange={e => setName(e.target.value)} />
+          </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="field-label" htmlFor="pf-status">Status</label>
-                  <select id="pf-status" className="field-input" value={status} onChange={e => setStatus(e.target.value)}>
-                    {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="pf-category">Category</label>
-                  <select id="pf-category" className="field-input" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
-                    <option value="">— No category —</option>
-                    {grouped.roots.map(root => (
-                      <optgroup key={root.id} label={root.name}>
-                        <option value={root.id}>{root.name}</option>
-                        {(grouped.childrenOf.get(root.id) || []).map(child => (
-                          <option key={child.id} value={child.id}>{root.name} › {child.name}</option>
-                        ))}
-                      </optgroup>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label" htmlFor="pf-status">Status</label>
+              <select id="pf-status" className="field-input" value={status} onChange={e => setStatus(e.target.value)}>
+                {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="field-label" htmlFor="pf-category">Category</label>
+              <select id="pf-category" className="field-input" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+                <option value="">— No category —</option>
+                {grouped.roots.map(root => (
+                  <optgroup key={root.id} label={root.name}>
+                    <option value={root.id}>{root.name}</option>
+                    {(grouped.childrenOf.get(root.id) || []).map(child => (
+                      <option key={child.id} value={child.id}>{root.name} › {child.name}</option>
                     ))}
-                  </select>
-                  {!showNewCategory ? (
-                    <button className="text-[12px] text-primary hover:underline mt-1" onClick={() => setShowNewCategory(true)}>+ Add new category</button>
-                  ) : (
-                    <div className="mt-2 space-y-2 border border-surface-dim rounded-lg p-3">
-                      <input className="field-input" placeholder="New category name" value={newCatName} onChange={e => setNewCatName(e.target.value)} />
-                      <select className="field-input" value={newCatParent} onChange={e => setNewCatParent(e.target.value)}>
-                        <option value="">Top level</option>
-                        {grouped.roots.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                      </select>
-                      <div className="flex gap-2">
-                        <button className="h-7 px-3 bg-primary text-white rounded text-[12px] font-semibold disabled:opacity-50" disabled={catSaving} onClick={handleCreateCategory}>{catSaving ? 'Creating…' : 'Create category'}</button>
-                        <button className="h-7 px-3 border border-surface-dim rounded text-[12px]" onClick={() => setShowNewCategory(false)}>Cancel</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+          </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="field-label" htmlFor="pf-brand">Brand</label>
-                  <input id="pf-brand" className="field-input" placeholder="e.g. Gildan" value={brand} onChange={e => setBrand(e.target.value)} />
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="pf-fulfillment">Fulfillment type</label>
-                  <select id="pf-fulfillment" className="field-input" value={fulfillmentType} onChange={e => setFulfillmentType(e.target.value)}>
-                    {FULFILLMENT_TYPES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                  </select>
-                </div>
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label" htmlFor="pf-brand">Brand</label>
+              <input id="pf-brand" className="field-input" placeholder="e.g. Gildan" value={brand} onChange={e => setBrand(e.target.value)} />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="pf-fulfillment">Fulfillment type</label>
+              <select id="pf-fulfillment" className="field-input" value={fulfillmentType} onChange={e => setFulfillmentType(e.target.value)}>
+                {FULFILLMENT_TYPES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+              </select>
+            </div>
+          </div>
 
-              <div>
-                <label className="field-label" htmlFor="pf-desc">Description</label>
-                <textarea id="pf-desc" className="field-textarea" rows={4} placeholder="What is this product? Shown on the storefront and the product profile." value={description} onChange={e => setDescription(e.target.value)} />
-              </div>
+          <div>
+            <label className="field-label" htmlFor="pf-desc">Description</label>
+            <textarea id="pf-desc" className="field-textarea" rows={4} placeholder="What is this product? Shown on the storefront and the product profile." value={description} onChange={e => setDescription(e.target.value)} />
+          </div>
 
-              <div>
-                <label className="field-label" htmlFor="pf-tags">Tags <span className="font-normal text-on-surface-variant">(comma-separated)</span></label>
-                <input id="pf-tags" className="field-input" placeholder="gifts, family, ceramic" value={tagsText} onChange={e => setTagsText(e.target.value)} />
-              </div>
+          <div>
+            <label className="field-label" htmlFor="pf-tags">Tags <span className="font-normal text-on-surface-variant">(comma-separated)</span></label>
+            <input id="pf-tags" className="field-input" placeholder="gifts, family, ceramic" value={tagsText} onChange={e => setTagsText(e.target.value)} />
+          </div>
 
-              <div>
-                <label className="field-label">Merchandising flags</label>
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <label className="flex items-center gap-2 text-[13px]">
-                    <input type="checkbox" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} /> Featured
-                  </label>
-                  <label className="flex items-center gap-2 text-[13px]">
-                    <input type="checkbox" checked={isNew} onChange={e => setIsNew(e.target.checked)} /> New
-                  </label>
-                  <label className="flex items-center gap-2 text-[13px]">
-                    <input type="checkbox" checked={isBestSeller} onChange={e => setIsBestSeller(e.target.checked)} /> Best seller
-                  </label>
-                  <label className="flex items-center gap-2 text-[13px]">
-                    <input type="checkbox" checked={isHouseFavorite} onChange={e => setIsHouseFavorite(e.target.checked)} /> House favorite
-                  </label>
-                </div>
-              </div>
-            </>
-          )}
-
-          {tab === 'sales' && (
-            <>
-              <div>
-                <label className="field-label" htmlFor="pf-income">Income account</label>
-                <select id="pf-income" className="field-input" value={incomeAccountId} onChange={e => setIncomeAccountId(e.target.value)}>
-                  <option value="">— No income account —</option>
-                  {incomeAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                </select>
-                <p className="text-[12px] text-on-surface-variant mt-1">Sales of this product post to this revenue account. Prices live on variants — see the Pricing tab on the product profile.</p>
-              </div>
-              <div className="border border-surface-dim rounded-lg p-3 text-[12px] text-on-surface-variant">
-                No tax field: the products table has no tax column, so tax is handled at the order level, not per product.
-              </div>
-            </>
-          )}
-
-          {tab === 'purchasing' && (
-            <>
-              <div>
-                <label className="field-label" htmlFor="pf-supplier">Supplier</label>
-                <select id="pf-supplier" className="field-input" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
-                  <option value="">— No supplier —</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="field-label" htmlFor="pf-pref-supplier">Preferred supplier</label>
-                <select id="pf-pref-supplier" className="field-input" value={preferredSupplierId} onChange={e => setPreferredSupplierId(e.target.value)}>
-                  <option value="">— Same as supplier —</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                <p className="text-[12px] text-on-surface-variant mt-1">Used by replenishment rules when this product needs a reorder.</p>
-              </div>
-              <div>
-                <label className="field-label" htmlFor="pf-fulfillment2">Fulfillment type</label>
-                <select id="pf-fulfillment2" className="field-input" value={fulfillmentType} onChange={e => setFulfillmentType(e.target.value)}>
-                  {FULFILLMENT_TYPES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                </select>
-                <p className="text-[12px] text-on-surface-variant mt-1">Stocked products carry warehouse stock; print-on-demand and digital never show stock in Inventory.</p>
-              </div>
-            </>
-          )}
-
-          {tab === 'accounting' && (
-            <>
-              <div>
-                <label className="field-label" htmlFor="pf-income2">Income account</label>
-                <select id="pf-income2" className="field-input" value={incomeAccountId} onChange={e => setIncomeAccountId(e.target.value)}>
-                  <option value="">— No income account —</option>
-                  {incomeAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="field-label" htmlFor="pf-cogs">COGS account</label>
-                <select id="pf-cogs" className="field-input" value={cogsAccountId} onChange={e => setCogsAccountId(e.target.value)}>
-                  <option value="">— No COGS account —</option>
-                  {cogsAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                </select>
-                <p className="text-[12px] text-on-surface-variant mt-1">Cost of goods sold for this product posts here when stock moves.</p>
-              </div>
-            </>
-          )}
+          <div>
+            <label className="field-label">Merchandising flags</label>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} /> Featured
+              </label>
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={isNew} onChange={e => setIsNew(e.target.checked)} /> New
+              </label>
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={isBestSeller} onChange={e => setIsBestSeller(e.target.checked)} /> Best seller
+              </label>
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={isHouseFavorite} onChange={e => setIsHouseFavorite(e.target.checked)} /> House favorite
+              </label>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

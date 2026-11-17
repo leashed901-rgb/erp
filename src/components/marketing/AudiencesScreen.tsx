@@ -3,9 +3,7 @@
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useEffect, useMemo, useState } from 'react';
-import { adMutations, useAdAudiences } from '@/hooks/useAdvertisingApi';
-import type { AdAudience as AdAudienceDto } from '@/lib/adTypes';
+import { useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -46,35 +44,29 @@ interface Audience {
   similarity: string;
 }
 
-/* The audience definition (kind, source, networks, rules, status,
-   lastSync) lives in ad_audiences.criteria; size is a real column. */
-function toScreenAudience(dto: AdAudienceDto): Audience {
-  const c = (dto.criteria || {}) as Record<string, unknown>;
-  const str = (v: unknown, d = '') => (typeof v === 'string' ? v : d);
-  return {
-    id: dto.id,
-    name: dto.name,
-    kind: str(c.kind, 'Custom'),
-    source: str(c.source, 'CRM'),
-    networks: Array.isArray(c.networks) ? (c.networks as string[]) : [],
-    size: dto.size ?? 0,
-    usedIn: 0,
-    lastSync: str(c.lastSync) || dto.createdAt || null,
-    status: str(c.status, 'Draft'),
-    rules: Array.isArray(c.rules) ? (c.rules as Rule[]) : [],
-    seed: str(c.seed, '—'),
-    country: str(c.country, '—'),
-    similarity: str(c.similarity, '—'),
-  };
-}
-
-function toCriteria(a: Audience): Record<string, unknown> {
-  return {
-    kind: a.kind, source: a.source, networks: a.networks, rules: a.rules,
-    seed: a.seed, country: a.country, similarity: a.similarity,
-    status: a.status, lastSync: a.lastSync,
-  };
-}
+const AUDIENCES: Audience[] = [
+  { id: 'AU-8001', name: 'Site visitors 30d', kind: 'Retargeting', source: 'Meta Pixel', networks: ['Meta'], size: 12400, usedIn: 2, lastSync: '2026-11-02T08:10', status: 'Ready',
+    rules: [{ field: 'Visited page', op: 'is one of', value: '/product/*, /collections/*' }, { field: 'Days since last order', op: 'is at most', value: '30' }],
+    seed: '—', country: '—', similarity: '—' },
+  { id: 'AU-8002', name: 'Abandoned cart 7d', kind: 'Retargeting', source: 'Shopify + Meta', networks: ['Meta', 'TikTok'], size: 2100, usedIn: 1, lastSync: '2026-11-02T07:42', status: 'Ready',
+    rules: [{ field: 'Added to cart', op: 'equals', value: 'true' }, { field: 'Purchased', op: 'equals', value: 'false' }, { field: 'Days since last order', op: 'is at most', value: '7' }],
+    seed: '—', country: '—', similarity: '—' },
+  { id: 'AU-8003', name: 'Lookalike — VIPs', kind: 'Lookalike', source: 'VIP segment', networks: ['Meta'], size: 1800000, usedIn: 1, lastSync: '2026-10-28T15:30', status: 'Ready',
+    rules: [],
+    seed: 'VIP customers', country: 'United States', similarity: '2%' },
+  { id: 'AU-8004', name: 'TikTok engagement 90d', kind: 'Retargeting', source: 'TikTok Pixel', networks: ['TikTok'], size: 42000, usedIn: 1, lastSync: '2026-10-30T18:22', status: 'Ready',
+    rules: [{ field: 'Visited page', op: 'contains', value: '/tiktok' }, { field: 'Days since last order', op: 'is at most', value: '90' }],
+    seed: '—', country: '—', similarity: '—' },
+  { id: 'AU-8005', name: 'New customers', kind: 'Custom', source: 'CRM', networks: ['Google', 'Meta'], size: 312, usedIn: 0, lastSync: '2026-10-15T09:00', status: 'Draft',
+    rules: [{ field: 'Email exists', op: 'equals', value: 'true' }, { field: 'Days since last order', op: 'is at most', value: '0' }],
+    seed: '—', country: '—', similarity: '—' },
+  { id: 'AU-8006', name: 'High-value purchasers', kind: 'Custom', source: 'Customer list (CSV)', networks: ['Meta', 'Google'], size: 842, usedIn: 0, lastSync: '2026-11-01T12:00', status: 'Building',
+    rules: [{ field: 'Order total', op: 'is greater than', value: '$500' }],
+    seed: '—', country: '—', similarity: '—' },
+  { id: 'AU-8007', name: 'Holiday lookalike', kind: 'Lookalike', source: 'VIP segment', networks: ['Meta'], size: 2400000, usedIn: 0, lastSync: '2026-10-05T10:00', status: 'Expired',
+    rules: [],
+    seed: 'VIP customers', country: 'United States', similarity: '1%' },
+];
 
 /* ─── helpers (from HTML <script>) ─── */
 function pillFor(status: string) {
@@ -96,9 +88,7 @@ const AUDIENCE_COLUMNS = [
 
 export default function AudiencesScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's `filters`, `editing`, `peekId`, etc.) ─── */
-  const [items, setItems] = useState<Audience[]>([]);
-  const { audiences: apiAudiences, refresh: refreshAudiences } = useAdAudiences();
-  useEffect(() => { setItems(apiAudiences.map(toScreenAudience)); }, [apiAudiences]);
+  const [items, setItems] = useState<Audience[]>(AUDIENCES);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('All');
   const [kinds, setKinds] = useState<Set<string>>(new Set(KINDS as readonly string[]));
@@ -191,35 +181,25 @@ export default function AudiencesScreen({ onToast }: MarketingScreenProps) {
       case 'edit': openAudDrawer(a.id); break;
       case 'view': openPeek(a.id); break;
       case 'duplicate':
-        adMutations.createAudience({ name: a.name + ' (copy)', size: a.size, criteria: toCriteria({ ...a, status: 'Draft', lastSync: null }) })
-          .then(() => { refreshAudiences(); onToast(`Duplicated: ${a.name}`); })
-          .catch((e) => onToast(e instanceof Error ? e.message : 'Could not duplicate'));
+        setItems(prev => [{ ...a, id: 'AU-' + (8000 + prev.length + 1), name: a.name + ' (copy)', status: 'Draft', usedIn: 0, lastSync: null }, ...prev]);
+        onToast(`Duplicated: ${a.name}`);
         break;
-      case 'sync': {
-        const synced = { ...a, lastSync: new Date().toISOString(), status: 'Ready' };
-        adMutations.updateAudience(a.id, { criteria: toCriteria(synced) })
-          .then(() => { setItems(prev => prev.map(x => x.id === a.id ? synced : x)); onToast(`Synced: ${a.name}`); })
-          .catch((e) => onToast(e instanceof Error ? e.message : 'Could not sync'));
+      case 'sync':
+        setItems(prev => prev.map(x => x.id === a.id ? { ...x, lastSync: new Date().toISOString(), status: 'Ready' } : x));
+        onToast(`Synced: ${a.name}`);
         break;
-      }
       case 'export':
         exportToCsv([a as unknown as Record<string, unknown>], AUDIENCE_COLUMNS, `audience-${a.id}`);
         onToast(`Exported members of ${a.name}`);
         break;
-      case 'archive': {
-        const archived = { ...a, status: 'Expired' };
-        adMutations.updateAudience(a.id, { criteria: toCriteria(archived) })
-          .then(() => { setItems(prev => prev.map(x => x.id === a.id ? archived : x)); onToast(`Archived: ${a.name}`); })
-          .catch((e) => onToast(e instanceof Error ? e.message : 'Could not archive'));
+      case 'archive':
+        setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: 'Expired' } : x));
+        onToast(`Archived: ${a.name}`);
         break;
-      }
       case 'delete':
-        // No delete in the schema — expiring is the terminal state.
-        if (confirm(`Delete audience "${a.name}"? It will be expired.`)) {
-          const expired = { ...a, status: 'Expired' };
-          adMutations.updateAudience(a.id, { criteria: toCriteria(expired) })
-            .then(() => { setItems(prev => prev.map(x => x.id === a.id ? expired : x)); onToast(`Deleted: ${a.name}`); })
-            .catch((e) => onToast(e instanceof Error ? e.message : 'Could not delete'));
+        if (confirm(`Delete audience "${a.name}"?`)) {
+          setItems(prev => prev.filter(x => x.id !== a.id));
+          onToast(`Deleted: ${a.name}`);
         }
         break;
     }
@@ -232,25 +212,19 @@ export default function AudiencesScreen({ onToast }: MarketingScreenProps) {
     const targets = items.filter(a => sel.includes(a.id));
     if (act === 'sync') {
       const now = new Date().toISOString();
-      (async () => {
-        try {
-          for (const t of targets) await adMutations.updateAudience(t.id, { criteria: toCriteria({ ...t, lastSync: now, status: 'Ready' }) });
-          refreshAudiences();
-          onToast(`Synced ${n} audience(s)`);
-        } catch (e) { onToast(e instanceof Error ? e.message : 'Sync failed'); }
-      })();
+      setItems(prev => prev.map(a => sel.includes(a.id) ? { ...a, lastSync: now, status: 'Ready' } : a));
+      onToast(`Synced ${n} audience(s)`);
     } else if (act === 'export') {
       exportToCsv(targets as unknown as Record<string, unknown>[], AUDIENCE_COLUMNS, 'audiences');
       onToast(`Exported ${n} audience(s)`);
-    } else if (act === 'archive' || act === 'delete') {
-      if (act === 'delete' && !confirm(`Delete ${n} audience(s)? They will be expired.`)) { setSelected(new Set()); return; }
-      (async () => {
-        try {
-          for (const t of targets) await adMutations.updateAudience(t.id, { criteria: toCriteria({ ...t, status: 'Expired' }) });
-          refreshAudiences();
-          onToast(`${act === 'archive' ? 'Archived' : 'Deleted'} ${n} audience(s)`);
-        } catch (e) { onToast(e instanceof Error ? e.message : 'Bulk action failed'); }
-      })();
+    } else if (act === 'archive') {
+      setItems(prev => prev.map(a => sel.includes(a.id) ? { ...a, status: 'Expired' } : a));
+      onToast(`Archived ${n} audience(s)`);
+    } else if (act === 'delete') {
+      if (confirm(`Delete ${n} audience(s)?`)) {
+        setItems(prev => prev.filter(a => !sel.includes(a.id)));
+        onToast(`Deleted ${n} audience(s)`);
+      }
     }
     setSelected(new Set());
   }
@@ -300,25 +274,21 @@ export default function AudiencesScreen({ onToast }: MarketingScreenProps) {
       similarity: lookalike ? formSimilarity + '%' : '—',
     };
   }
-  async function persistAudience(): Promise<boolean> {
-    const a = collectAudience(); if (!a) return false;
-    try {
-      if (editingId) await adMutations.updateAudience(editingId, { name: a.name, size: a.size, criteria: toCriteria(a) });
-      else await adMutations.createAudience({ name: a.name, size: a.size, criteria: toCriteria(a) });
-      refreshAudiences();
-      return true;
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not save the audience');
-      return false;
-    }
-  }
-  async function save() {
-    if (!(await persistAudience())) return;
+  function save() {
+    const a = collectAudience(); if (!a) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = a; return n; } return prev; }
+      return [a, ...prev];
+    });
     closeAudDrawer();
     onToast(editingId ? 'Audience updated' : 'Audience created');
   }
-  async function saveAndNew() {
-    if (!(await persistAudience())) return;
+  function saveAndNew() {
+    const a = collectAudience(); if (!a) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = a; return n; } return prev; }
+      return [a, ...prev];
+    });
     setEditingId(null);
     setFormName('');
     setFormKind('Custom');

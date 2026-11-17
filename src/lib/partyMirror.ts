@@ -12,16 +12,8 @@
  *
  * One-way only (Supabase → store). Writes NEVER flow this direction —
  * creating a party always goes through POST /api/parties.
- *
- * The API contract for a Party is defined in @platform/shared (the
- * canonical record: id, tenantId, kind, displayName, email, phone,
- * roles). `toSharedParty` produces that contract record from a
- * Supabase row, so /api/parties GET responses can be typed as
- * `SharedParty & { …extra UI fields }` — the API boundary speaks the
- * shared contract while the UI keeps its richer shape.
  */
 import type { Party, PartyRole } from '@/lib/platformStore';
-import type { Party as SharedParty } from '@platform/shared';
 
 /** A row from /api/parties (list shape) or /api/parties POST/PATCH (detail shape). */
 export interface SupabasePartyRecord {
@@ -112,47 +104,5 @@ export function supabaseRecordToStoreParty(rec: SupabasePartyRecord): Party {
     segmentIds: [],
     added: (rec.created_at || rec.addedAt || '').toString().slice(0, 10) || today,
     lastActivity: (rec.updated_at || rec.last_activity_at || '').toString().slice(0, 10) || today,
-  };
-}
-
-/**
- * Produce the canonical @platform/shared Party contract record from a
- * Supabase row. The store Party is the UI shape; this is the API shape
- * — use it at any boundary that crosses packages (e.g. when posting to
- * /api/parties, or when sending a Party reference to a future
- * storefront-sdk / apps/api consumer that imports @platform/shared).
- *
- * `tenantId` is required by the contract record but not stored on the
- * Supabase row in the list shape — pass DEFAULT_TENANT_ID (server) or
- * the active workspace id (client) from the caller.
- */
-export function toSharedParty(
-  rec: SupabasePartyRecord,
-  tenantId: string,
-): SharedParty {
-  const role = storeRoleForSource(rec.source);
-  const personName = [rec.first_name, rec.last_name].filter(Boolean).join(' ');
-  const displayName =
-    rec.preferred_name ||
-    personName ||
-    rec.name ||
-    rec.company_name ||
-    rec.legal_name ||
-    rec.contact_name ||
-    rec.display_name ||
-    rec.company ||
-    'Unnamed';
-  const kind: 'person' | 'company' =
-    role === 'Vendor' || role === 'Supplier' || !!rec.company_name || !!rec.legal_name
-      ? 'company'
-      : 'person';
-  return {
-    id: rec.id,
-    tenantId,
-    kind,
-    displayName,
-    email: rec.email ?? null,
-    phone: rec.phone ?? null,
-    roles: [role.toLowerCase()],
   };
 }

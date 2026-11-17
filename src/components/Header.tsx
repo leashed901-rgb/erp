@@ -16,11 +16,6 @@ interface HeaderProps {
   activeTabKey: string;
   onSelectTab: (tab: WorkspaceTab) => void;
   onCloseTab: (tabKey: string) => void;
-  /** Tab right-click grammar (every tab, same menu). */
-  onCloseOtherTabs?: (tab: WorkspaceTab) => void;
-  onCloseAllTabs?: () => void;
-  onBookmarkTab?: (tab: WorkspaceTab) => void;
-  onOpenTabStandalone?: (tab: WorkspaceTab) => void;
   onOpenCreateFlyout: () => void;
   onOpenNavigationHub: () => void;
   onOpenSettings: (screenId?: string) => void;
@@ -36,10 +31,6 @@ export default function Header({
   activeTabKey,
   onSelectTab,
   onCloseTab,
-  onCloseOtherTabs,
-  onCloseAllTabs,
-  onBookmarkTab,
-  onOpenTabStandalone,
   onOpenCreateFlyout,
   onOpenNavigationHub,
   onOpenSettings,
@@ -48,25 +39,7 @@ export default function Header({
   onToast,
   hideTabs = false,
 }: HeaderProps) {
-  // The header date is the actual current date, refreshed every minute.
-  // SSR renders in UTC, client renders in the user's timezone — the date
-  // can differ by a day (hydration mismatch). Fix: render empty on SSR,
-  // set the real label in useEffect (client-only).
-  const [todayLabel, setTodayLabel] = useState<string>('');
-  useEffect(() => {
-    const fmt = () =>
-      new Date().toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    setTodayLabel(fmt());
-    const t = setInterval(() => setTodayLabel(fmt()), 60_000);
-    return () => clearInterval(t);
-  }, []);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tab: WorkspaceTab } | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const avatarBtnRef = useRef<HTMLButtonElement | null>(null);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
@@ -74,7 +47,7 @@ export default function Header({
   const orgBtnRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    if (!userMenuOpen && !orgMenuOpen && !tabMenu) return;
+    if (!userMenuOpen && !orgMenuOpen) return;
     function handleClick(e: MouseEvent) {
       if (
         userMenuOpen &&
@@ -94,13 +67,11 @@ export default function Header({
       ) {
         setOrgMenuOpen(false);
       }
-      // The tab menu closes via its own overlay (see the menu render).
     }
     function handleKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         setUserMenuOpen(false);
         setOrgMenuOpen(false);
-        setTabMenu(null);
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -109,7 +80,7 @@ export default function Header({
       document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [userMenuOpen, orgMenuOpen, tabMenu]);
+  }, [userMenuOpen]);
 
   return (
     <header className={styles.header}>
@@ -192,7 +163,7 @@ export default function Header({
           >
             <span className={`material-symbols-outlined ${styles.iconCirclePlus}`}>add_circle</span>
           </button>
-          <span className={styles.dateText} suppressHydrationWarning>{todayLabel}</span>
+          <span className={styles.dateText}>Sun, Nov 1, 2026</span>
           <button
             ref={avatarBtnRef}
             type="button"
@@ -357,10 +328,6 @@ export default function Header({
                 data-tab={tab.key}
                 className={`${styles.tabLink} ${active ? styles.tabLinkActive : ''}`}
                 onClick={() => onSelectTab(tab)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setTabMenu({ x: e.clientX, y: e.clientY, tab });
-                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
@@ -388,41 +355,6 @@ export default function Header({
           })}
         </nav>
       </div>
-
-      {tabMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-[9998]"
-            onClick={() => setTabMenu(null)}
-            onContextMenu={(e) => { e.preventDefault(); setTabMenu(null); }}
-          />
-          <div
-            className="fixed z-[9999] bg-white rounded-lg shadow-2xl border border-surface-dim py-1 min-w-[210px]"
-            style={{ left: Math.min(tabMenu.x, window.innerWidth - 230), top: Math.min(tabMenu.y, window.innerHeight - 260) }}
-            role="menu"
-            aria-label={`Tab actions for ${tabMenu.tab.label}`}
-          >
-            {[
-              { label: 'Open in new window', icon: 'open_in_new', run: () => onOpenTabStandalone?.(tabMenu.tab) },
-              { label: 'Bookmark this page', icon: 'bookmark_add', run: () => onBookmarkTab?.(tabMenu.tab) },
-              { label: 'Close tab', icon: 'close', run: () => onCloseTab(tabMenu.tab.key) },
-              { label: 'Close other tabs', icon: 'tab_close', run: () => onCloseOtherTabs?.(tabMenu.tab) },
-              { label: 'Close all tabs', icon: 'tab_close_right', run: () => onCloseAllTabs?.() },
-            ].map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] hover:bg-surface-container-low text-left"
-                onClick={() => { item.run(); setTabMenu(null); }}
-                role="menuitem"
-              >
-                <span className="material-symbols-outlined text-[16px] text-on-surface-variant">{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
     </header>
   );
 }

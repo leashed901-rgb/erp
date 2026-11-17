@@ -8,18 +8,11 @@ import {
 } from './podServer';
 
 /**
- * Render worker (Lane 3) — claims queued render jobs from the unified
- * craft_jobs queue (S600) via ds_claim_jobs and composites each per
- * pod-render-contract §4. The claim SQL (FOR UPDATE SKIP LOCKED, attempts+1,
- * recovery of crashed workers via ds_reap_stale_jobs) lives in
- * packages/db/src/rpc.ts → claimJobs, wrapped by ./renderJobAdapter.ts.
- *
- * The render loop now speaks craft_jobs: enqueue via ds_enqueue_job (input
- * carries designId/view/color/kind/inputHash + renderRowId), claim via
- * ds_claim_jobs, finish via ds_finish_job. A shadow design_renders row is
- * mirrored alongside (by the adapter's enqueueRenderJob/finishRenderJob)
- * so legacy consumers (the review grid, publish/preview/test-render,
- * fulfillment.ts) keep reading status from design_renders unchanged.
+ * Render worker (Lane 3) — claims queued design_renders rows and composites
+ * them per pod-render-contract §4. The claim SQL from the contract lives
+ * inside the `claim_design_renders` RPC (SECURITY DEFINER): recovery of
+ * rows running > 5 minutes (requeue while attempts < 3, fail at 3),
+ * then FOR UPDATE SKIP LOCKED claim with attempts+1.
  *
  * Compositor: sharp (already the dependency the worker was built on;
  * konva + node-canvas are NOT installed in this image, so headless Konva
@@ -42,14 +35,6 @@ import {
  */
 
 import { RENDERER_VERSION } from '@/lib/renderCore';
-import {
-  claimRenderJobs,
-  finishRenderJob,
-  type ClaimedRenderJob,
-  type RenderJobOutput,
-} from './renderJobAdapter';
-export type { RenderJobResult } from './designTypes';
-import type { RenderJobResult } from './designTypes';
 export { RENDERER_VERSION };
 const MOCKUP_BASE_W = 450;
 const MOCKUP_BASE_H = 600;
@@ -401,10 +386,7 @@ export async function renderOne(row: RenderRow): Promise<{
 
   const { data: design, error } = await supabaseAdmin()
     .from('designs')
-    // No placement_spec column on designs — placement lives in
-    // canvas_state.placement_spec (see placementSpecOf below and the
-    // designs PATCH route). Selecting the column 400'd every render.
-    .select('id,supplier_catalog_product_id,garment_color,canvas_state')
+    .select('id,supplier_catalog_product_id,garment_color,canvas_state,placement_spec')
     .eq('tenant_id', DEFAULT_TENANT_ID)
     .eq('id', row.design_id)
     .single();
@@ -550,11 +532,28 @@ export async function renderOne(row: RenderRow): Promise<{
   return { storagePath: path, width: wPx, height: hPx, reused: false };
 }
 
-// `finishRow` was the legacy direct UPDATE on design_renders. The render
-// loop now finishes jobs through the craft_jobs RPC (ds_finish_job) via
-// ./renderJobAdapter.finishRenderJob, which mirrors the result back into
-// the shadow design_renders row when one exists. The function is removed
-// here on purpose — direct writes from the worker would race the adapter.
+async function finishRow(
+  row: RenderRow,
+  status: 'succeeded' | 'failed' | 'queued',
+  storagePath: string | null,
+  width: number | null,
+  height: number | null,
+  lastError: string | null,
+): Promise<void> {
+  const update: Record<string, unknown> = {
+    status,
+    storage_path: storagePath,
+    width,
+    height,
+    error: lastError,
+    last_error: lastError,
+    finished_at: status === 'succeeded' || status === 'failed' ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  };
+  // Requeued rows are claimable again; a stuck claim must not hold them.
+  if (status === 'queued') update.claimed_at = null;
+  await supabaseAdmin().from('design_renders').update(update).eq('id', row.id);
+}
 
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const raw = Number(process.env[name]);
@@ -580,12 +579,25 @@ function logJobLine(args: {
   );
 }
 
+export interface RenderJobResult {
+  id: string;
+  designId: string;
+  view: string;
+  color: string;
+  kind: string;
+  hash: string;
+  ms: number;
+  result: 'succeeded' | 'reused' | 'failed' | 'queued';
+  storagePath: string | null;
+  error?: string;
+}
+
 /**
- * Claim a batch (FOR UPDATE SKIP LOCKED via the ds_claim_jobs RPC; stuck
- * rows > 5 min are recovered by ds_reap_stale_jobs called by the adapter)
- * and render every claimed job. One bad job never fails the batch.
- * Concurrency from RENDER_WORKER_CONCURRENCY (default 1, max 5); per-job
- * timeout from RENDER_WORKER_JOB_TIMEOUT_MS (default 120000).
+ * Claim a batch (FOR UPDATE SKIP LOCKED via the claim_design_renders RPC;
+ * stuck rows are recovered inside the claim) and render every claimed row.
+ * One bad row never fails the batch. Concurrency from
+ * RENDER_WORKER_CONCURRENCY (default 1, max 5); per-job timeout from
+ * RENDER_WORKER_JOB_TIMEOUT_MS (default 120000).
  */
 export async function processRenderQueue(batchSize = 5): Promise<{
   claimed: number;
@@ -595,9 +607,11 @@ export async function processRenderQueue(batchSize = 5): Promise<{
   reused: number;
   results: RenderJobResult[];
 }> {
-  const claimRes = await claimRenderJobs(batchSize);
-  if (!claimRes.ok) throw new Error(`Render claim failed: ${claimRes.error}`);
-  const jobs = claimRes.data;
+  const { data: claimed, error } = await supabaseAdmin().rpc('claim_design_renders', {
+    batch_size: batchSize,
+  });
+  if (error) throw new Error(`Render claim failed: ${error.message}`);
+  const rows = (claimed ?? []) as RenderRow[];
   const concurrency = envInt('RENDER_WORKER_CONCURRENCY', 1, 1, 5);
   const timeoutMs = envInt('RENDER_WORKER_JOB_TIMEOUT_MS', 120000, 5000, 900000);
 
@@ -607,23 +621,8 @@ export async function processRenderQueue(batchSize = 5): Promise<{
   let requeued = 0;
   let reused = 0;
 
-  async function processOne(job: ClaimedRenderJob): Promise<void> {
+  async function processOne(row: RenderRow): Promise<void> {
     const started = Date.now();
-    const inp = job.input;
-    const row: RenderRow = {
-      id: inp.renderRowId ?? job.jobId, // surface the design_renders id to the client when mirrored
-      tenant_id: DEFAULT_TENANT_ID,
-      design_id: inp.designId,
-      canonical_product_id: inp.blankId,
-      view_angle: inp.view,
-      color: inp.color,
-      kind: inp.kind,
-      input_hash: inp.inputHash,
-      renderer_version: inp.rendererVersion,
-      storage_path: null,
-      status: 'running',
-      attempts: job.attempts,
-    };
     const blankId = row.canonical_product_id;
     try {
       const outcome = await Promise.race([
@@ -633,19 +632,8 @@ export async function processRenderQueue(batchSize = 5): Promise<{
         ),
       ]);
       const ms = Date.now() - started;
-      const output: RenderJobOutput = {
-        storagePath: outcome.storagePath,
-        width: outcome.width,
-        height: outcome.height,
-      };
       if (outcome.reused) {
-        await finishRenderJob({
-          jobId: job.jobId,
-          ok: true,
-          output,
-          renderRowId: inp.renderRowId,
-          mirrorStatus: 'succeeded',
-        });
+        await finishRow(row, 'succeeded', outcome.storagePath, outcome.width || null, outcome.height || null, null);
         reused++;
         results.push({
           id: row.id, designId: row.design_id, view: row.view_angle, color: row.color,
@@ -653,13 +641,7 @@ export async function processRenderQueue(batchSize = 5): Promise<{
         });
         logJobLine({ designId: row.design_id, blankId, view: row.view_angle, color: row.color, hash: row.input_hash, ms, result: 'reused' });
       } else {
-        await finishRenderJob({
-          jobId: job.jobId,
-          ok: true,
-          output,
-          renderRowId: inp.renderRowId,
-          mirrorStatus: 'succeeded',
-        });
+        await finishRow(row, 'succeeded', outcome.storagePath, outcome.width, outcome.height, null);
         succeeded++;
         results.push({
           id: row.id, designId: row.design_id, view: row.view_angle, color: row.color,
@@ -670,19 +652,9 @@ export async function processRenderQueue(batchSize = 5): Promise<{
     } catch (e) {
       const ms = Date.now() - started;
       const message = e instanceof Error ? e.message : 'Render failed.';
-      // ds_finish_job implements the requeue policy: attempts < max_attempts
-      // → status='queued' (we mirror 'queued'); attempts >= max_attempts →
-      // 'failed'. The mirrorStatus hint tells the adapter how to record the
-      // legacy row.
-      const definitive = (row.attempts ?? 0) >= 3;
-      await finishRenderJob({
-        jobId: job.jobId,
-        ok: false,
-        error: message,
-        renderRowId: inp.renderRowId,
-        mirrorStatus: definitive ? 'failed' : 'queued',
-      });
-      if (definitive) {
+      // attempts was already incremented by the claim; 3 attempts → failed.
+      if ((row.attempts ?? 0) >= 3) {
+        await finishRow(row, 'failed', null, null, null, message);
         failed++;
         results.push({
           id: row.id, designId: row.design_id, view: row.view_angle, color: row.color,
@@ -690,6 +662,7 @@ export async function processRenderQueue(batchSize = 5): Promise<{
         });
         logJobLine({ designId: row.design_id, blankId, view: row.view_angle, color: row.color, hash: row.input_hash, ms, result: 'failed', error: message });
       } else {
+        await finishRow(row, 'queued', null, null, null, message);
         requeued++;
         results.push({
           id: row.id, designId: row.design_id, view: row.view_angle, color: row.color,
@@ -700,10 +673,10 @@ export async function processRenderQueue(batchSize = 5): Promise<{
     }
   }
 
-  for (let i = 0; i < jobs.length; i += concurrency) {
-    await Promise.all(jobs.slice(i, i + concurrency).map(processOne));
+  for (let i = 0; i < rows.length; i += concurrency) {
+    await Promise.all(rows.slice(i, i + concurrency).map(processOne));
   }
-  return { claimed: jobs.length, succeeded, failed, requeued, reused, results };
+  return { claimed: rows.length, succeeded, failed, requeued, reused, results };
 }
 
 /** Signed URL for a "bucket/rest" storage_path, or null when unresolvable. */

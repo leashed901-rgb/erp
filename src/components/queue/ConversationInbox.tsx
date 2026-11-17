@@ -116,17 +116,6 @@ export default function ConversationInbox({
   const [channel, setChannel] = useState<string>(defaultChannelFilter || 'all');
   const [openId, setOpenId] = useState<string | null>(null);
   const [rowMenuForId, setRowMenuForId] = useState<string | null>(null);
-  // Connected mailboxes (platform_mailboxes) — the accounts whose mail
-  // lands in this inbox, from /api/platform/customization?kind=mailboxes.
-  const [mailboxes, setMailboxes] = useState<{ id: string; email_address: string; provider: string | null; status: string | null; last_synced_at: string | null }[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/platform/customization?kind=mailboxes')
-      .then((r) => r.json())
-      .then((j) => { if (!cancelled) setMailboxes((j.data as typeof mailboxes) || []); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
 
   const counts = useMemo(() => ({
     all: conversations.length,
@@ -248,24 +237,6 @@ export default function ConversationInbox({
         <span className="text-[11px] text-on-surface-variant ml-auto">
           {filtered.length} shown · {loaded ? 'live from Supabase' : 'loading…'}
         </span>
-      </div>
-
-      {/* Mailboxes — the connected accounts feeding this inbox */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant flex items-center gap-1">
-          <span className="material-symbols-outlined text-[14px]" aria-hidden>mail</span>
-          Mailboxes
-        </span>
-        {mailboxes.length === 0 && (
-          <span className="text-[11px] text-on-surface-variant">No mailbox connected yet</span>
-        )}
-        {mailboxes.map((m) => (
-          <span key={m.id} className="h-7 px-3 rounded-full text-label-sm border border-surface-dim flex items-center gap-1.5">
-            <span className={`w-1.5 h-1.5 rounded-full ${m.status === 'active' || m.status === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`} aria-hidden />
-            {m.email_address}
-            <span className="text-on-surface-variant">{m.provider || ''}{m.last_synced_at ? ` · synced ${new Date(m.last_synced_at).toLocaleDateString()}` : ''}</span>
-          </span>
-        ))}
       </div>
 
       {/* Table */}

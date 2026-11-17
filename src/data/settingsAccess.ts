@@ -41,6 +41,14 @@ export interface Person {
   end?: string; // access end date
 }
 
+export interface ActivityEvent {
+  who: string;
+  what: string;
+  kind: 'role' | 'access' | 'team' | 'export' | 'approval' | 'imp' | 'sign';
+  when: string;
+  where: string;
+}
+
 export const MOD: PermissionModule[] = [
   {
     name: 'Dashboard',
@@ -300,7 +308,7 @@ export const PEOPLE: Person[] = [
   {
     n: 'Sunny A.',
     e: 'sunny@example.com',
-    r: { Unsaid: 'Admin' },
+    r: { Unsaid: 'Admin', 'Unsaid': 'Admin' },
     st: 'Active',
     l: '2 min ago',
     tf: true,
@@ -340,7 +348,7 @@ export const PEOPLE: Person[] = [
   {
     n: 'Priya N.',
     e: 'priya@firm.example',
-    r: { Unsaid: 'Accountant' },
+    r: { Unsaid: 'Accountant', 'Unsaid': 'Accountant' },
     st: 'Active',
     l: 'Oct 29',
     tf: true,
@@ -357,7 +365,7 @@ export const PEOPLE: Person[] = [
   {
     n: 'Lee W.',
     e: 'lee@example.com',
-    r: { Unsaid: 'Board Member' },
+    r: { Unsaid: 'Board Member', 'Unsaid': 'Board Member' },
     st: 'Active',
     l: 'Oct 22',
     tf: false,
@@ -373,6 +381,16 @@ export const PEOPLE: Person[] = [
   },
 ];
 
+export const ACTIVITY: ActivityEvent[] = [
+  { who: 'Sunny A.', what: 'Changed Designer: Marketing from none to view', kind: 'role', when: 'Today 9:12', where: 'Chicago, US' },
+  { who: 'Priya N.', what: 'Opened Finance reports', kind: 'access', when: 'Oct 29 4:40 PM', where: 'Austin, US' },
+  { who: 'Sunny A.', what: 'Invited Priya N. as Accountant, ends Dec 31', kind: 'team', when: 'Oct 29 4:02 PM', where: 'Chicago, US' },
+  { who: 'Marcus T.', what: 'Exported 212 contacts', kind: 'export', when: 'Oct 28 11:15 AM', where: 'Memphis, US' },
+  { who: 'Almeta R.', what: 'Approved dispatch of 4 orders', kind: 'approval', when: 'Oct 28 9:30 AM', where: 'Memphis, US' },
+  { who: 'Sunny A.', what: 'Impersonated customer #4821 for 12 min (refund check)', kind: 'imp', when: 'Oct 27 2:11 PM', where: 'Chicago, US' },
+  { who: 'Unknown', what: 'Failed sign-in for Casey B. (3 attempts)', kind: 'sign', when: 'Oct 26 3:09 AM', where: 'Lagos, NG' },
+  { who: 'Sunny A.', what: 'Turned on “Creator cannot approve own bills”', kind: 'role', when: 'Oct 25 10:00 AM', where: 'Chicago, US' },
+];
 
 // ── Permission helpers (mirrors the HTML's has/granted/cnt/people) ──
 export function hasPermission(role: string, m: number, c: number): boolean {

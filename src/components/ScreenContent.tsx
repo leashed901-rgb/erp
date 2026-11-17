@@ -3,20 +3,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  DEMO_ROWS,
   DOMAINS,
   DemoRow,
-  DomainConfig,
   DomainKey,
   GroupBgToken,
   ListScreenConfig,
-  OverviewKpi,
   OverviewScreenConfig,
   SCREEN_DEFS,
+  findScreen,
 } from '@/data/shellData';
-import { findScreenIn } from '@/hooks/useTenantNav';
-import type { DocumentType } from '@/lib/platformStore';
-import { ensureLiveShellRows, refreshShellRows, shellListDelete, shellListDuplicate, shellListEndpoint } from '@/lib/shellLiveRows';
-import { platformActions } from '@/hooks/usePlatformApi';
 import { WorkspaceTab } from './Header';
 import StatusPill from './StatusPill';
 import CapTableScreenRenderer, {
@@ -26,9 +22,6 @@ import WorkspaceSettings, {
   WS_SCREEN_IDS,
 } from './settings/WorkspaceSettings';
 import RowMenu, { BulkBar, type RowMenuItem } from './ListPrimitives';
-import IntegrationsCatalog from './IntegrationsCatalog';
-import LearningScreen from './LearningScreen';
-import UgcModeration from './UgcModeration';
 import ProductCard, { ProductThumb } from './design/ProductCard';
 import listStyles from './ListPrimitives.module.css';
 import DashboardScreenRenderer, {
@@ -50,22 +43,6 @@ import PurchaseOrderScreen from './finance/PurchaseOrderScreen';
 import ReportsScreen from './finance/ReportsScreen';
 import CashFlowScreen from './finance/CashFlowScreen';
 import ReconcileScreen from './finance/ReconcileScreen';
-import PayrollScreen from './finance/PayrollScreen';
-import FixedAssetsScreen from './finance/FixedAssetsScreen';
-import LiabilitiesScreen from './finance/LiabilitiesScreen';
-import RevenueScreen from './finance/RevenueScreen';
-import CloseScreen from './finance/CloseScreen';
-import BudgetsScreen from './finance/BudgetsScreen';
-import DimensionsScreen from './finance/DimensionsScreen';
-import ExpenseReportsScreen from './finance/ExpenseReportsScreen';
-import RecurringScreen from './finance/RecurringScreen';
-import PriceBooksScreen from './finance/PriceBooksScreen';
-import AllocationsScreen from './finance/AllocationsScreen';
-import ConsolidationScreen from './finance/ConsolidationScreen';
-import KpiScreen from './finance/KpiScreen';
-import WorkflowsScreen from './finance/WorkflowsScreen';
-import ReferenceScreen from './finance/ReferenceScreen';
-import RegistersScreen from './finance/RegistersScreen';
 import BusinessTaxOverview from './business-tax/BusinessTaxOverview';
 import TaxSummary from './business-tax/TaxSummary';
 import YearEndFiling from './business-tax/YearEndFiling';
@@ -74,38 +51,36 @@ import SalesTransactions from './sales/SalesTransactions';
 import InvoicesScreen from './sales/InvoicesScreen';
 import PaymentLinksScreen from './sales/PaymentLinksScreen';
 import CatalogProductsScreen from './catalog/CatalogProductsScreen';
-import BlanksScreen from './catalog/BlanksScreen';
+import CatalogOverviewPage from './catalog/CatalogOverviewPage';
+import ProductsPage from './catalog/ProductsPage';
+import ListingsPage from './catalog/ListingsPage';
+import BundlesPage from './catalog/BundlesPage';
+import CollectionsPage from './catalog/CollectionsPage';
+import BrandsPage from './catalog/BrandsPage';
+import EcommercePage from './catalog/EcommercePage';
 import ContactsParties from './contacts/ContactsParties';
 import CrmOverviewSupabase from './contacts/CrmOverviewSupabase';
 // Sellers — Seller relationships group (Supabase-backed screens)
 import SellersScreen from './sellers/SellersScreen';
-import StaffScreen from './staff/StaffScreen';
-import SellerDetailScreen from './sellers/SellerDetailScreen';
 import SellerProfilePage from './sellers/SellerProfilePage';
-import OrderDetailPage from './orders/OrderDetailPage';
-import CatalogOverviewPage from './catalog/CatalogOverviewPage';
-import ListingsPage from './catalog/ListingsPage';
-import BundlesPage from './catalog/BundlesPage';
-import BrandsPage from './catalog/BrandsPage';
-import CollectionsPage from './catalog/CollectionsPage';
 import SellerFeedScreen from './sellers/SellerFeedScreen';
 import SellerOnboardingScreen from './sellers/SellerOnboardingScreen';
 import SellerQueueScreen from './sellers/SellerQueueScreen';
 // Segments / Templates — CRM Tools (Supabase-backed screens)
+import SegmentsScreen from './segments/SegmentsScreen';
 import TemplatesScreen from './templates/TemplatesScreen';
-import TrackedRecordsScreen from './contacts/TrackedRecordsScreen';
 // Queues — reply / assign / resolve loop on real conversations + messages
 import AttentionQueueScreen from './queue/AttentionQueueScreen';
 import CustomerQueueScreen from './queue/CustomerQueueScreen';
 import ConversationInbox from './queue/ConversationInbox';
 import AppointmentsScreen from './contacts/AppointmentsScreen';
 import CustomersSupabase from './contacts/CustomersSupabase';
-import LeadsPipelineSupabase, { DealsScreen } from './contacts/LeadsPipelineSupabase';
-import RouteBuilderScreen from './contacts/RouteBuilderScreen';
+import LeadsPipelineSupabase from './contacts/LeadsPipelineSupabase';
+import DealsWorkbench from './contacts/DealsWorkbench';
 import StatementsScreen from './contacts/StatementsScreen';
 import OrdersOverview from './orders/OrdersOverview';
-import OrdersWorkbench from './orders/OrdersWorkbench';
 import OrdersList from './orders/OrdersList';
+import OrderDetailPage from './orders/OrderDetailPage';
 import PurchaseOrders from './orders/PurchaseOrders';
 import ReturnsClaims from './orders/ReturnsClaims';
 import FulfillmentQueue from './orders/FulfillmentQueue';
@@ -116,20 +91,6 @@ import DesignCanvasScreen from './design/DesignCanvasScreen';
 import DesignPreviewScreen from './design/DesignPreviewScreen';
 import ErpProductPageScreen from './design/ErpProductPageScreen';
 import ErpProductCatalogScreen from './design/ErpProductCatalogScreen';
-import TechPacksListScreen from './design/TechPacksListScreen';
-import TechPackEditorScreen from './design/TechPackEditorScreen';
-import TechPackPreviewScreen from './design/TechPackPreviewScreen';
-import StudioDesignPreviewScreen from './design/StudioDesignPreviewScreen';
-import CmsPageEditorScreen from './cms/CmsPageEditorScreen';
-import CmsBannerEditorScreen from './cms/CmsBannerEditorScreen';
-import CmsPopupEditorScreen from './cms/CmsPopupEditorScreen';
-import CmsNavigationEditorScreen from './cms/CmsNavigationEditorScreen';
-import CmsBlockEditorScreen from './cms/CmsBlockEditorScreen';
-import CmsMediaLibraryScreen from './cms/CmsMediaLibraryScreen';
-import CmsSettingsScreen from './cms/CmsSettingsScreen';
-import RfqsListScreen from './design/RfqsListScreen';
-import RfqBoardScreen from './design/RfqBoardScreen';
-import FreehandDesignerScreen from './design/FreehandDesignerScreen';
 import MyProductsTable from './design/MyProductsTable';
 import CreateWizard from './design/CreateWizard';
 import { TOP_NAV, STOREFRONT_NAV } from '@/lib/designCanvasStore';
@@ -142,6 +103,7 @@ function slugify(s: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
 }
+import ProductPageModal from './design/ProductPageModal';
 import TasksProjectsScreen from './tasks/TasksProjectsScreen';
 import PublishingOverviewScreen from './marketing/PublishingOverviewScreen';
 import CreateContentScreen from './marketing/CreateContentScreen';
@@ -155,22 +117,12 @@ import PixelsScreen from './marketing/PixelsScreen';
 import AdSpendScreen from './marketing/AdSpendScreen';
 import AdvertisersScreen from './marketing/AdvertisersScreen';
 import PromotionsScreen from './marketing/PromotionsScreen';
-import ChannelsScreen from './catalog/ChannelsScreen';
-import GiftCardsScreen from './sales/GiftCardsScreen';
 import NewsletterScreen from './marketing/NewsletterScreen';
 import AutomationScreen from './marketing/AutomationScreen';
-import WebformsScreen from './marketing/WebformsScreen';
-import SocialChannelsScreen from './marketing/SocialChannelsScreen';
-import SocialQueueScreen from './marketing/SocialQueueScreen';
-import SocialCalendarScreen from './marketing/SocialCalendarScreen';
-import SocialLibraryScreen from './marketing/SocialLibraryScreen';
-import SocialPerformanceScreen from './marketing/SocialPerformanceScreen';
-import SequencesScreen from './contacts/SequencesScreen';
 import SupportOverviewScreen from './support/SupportOverviewScreen';
 import SupportTicketsScreen from './support/SupportTicketsScreen';
 import SupportWorkspaceScreen from './support/SupportWorkspaceScreen';
-import { useDesignCanvas } from '@/lib/designCanvasStore';
-import { openCmsEditorForList } from '@/lib/cmsStore';
+import { useDesignCanvas, CATALOG_PRODUCTS, type CatalogProduct } from '@/lib/designCanvasStore';
 import {
   createOrder,
   enqueue,
@@ -189,32 +141,16 @@ import {
   type StoreRow,
 } from '@/lib/podApi';
 import { exportToCsv } from '@/lib/csvExport';
-import { aliasFor } from '@/lib/categoryAliases';
-import { TABLE_REGISTRY } from '@/lib/tableRegistry';
-import { TABLE_POST_ROUTES } from '@/lib/tablePostRoutes';
 import styles from './ScreenContent.module.css';
 
 interface ScreenContentProps {
   openTabs: WorkspaceTab[];
   activeTabKey: string;
-  /** Merged tenant nav (DB screens + static) — the same map the sidebar
-   *  and tabs resolve against. The content MUST resolve against it too:
-   *  resolving against the static tree made every DB-only screen id fall
-   *  back to the domain's first screen, so clicking Variants (and every
-   *  other merged-only screen) showed Catalog Overview instead. */
-  domains: Record<DomainKey, DomainConfig>;
   dashboardController: DashboardController;
   onNavigate: (domain: DomainKey, screenId: string) => void;
   onCapCreate: (label: string) => void;
   onCreate: (label: string, prefill?: { partyName?: string; partyId?: string; source?: string; email?: string | null }) => void;
-  /** Open the generic table create drawer for a backing table. */
-  onCreateTable?: (table: string, title: string, screenKey?: string) => void;
-  /** Bumped after a generic create saves — generic lists re-read. */
-  listRefreshSignal?: number;
   onOpenCreateFlyout: () => void;
-  /** Open the full DocumentEngine page for an existing document
-   *  (e.g. an order row click opens its Sales Order page). */
-  onOpenDocument?: (type: DocumentType, id: string | null) => void;
   onOpenPeek: (row: DemoRow, family: string) => void;
   onToast: (message: string) => void;
   sideRailCollapsed: boolean;
@@ -280,280 +216,32 @@ function catalogNodeFor(screenId: string): { category?: string; subcategory?: st
 
 function ListView({
   cfg,
-  domain,
   domainLabel,
   groupName,
-  backingTable,
   onCreate,
-  onCreateTable,
-  listRefreshSignal,
   onOpenCreateFlyout,
   onOpenPeek,
   onToast,
   onNavigate,
 }: {
   cfg: ListScreenConfig;
-  domain: DomainKey;
   domainLabel: string;
   groupName: string;
-  /** Live backing table (from the nav registry). When no /api/list-rows
-   *  loader exists for this screen, rows come from /api/v1/data/[table]
-   *  instead of an empty shell. */
-  backingTable?: string | null;
   onCreate: (label: string, prefill?: { partyName?: string; partyId?: string; source?: string; email?: string | null }) => void;
-  /** Open the generic table create drawer for this screen's table. */
-  onCreateTable?: (table: string, title: string, screenKey?: string) => void;
-  listRefreshSignal?: number;
   onOpenCreateFlyout: () => void;
   onOpenPeek: (row: DemoRow, family: string) => void;
   onToast: (message: string) => void;
   onNavigate: (domain: DomainKey, screenId: string) => void;
 }) {
-  // CMS lists open their dedicated editor screen instead of the generic
-  // peek drawer — a page row opens the page editor, a banner row the
-  // banner editor, and so on. Lists without an editor keep the drawer.
-  const openEditorForRow = (row: DemoRow): boolean => {
-    if (typeof row.id !== 'string' || !row.id) return false;
-    const screen = openCmsEditorForList(cfg.key, row.id);
-    if (!screen) return false;
-    onNavigate(domain, screen);
-    return true;
-  };
-  const openEditorForNew = (): boolean => {
-    const screen = openCmsEditorForList(cfg.key, null);
-    if (!screen) return false;
-    onNavigate(domain, screen);
-    return true;
-  };
-  // Live rows from /api/list-rows. A screen with no mapping there answers
-  // 404 — then fall back to the same endpoint with the screen's backing
-  // table (/api/list-rows?table=...), which reads the real rows (registry
-  // tables + every backing table in the live nav tree). The old DEMO_ROWS
-  // object is intentionally empty and is never seeded.
-  const [allRows, setAllRows] = useState<DemoRow[]>([]);
-  // Backing table reported by /api/list-rows (meta.table) — when set,
-  // the registry's standard actions (std.duplicate / std.archive /
-  // std.delete) execute against the row through their RPCs.
-  const [rowTable, setRowTable] = useState<string | null>(null);
-  const reloadRows = useCallback(() => {
-    fetch(`/api/list-rows?screen=${encodeURIComponent(cfg.key)}`)
-      .then(async (res) => {
-        if (res.status === 404) return [] as DemoRow[];
-        const json = await res.json();
-        if (!res.ok || json.error) return [] as DemoRow[];
-        setRowTable((json.meta?.table as string | null) ?? null);
-        return (json.data || []) as DemoRow[];
-      })
-      .then((rows) => setAllRows(rows))
-      .catch(() => {});
-  }, [cfg.key]);
-  const [rowsLoading, setRowsLoading] = useState(false);
-  const [rowsError, setRowsError] = useState<string | null>(null);
-  // Columns derived from real row keys when the table fallback serves
-  // the list (the generic def only declares a 'name' column).
-  const [fallbackCols, setFallbackCols] = useState<{ key: string; label: string; right?: boolean }[] | null>(null);
-
-  const loadRows = useCallback(async (): Promise<DemoRow[]> => {
-    const res = await fetch(`/api/list-rows?screen=${encodeURIComponent(cfg.key)}`);
-    if (res.status === 404) {
-      if (!backingTable) return [];
-      const dres = await fetch(`/api/list-rows?screen=${encodeURIComponent(cfg.key)}&table=${encodeURIComponent(backingTable)}`);
-      const djson = await dres.json();
-      if (!dres.ok || djson.error) {
-        if (dres.status === 404) return [];
-        throw new Error(djson.error?.message || `List failed (${dres.status})`);
-      }
-      const raw = (djson.data || []) as Record<string, unknown>[];
-      if (raw.length > 0) {
-        const preferred = ['name', 'title', 'label', 'subject', 'code', 'number', 'status', 'email', 'amount', 'total', 'created_at'];
-        const keys = Object.keys(raw[0]).filter((k) => !['id', 'tenant_id', 'metadata'].includes(k));
-        const ordered = [
-          ...preferred.filter((k) => keys.includes(k)),
-          ...keys.filter((k) => !preferred.includes(k)),
-        ].slice(0, 6);
-        setFallbackCols(ordered.map((k) => ({
-          key: k,
-          label: k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-          right: /amount|total|price|count|qty|balance/.test(k),
-        })));
-      }
-      return raw.map((r) => {
-        const row: DemoRow = { id: String(r.id ?? '') };
-        for (const [k, v] of Object.entries(r)) {
-          row[k] = v == null ? '—' : typeof v === 'number' ? v : typeof v === 'string' ? v : String(v);
-        }
-        return row;
-      });
-    }
-    const json = await res.json();
-    if (!res.ok || json.error) throw new Error(json.error?.message || `List failed (${res.status})`);
-    return (json.data || []) as DemoRow[];
-  }, [cfg.key, backingTable]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setRowsLoading(true);
-    setRowsError(null);
-    setFallbackCols(null);
-    setSelectedIds(new Set());
-    loadRows()
-      .then((rows) => { if (!cancelled) setAllRows(rows); })
-      .catch((e) => { if (!cancelled) setRowsError(e instanceof Error ? e.message : 'List failed to load.'); })
-      .finally(() => { if (!cancelled) setRowsLoading(false); });
-    return () => { cancelled = true; };
-  }, [loadRows, listRefreshSignal]);
-
-  // New-record entry: a table with an insert path opens the generic
-  // create drawer; anything else keeps the label-based create routing.
-  const canGenericCreate = !!backingTable && (!!TABLE_REGISTRY[backingTable]?.writable || !!TABLE_POST_ROUTES[backingTable]);
-  const handleNew = useCallback(() => {
-    if (canGenericCreate && onCreateTable && backingTable) {
-      onCreateTable(backingTable, cfg.title, cfg.key);
-    } else {
-      onCreate(cfg.newLabel);
-    }
-  }, [canGenericCreate, onCreateTable, backingTable, cfg.title, cfg.key, onCreate, cfg.newLabel]);
+  const allRows = DEMO_ROWS[cfg.key] || [];
   const tabs = cfg.tabs || ['All'];
   const [activeTab, setActiveTab] = useState<string>(tabs[0]);
   const [rowSearch, setRowSearch] = useState<string>('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [splitOpen, setSplitOpen] = useState(false);
   const splitRef = useRef<HTMLDivElement | null>(null);
-
-  // ── Sort / column filters / saved views (2026-11-15) ──
-  // The list shipped with search + status tabs only: headers were
-  // inert, there were no column filters, and selection tracked row
-  // INDEXES (so filtering after selecting exported/deleted the wrong
-  // rows). Now: headers sort, a Filters panel filters per column,
-  // selection keys on the record id, and views persist to
-  // platform_saved_views via /api/platform/customization?kind=views
-  // with entity_type = this screen's key.
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [colFilters, setColFilters] = useState<Record<string, string>>({});
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const filtersRef = useRef<HTMLDivElement | null>(null);
-  interface SavedView { id: string; name: string; filters: { tab?: string; search?: string; colFilters?: Record<string, string> }; sort: { key?: string | null; dir?: 'asc' | 'desc' } }
-  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
-  const [activeViewId, setActiveViewId] = useState<string | null>(null);
-  const [saveViewName, setSaveViewName] = useState('');
-  const [savingView, setSavingView] = useState(false);
-  const importRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/platform/customization?kind=views')
-      .then((r) => r.json())
-      .then((j) => {
-        if (cancelled) return;
-        const mine = ((j.data || []) as (SavedView & { entity_type: string })[])
-          .filter((v) => v.entity_type === cfg.key)
-          .map((v) => ({ id: v.id, name: v.name, filters: v.filters || {}, sort: v.sort || {} }));
-        setSavedViews(mine);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [cfg.key]);
-
-  useEffect(() => {
-    if (!filtersOpen) return;
-    function handleClick(e: MouseEvent) {
-      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) setFiltersOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [filtersOpen]);
-
-  const applyView = (v: SavedView) => {
-    setActiveViewId(v.id);
-    setActiveTab(v.filters.tab || 'All');
-    setRowSearch(v.filters.search || '');
-    setColFilters(v.filters.colFilters || {});
-    setSortKey(v.sort.key ?? null);
-    setSortDir(v.sort.dir || 'asc');
-    setSelectedIds(new Set());
-  };
-
-  const saveView = async () => {
-    const name = saveViewName.trim();
-    if (!name) { onToast('Name the view first'); return; }
-    setSavingView(true);
-    try {
-      const res = await fetch('/api/platform/customization?kind=views', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'views',
-          entityType: cfg.key, name,
-          filters: { tab: activeTab, search: rowSearch, colFilters },
-          columns: cfg.cols.map((c) => c.key),
-          sort: { key: sortKey, dir: sortDir },
-          isShared: true,
-        }),
-      });
-      const j = await res.json();
-      if (!res.ok) { onToast(j.error?.message || 'Could not save the view'); return; }
-      const id = (j.data as { id?: string })?.id || crypto.randomUUID();
-      setSavedViews((prev) => [{ id, name, filters: { tab: activeTab, search: rowSearch, colFilters }, sort: { key: sortKey, dir: sortDir } }, ...prev]);
-      setActiveViewId(id);
-      setSaveViewName('');
-      onToast(`View "${name}" saved`);
-    } finally { setSavingView(false); }
-  };
-
-  const deleteView = async (v: SavedView) => {
-    await fetch(`/api/platform/customization?kind=views&id=${encodeURIComponent(v.id)}`, { method: 'DELETE' }).catch(() => {});
-    setSavedViews((prev) => prev.filter((x) => x.id !== v.id));
-    if (activeViewId === v.id) setActiveViewId(null);
-  };
-
-  const cycleSort = (key: string) => {
-    if (sortKey !== key) { setSortKey(key); setSortDir('asc'); }
-    else if (sortDir === 'asc') setSortDir('desc');
-    else { setSortKey(null); setSortDir('asc'); }
-  };
-
-  // Real CSV import for lists whose endpoint accepts creates: parse
-  // the file, map headers onto this list's columns (by key or label),
-  // POST each row, then reload. Lists without a create endpoint do
-  // not render an Import button at all.
-  const importCsv = async (file: File) => {
-    const endpoint = shellListEndpoint(cfg.key);
-    if (!endpoint?.postUrl) return;
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter((l) => l.trim());
-    if (lines.length < 2) { onToast('That CSV has no data rows'); return; }
-    const parseLine = (line: string): string[] => {
-      const out: string[] = []; let cur = ''; let inQ = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (inQ) {
-          if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-          else if (ch === '"') inQ = false;
-          else cur += ch;
-        } else if (ch === '"') inQ = true;
-        else if (ch === ',') { out.push(cur); cur = ''; }
-        else cur += ch;
-      }
-      out.push(cur);
-      return out.map((s) => s.trim());
-    };
-    const headers = parseLine(lines[0]).map((h) => h.toLowerCase());
-    const keyFor = (h: string) => cfg.cols.find((c) => c.key.toLowerCase() === h || c.label.toLowerCase() === h)?.key;
-    let ok = 0; let failed = 0;
-    for (const line of lines.slice(1)) {
-      const cells = parseLine(line);
-      const row: Record<string, string> = {};
-      headers.forEach((h, i) => { const k = keyFor(h); if (k && cells[i] !== undefined && cells[i] !== '') row[k] = cells[i]; });
-      if (Object.keys(row).length === 0) { failed++; continue; }
-      try {
-        const res = await fetch(endpoint.postUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row) });
-        if (res.ok) ok++; else failed++;
-      } catch { failed++; }
-    }
-    await refreshShellRows(cfg.key);
-    reloadRows();
-    onToast(`Import finished — ${ok} created${failed ? `, ${failed} failed` : ''}`);
-  };
+  // Product page modal — opens when a catalog thumbnail is clicked.
+  const [activeProduct, setActiveProduct] = useState<CatalogProduct | null>(null);
 
   // Click-outside for split-button dropdown
   useEffect(() => {
@@ -567,8 +255,7 @@ function ListView({
     return () => document.removeEventListener('mousedown', handleClick);
   }, [splitOpen]);
 
-  // Filter by tab + search + per-column filters. Tabs like
-  // "Open/Overdue/Paid" filter by status column.
+  // Filter by tab + search. Tabs like "Open/Overdue/Paid" filter by status column.
   const filtered = allRows.filter((r) => {
     let tabMatch = true;
     if (activeTab !== 'All' && activeTab !== 'For review') {
@@ -577,131 +264,88 @@ function ListView({
     } else if (activeTab === 'For review') {
       tabMatch = String(r.status ?? '').toLowerCase() === 'for review';
     }
-    if (!tabMatch) return false;
-    for (const [k, v] of Object.entries(colFilters)) {
-      if (v && !String(r[k] ?? '').toLowerCase().includes(v.toLowerCase())) return false;
-    }
-    if (!rowSearch.trim()) return true;
+    if (!rowSearch.trim()) return tabMatch;
     const q = rowSearch.toLowerCase();
-    return Object.values(r).some((v) =>
+    const searchMatch = Object.values(r).some((v) =>
       String(v).toLowerCase().includes(q)
     );
+    return tabMatch && searchMatch;
   });
-  // Columns actually rendered: the def's columns, or — when the table
-  // fallback served the rows — columns derived from the real row keys.
-  const displayCols = fallbackCols ?? cfg.cols;
+  const hasData = filtered.length > 0;
 
-  // Sort the filtered set by the clicked column: numbers numerically,
-  // ISO dates chronologically, everything else as text.
-  const displayed = (() => {
-    if (!sortKey) return filtered;
-    const dir = sortDir === 'asc' ? 1 : -1;
-    return [...filtered].sort((a, b) => {
-      const av = a[sortKey]; const bv = b[sortKey];
-      const an = typeof av === 'number' ? av : Number(String(av ?? '').replace(/[$,]/g, ''));
-      const bn = typeof bv === 'number' ? bv : Number(String(bv ?? '').replace(/[$,]/g, ''));
-      if (!Number.isNaN(an) && !Number.isNaN(bn) && String(av ?? '').trim() !== '' && String(bv ?? '').trim() !== '') return (an - bn) * dir;
-      const ad = Date.parse(String(av ?? '')); const bd = Date.parse(String(bv ?? ''));
-      if (!Number.isNaN(ad) && !Number.isNaN(bd)) return (ad - bd) * dir;
-      return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
-    });
-  })();
-  const hasData = displayed.length > 0;
-
-  // Selection keys on the record id (stable across filter/sort), with
-  // the row's position as a fallback for id-less rows.
-  const rowKey = (row: DemoRow, idx: number) =>
-    row.id !== undefined && row.id !== null && String(row.id) !== '' ? `id:${String(row.id)}` : `idx:${idx}`;
-  const keyedDisplayed = displayed.map((row, i) => ({ row, key: rowKey(row, i) }));
-
-  const toggleSelect = (key: string) =>
+  const toggleSelect = (idx: number) =>
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
       return next;
     });
 
   const toggleSelectAll = () =>
     setSelectedIds((prev) => {
-      if (prev.size === keyedDisplayed.length) return new Set();
-      return new Set(keyedDisplayed.map((k) => k.key));
+      if (prev.size === filtered.length) return new Set();
+      return new Set(filtered.map((_, i) => i));
     });
 
   const selectedArray = Array.from(selectedIds);
-  const selectedRows = keyedDisplayed.filter((k) => selectedIds.has(k.key)).map((k) => k.row);
+
+  const isStudioCatalog =
+    cfg.family === 'catalog' &&
+    (cfg.key.startsWith('studio-') || cfg.key.startsWith('wizard-'));
+
+  // Map a catalog row to its CATALOG_PRODUCTS entry (by product name).
+  const productForRow = (row: DemoRow): CatalogProduct | undefined =>
+    CATALOG_PRODUCTS.find((p) => p.name === String(row.product ?? ''));
 
   const rowMenuItems = (row: DemoRow, idx: number): import('@/components/ListPrimitives').RowMenuItem[] => [
-    {
-      label: 'View',
-      icon: 'open_in_new',
-      onClick: () => onOpenPeek(rowTable ? { ...row, __table: rowTable } : row, cfg.family),
-    },
-    {
-      label: 'Edit',
-      icon: 'edit',
-      onClick: () => {
-        if (!openEditorForRow(row)) onOpenPeek(rowTable ? { ...row, __table: rowTable } : row, cfg.family);
-      },
-    },
-
-    ...(shellListEndpoint(cfg.key)?.postUrl
+    ...(isStudioCatalog
       ? [
           {
-            label: 'Duplicate',
-            icon: 'content_copy',
+            label: 'Add to designer',
+            icon: 'palette',
             onClick: () => {
-              const rid = row.id;
-              if (typeof rid === 'string' && rid) {
-                void shellListDuplicate(cfg.key, rid).then(async (res) => {
-                  if (res.ok) {
-                    await refreshShellRows(cfg.key);
-                    setSelectedIds(new Set(selectedIds));
-                    onToast(`Duplicated ${cfg.newLabel}`);
-                  } else {
-                    onToast(res.error || 'Duplicate failed');
-                  }
-                });
+              // Open the product page modal — user reviews supplier/variants,
+              // then clicks "Start designing" to load the canvas.
+              const prod = productForRow(row);
+              if (prod) {
+                setActiveProduct(prod);
+              } else {
+                // Fallback: load a blank directly.
+                const productName = String(row.product ?? '').toLowerCase();
+                const blankKey = productName.includes('mug')
+                  ? 'mug'
+                  : productName.includes('hoodie') || productName.includes('crewneck')
+                    ? 'hoodie'
+                    : 'tee';
+                useDesignCanvas.getState().loadBlank(blankKey);
+                onNavigate('design', 'new-design');
+                onToast(`${row.product ?? 'Product'} added to designer.`);
               }
             },
           },
-        ]
-      : []),
-    ...(rowTable && typeof row.id === 'string' && row.id && !shellListEndpoint(cfg.key)?.postUrl
-      ? [
           {
-            label: 'Duplicate',
-            icon: 'content_copy',
-            onClick: () => {
-              void platformActions.duplicate(rowTable, row.id as string).then((res) => {
-                if (res.ok) reloadRows();
-                else setRowsError(res.error || 'Duplicate failed');
-              });
-            },
-          },
-          {
-            label: 'Archive',
-            icon: 'archive',
-            onClick: () => {
-              void platformActions.archive(rowTable, row.id as string).then((res) => {
-                if (res.ok) reloadRows();
-                else setRowsError(res.error || 'Archive failed');
-              });
-            },
-          },
-          {
-            label: 'Delete draft',
-            icon: 'delete',
-            danger: true,
-            onClick: () => {
-              void platformActions.deleteDraft(rowTable, row.id as string).then((res) => {
-                if (res.ok) reloadRows();
-                else setRowsError(res.error || 'Delete failed');
-              });
-            },
+            label: 'View',
+            icon: 'open_in_new',
+            onClick: () => onOpenPeek(row, cfg.family),
           },
         ]
-      : []),
+      : [
+          {
+            label: 'View',
+            icon: 'open_in_new',
+            onClick: () => onOpenPeek(row, cfg.family),
+          },
+        ]),
+    {
+      label: 'Edit',
+      icon: 'edit',
+      onClick: () => onOpenPeek(row, cfg.family),
+    },
+    {
+      label: 'Duplicate',
+      icon: 'content_copy',
+      onClick: () => onToast(`Duplicated ${cfg.newLabel}`),
+    },
     {
       label: 'Print',
       icon: 'print',
@@ -710,29 +354,15 @@ function ListView({
         if (typeof window !== 'undefined') window.print();
       },
     },
-    ...(shellListEndpoint(cfg.key)
-      ? [
-          {
-            label: 'Delete',
-            icon: 'delete',
-            danger: true,
-            onClick: () => {
-              const rid = row.id;
-              if (typeof rid === 'string' && rid) {
-                void shellListDelete(cfg.key, rid).then(async (res) => {
-                  if (res.ok) {
-                    await refreshShellRows(cfg.key);
-                    setSelectedIds(new Set());
-                    onToast('Deleted record');
-                  } else {
-                    onToast(res.error || 'Delete failed');
-                  }
-                });
-              }
-            },
-          },
-        ]
-      : []),
+    {
+      label: 'Delete',
+      icon: 'delete',
+      danger: true,
+      onClick: () => {
+        onToast(`Deleted record`);
+        toggleSelect(idx);
+      },
+    },
   ];
 
   const bulkActions: import('@/components/ListPrimitives').BulkAction[] = [
@@ -740,38 +370,24 @@ function ListView({
       label: 'Export selected',
       icon: 'download',
       onClick: () => {
-        const cols = displayCols.map((c) => ({ key: c.key, label: c.label }));
-        exportToCsv(selectedRows as unknown as Record<string, unknown>[], cols, `${cfg.key || 'export'}-selected`);
-        onToast(`Exported ${selectedRows.length} records to CSV`);
+        const cols = cfg.cols.map((c) => ({ key: c.key, label: c.label }));
+        const selectedRows = selectedArray
+          .map((i) => filtered[i])
+          .filter(Boolean) as unknown as Record<string, unknown>[];
+        exportToCsv(selectedRows, cols, `${cfg.key || 'export'}-selected`);
+        onToast(`Exported ${selectedArray.length} records to CSV`);
         setSelectedIds(new Set());
       },
     },
-    ...(shellListEndpoint(cfg.key)
-      ? [
-          {
-            label: 'Delete selected',
-            icon: 'delete',
-            danger: true,
-            onClick: () => {
-              const ids = selectedRows
-                .map((r) => r.id)
-                .filter((x): x is string => typeof x === 'string' && !!x);
-              if (ids.length) {
-                void (async () => {
-                  let failed = 0;
-                  for (const id of ids) {
-                    const res = await shellListDelete(cfg.key, id);
-                    if (!res.ok) failed += 1;
-                  }
-                  await refreshShellRows(cfg.key);
-                  setSelectedIds(new Set());
-                  onToast(failed ? `Deleted ${ids.length - failed} records — ${failed} failed` : `Deleted ${ids.length} records`);
-                })();
-              }
-            },
-          },
-        ]
-      : []),
+    {
+      label: 'Delete selected',
+      icon: 'delete',
+      danger: true,
+      onClick: () => {
+        onToast(`Deleted ${selectedArray.length} records`);
+        setSelectedIds(new Set());
+      },
+    },
   ];
 
   // Per-family create options for the split-button dropdown
@@ -781,17 +397,6 @@ function ListView({
 
   return (
     <div className={styles.screenContainer}>
-      <input
-        ref={importRef}
-        type="file"
-        accept=".csv,text/csv"
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (f) void importCsv(f);
-        }}
-      />
       <div className={styles.listHeader}>
         <div>
           <div className={styles.breadcrumb}>
@@ -808,9 +413,7 @@ function ListView({
               type="button"
               className={styles.splitBtnPrimaryMain}
               data-new={cfg.newLabel}
-              onClick={() => {
-                if (!openEditorForNew()) handleNew();
-              }}
+              onClick={() => onCreate(cfg.newLabel)}
             >
               <span className={`material-symbols-outlined ${styles.icon16}`}>add</span>
               New {cfg.newLabel.toLowerCase()}
@@ -859,13 +462,22 @@ function ListView({
             className={styles.secondaryBtn}
             data-export
             onClick={() => {
-              const cols = displayCols.map((c) => ({ key: c.key, label: c.label }));
-              exportToCsv(displayed as unknown as Record<string, unknown>[], cols, cfg.key || 'export');
-              onToast(`Exported ${displayed.length} records to CSV`);
+              const cols = cfg.cols.map((c) => ({ key: c.key, label: c.label }));
+              exportToCsv(filtered as unknown as Record<string, unknown>[], cols, cfg.key || 'export');
+              onToast(`Exported ${filtered.length} records to CSV`);
             }}
           >
             <span className={`material-symbols-outlined ${styles.icon16}`}>download</span>
             Export
+          </button>
+          <button
+            type="button"
+            className={styles.secondaryBtn}
+            data-customize
+            onClick={() => onToast('Customize panel — Data / Visual tabs')}
+          >
+            <span className={`material-symbols-outlined ${styles.icon16}`}>tune</span>
+            Customize
           </button>
         </div>
       </div>
@@ -912,34 +524,14 @@ function ListView({
                 key={tab}
                 type="button"
                 data-viewtab={tab}
-                className={`${styles.viewTab} ${isTabActive && !activeViewId ? styles.viewTabActive : ''}`}
-                onClick={() => { setActiveTab(tab); setActiveViewId(null); }}
+                className={`${styles.viewTab} ${isTabActive ? styles.viewTabActive : ''}`}
+                onClick={() => setActiveTab(tab)}
               >
                 {tab}
                 {count > 0 && <span className={styles.viewTabCount}>{count}</span>}
               </button>
             );
           })}
-          {savedViews.map((v) => (
-            <span key={v.id} style={{ display: 'inline-flex', alignItems: 'center' }}>
-              <button
-                type="button"
-                data-viewtab={v.name}
-                className={`${styles.viewTab} ${activeViewId === v.id ? styles.viewTabActive : ''}`}
-                onClick={() => applyView(v)}
-              >
-                {v.name}
-              </button>
-              <button
-                type="button"
-                aria-label={`Delete view ${v.name}`}
-                onClick={() => deleteView(v)}
-                style={{ fontSize: 13, color: '#8a9184', padding: '0 4px' }}
-              >
-                ×
-              </button>
-            </span>
-          ))}
         </div>
 
         <div className={styles.filterToolbar}>
@@ -953,52 +545,22 @@ function ListView({
               onChange={(e) => setRowSearch(e.target.value)}
             />
           </div>
-          <div ref={filtersRef} style={{ position: 'relative' }}>
-            <button type="button" className={styles.filterToolBtn} onClick={() => setFiltersOpen((v) => !v)}>
-              <span className={`material-symbols-outlined ${styles.icon14}`}>filter_list</span>
-              Filters{Object.values(colFilters).filter(Boolean).length > 0 ? ` (${Object.values(colFilters).filter(Boolean).length})` : ''}
-            </button>
-            {filtersOpen && (
-              <div style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 60, background: '#fff', border: '1px solid #dfe3da', borderRadius: 10, boxShadow: '0 12px 32px rgba(20,26,18,0.16)', padding: 12, width: 300 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Filter by column</div>
-                {cfg.cols.map((c) => (
-                  <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
-                    <span style={{ width: 92, color: '#5a6355' }}>{c.label}</span>
-                    <input
-                      type="text"
-                      placeholder="contains…"
-                      value={colFilters[c.key] || ''}
-                      onChange={(e) => setColFilters((prev) => ({ ...prev, [c.key]: e.target.value }))}
-                      style={{ flex: 1, height: 28, padding: '0 8px', border: '1px solid #dfe3da', borderRadius: 6, fontSize: 12 }}
-                    />
-                  </label>
-                ))}
-                <div style={{ display: 'flex', gap: 6, marginTop: 10, borderTop: '1px solid #eef0ea', paddingTop: 10 }}>
-                  <input
-                    type="text"
-                    placeholder="New view name"
-                    value={saveViewName}
-                    onChange={(e) => setSaveViewName(e.target.value)}
-                    style={{ flex: 1, height: 28, padding: '0 8px', border: '1px solid #dfe3da', borderRadius: 6, fontSize: 12 }}
-                  />
-                  <button type="button" disabled={savingView} onClick={saveView} style={{ height: 28, padding: '0 10px', borderRadius: 6, background: '#1c2a1e', color: '#fff', fontSize: 12, fontWeight: 600 }}>
-                    Save view
-                  </button>
-                </div>
-                <button type="button" onClick={() => { setColFilters({}); setRowSearch(''); }} style={{ marginTop: 8, fontSize: 12, color: '#5a6355' }}>
-                  Clear all filters
-                </button>
-              </div>
-            )}
-          </div>
-          <button type="button" className={styles.filterToolBtn} onClick={() => { setRowSearch(''); setColFilters({}); setActiveViewId(null); }}>
-            <span className={`material-symbols-outlined ${styles.icon14}`}>clear</span>
-            Clear filter
+          <button type="button" className={styles.filterToolBtn}>
+            <span className={`material-symbols-outlined ${styles.icon14}`}>filter_list</span>
+            Filter
+          </button>
+          <button type="button" className={styles.filterToolBtn}>
+            <span className={`material-symbols-outlined ${styles.icon14}`}>calendar_today</span>
+            Date range
+          </button>
+          <button type="button" className={styles.filterToolBtn}>
+            <span className={`material-symbols-outlined ${styles.icon14}`}>bookmark</span>
+            Saved views
           </button>
           <span className={styles.rowCountText}>
             {selectedIds.size > 0
               ? `${selectedIds.size} selected`
-              : `${displayed.length} of ${allRows.length}`}
+              : `1–${filtered.length} of ${filtered.length}`}
           </span>
         </div>
 
@@ -1010,30 +572,7 @@ function ListView({
           />
         )}
 
-        {rowsLoading ? (
-          <div className={styles.emptyState}>
-            <div style={{ color: '#5a6355', fontSize: 13 }}>Loading rows…</div>
-          </div>
-        ) : rowsError ? (
-          <div className={styles.emptyState}>
-            <div style={{ color: '#b3261e', fontSize: 13 }}>{rowsError}</div>
-            <button
-              type="button"
-              className={styles.secondaryBtn}
-              style={{ marginTop: 12 }}
-              onClick={() => {
-                setRowsError(null);
-                setRowsLoading(true);
-                loadRows()
-                  .then((rows) => setAllRows(rows))
-                  .catch((e) => setRowsError(e instanceof Error ? e.message : 'List failed to load.'))
-                  .finally(() => setRowsLoading(false));
-              }}
-            >
-              Retry
-            </button>
-          </div>
-        ) : hasData ? (
+        {hasData ? (
           <table className={styles.dataTable}>
             <thead className={styles.tableHead}>
               <tr>
@@ -1041,49 +580,67 @@ function ListView({
                   <input
                     type="checkbox"
                     className={styles.rowCheck}
-                    checked={selectedIds.size === keyedDisplayed.length && keyedDisplayed.length > 0}
+                    checked={selectedIds.size === filtered.length && filtered.length > 0}
                     onChange={toggleSelectAll}
                   />
                 </th>
-                {displayCols.map((col) => (
+                {isStudioCatalog && <th className={styles.thumbColHeader} />}
+                {cfg.cols.map((col) => (
                   <th
                     key={col.key}
                     className={`${styles.colHeader} ${col.right ? styles.alignRight : ''}`}
-                    onClick={() => cycleSort(col.key)}
-                    style={{ cursor: 'pointer', userSelect: 'none' }}
-                    title="Click to sort"
                   >
                     {col.label}
-                    {sortKey === col.key && (
-                      <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginLeft: 2 }}>
-                        {sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward'}
-                      </span>
-                    )}
                   </th>
                 ))}
                 <th className={styles.actionColHeader} />
               </tr>
             </thead>
             <tbody className={styles.tableBody}>
-              {keyedDisplayed.map(({ row, key }, idx) => {
+              {filtered.map((row, idx) => {
+                const prod = isStudioCatalog ? productForRow(row) : undefined;
+                const thumbImg = prod
+                  ? 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%23e8e8e8"/><path d="M30 30 L30 90 L45 90 L45 50 L50 40 L55 50 L55 90 L70 90 L70 30 Z" fill="%23fff" stroke="%23ccc"/></svg>'
+                  : null;
                 return (
                 <tr
-                  key={key}
-                  className={`${styles.tableRow} ${selectedIds.has(key) ? styles.tableRowSelected : ''}`}
-                  onClick={() => {
-                    if (!openEditorForRow(row)) onOpenPeek(rowTable ? { ...row, __table: rowTable } : row, cfg.family);
-                  }}
+                  key={idx}
+                  className={`${styles.tableRow} ${selectedIds.has(idx) ? styles.tableRowSelected : ''}`}
+                  onClick={() => onOpenPeek(row, cfg.family)}
                 >
                   <td className={styles.cell}>
                     <input
                       type="checkbox"
                       className={styles.rowCheck}
-                      checked={selectedIds.has(key)}
+                      checked={selectedIds.has(idx)}
                       onClick={(e) => e.stopPropagation()}
-                      onChange={() => toggleSelect(key)}
+                      onChange={() => toggleSelect(idx)}
                     />
                   </td>
-                  {displayCols.map((col) => {
+                  {isStudioCatalog && (
+                    <td className={styles.thumbCell}>
+                      {thumbImg && prod && (
+                        <button
+                          type="button"
+                          className={styles.thumbBtn}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('blank-type', prod.blankKey);
+                            e.dataTransfer.setData('catalog-product-id', prod.id);
+                            e.dataTransfer.effectAllowed = 'copy';
+                          }}
+                          title={`${prod.name} — drag to canvas or click for product page`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveProduct(prod);
+                          }}
+                        >
+                          <img src={thumbImg} alt={prod.name} />
+                        </button>
+                      )}
+                    </td>
+                  )}
+                  {cfg.cols.map((col) => {
                     const val = row[col.key];
                     return (
                       <td
@@ -1118,24 +675,20 @@ function ListView({
               {cfg.emptySteps || 'Create your first record or import from a CSV.'}
             </p>
             <div className={styles.emptyActions}>
-              {shellListEndpoint(cfg.key)?.postUrl && (
-                <button
-                  type="button"
-                  className={styles.secondaryBtn}
-                  data-import
-                  onClick={() => importRef.current?.click()}
-                >
-                  <span className={`material-symbols-outlined ${styles.icon16}`}>upload</span>
-                  Import
-                </button>
-              )}
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                data-import
+                onClick={() => onToast('Import dialog — select a CSV file')}
+              >
+                <span className={`material-symbols-outlined ${styles.icon16}`}>upload</span>
+                Import
+              </button>
               <button
                 type="button"
                 className={styles.primaryBtn}
                 data-new={cfg.newLabel}
-                onClick={() => {
-                  if (!openEditorForNew()) handleNew();
-                }}
+                onClick={() => onCreate(cfg.newLabel)}
               >
                 <span className={`material-symbols-outlined ${styles.icon16}`}>add</span>
                 {cfg.newLabel}
@@ -1145,6 +698,17 @@ function ListView({
         )}
       </div>
 
+      {/* Product page modal — opens when a catalog thumbnail is clicked. */}
+      {activeProduct && (
+        <ProductPageModal
+          product={activeProduct}
+          onClose={() => setActiveProduct(null)}
+          onEnterStudio={() => {
+            onNavigate('design', 'new-design');
+            onToast(`${activeProduct.name} loaded into the studio.`);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1170,24 +734,6 @@ function OverviewView({
 }) {
   const kpis = cfg.kpis || [];
   const actions = cfg.actions || [];
-
-  // Live KPI values: when the def names a kpiEndpoint, its values
-  // replace the static ones once it resolves (static values stay as
-  // the pre-fetch / failure fallback — never a spinner, never blank).
-  const [liveKpis, setLiveKpis] = useState<OverviewKpi[] | null>(null);
-  useEffect(() => {
-    if (!cfg.kpiEndpoint) return;
-    let cancelled = false;
-    fetch(cfg.kpiEndpoint)
-      .then((r) => r.json())
-      .then((json) => {
-        const rows = (json?.data?.kpis || []) as OverviewKpi[];
-        if (!cancelled && rows.length) setLiveKpis(rows);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [cfg.kpiEndpoint]);
-  const shownKpis = liveKpis || kpis;
 
   // Build the child strip: all screens across all groups in this domain.
   const childScreens = useMemo(() => {
@@ -1298,38 +844,19 @@ function OverviewView({
       </div>
 
       <div className={styles.kpiGrid}>
-        {shownKpis.map((kpi) => {
-          const target = kpi.screen;
-          const card = (
-            <>
-              <span className={styles.kpiLabel}>{kpi.label}</span>
-              <div className={styles.kpiValue}>{kpi.value}</div>
-              <div
-                className={
-                  kpi.delta?.startsWith('+') ? styles.kpiDeltaPos : styles.kpiDeltaNeg
-                }
-              >
-                {kpi.delta || ''}
-              </div>
-            </>
-          );
-          return target ? (
-            <button
-              key={kpi.label}
-              type="button"
-              className={styles.kpiCard}
-              style={{ textAlign: 'left', cursor: 'pointer' }}
-              title={`Open ${kpi.label}`}
-              onClick={() => onNavigate(domain, target)}
+        {kpis.map((kpi) => (
+          <div key={kpi.label} className={styles.kpiCard}>
+            <span className={styles.kpiLabel}>{kpi.label}</span>
+            <div className={styles.kpiValue}>{kpi.value}</div>
+            <div
+              className={
+                kpi.delta?.startsWith('+') ? styles.kpiDeltaPos : styles.kpiDeltaNeg
+              }
             >
-              {card}
-            </button>
-          ) : (
-            <div key={kpi.label} className={styles.kpiCard}>
-              {card}
+              {kpi.delta || ''}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
       <div className={styles.createActionsRow}>
@@ -1406,7 +933,6 @@ function LiveStudioList({
   onClearSelection,
   rowAction,
   quickActions,
-  footer,
 }: {
   domainLabel: string;
   groupName: string;
@@ -1437,8 +963,6 @@ function LiveStudioList({
   rowAction?: { label: string; onClick: (idx: number) => void };
   /** Optional per-row quick-actions menu (the ⋯ menu — View, Preview, queue…). */
   quickActions?: (idx: number) => RowMenuItem[];
-  /** Optional footer under the table (e.g. Load more). */
-  footer?: React.ReactNode;
 }) {
   return (
     <div className={styles.screenContainer}>
@@ -1599,7 +1123,6 @@ function LiveStudioList({
             </tbody>
           </table>
         )}
-        {footer}
       </div>
     </div>
   );
@@ -1653,9 +1176,7 @@ function StudioCatalogScreen({
   const [activeSub, setActiveSub] = useState<string | null>(null);
   const [cards, setCards] = useState<BlankCard[]>([]);
   const [total, setTotal] = useState(0);
-  const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Live eligibility per canonical (render_state + offers + lifecycle),
   // fetched from the blank workspace for exactly the canonicals on screen.
@@ -1668,21 +1189,14 @@ function StudioCatalogScreen({
   const [view, setView] = useState<'cards' | 'table'>('cards');
 
   const load = useCallback(
-    async (sub?: string, cur?: string | null) => {
-      if (cur) setLoadingMore(true);
-      else setLoading(true);
+    async (sub?: string) => {
+      setLoading(true);
       setError(null);
       try {
-        const { items, nextCursor, meta } = await listBlanks({
-          category,
-          subcategory: sub,
-          limit: 50,
-          ...(cur ? { cursor: cur } : {}),
-        });
-        setCards((prev) => (cur ? [...prev, ...items] : items));
-        setCursor(nextCursor);
+        const { items, meta } = await listBlanks({ category, subcategory: sub, limit: 50 });
+        setCards(items);
         setTotal(meta?.total ?? items.length);
-        if (!cur) setSelected(new Set());
+        setSelected(new Set());
         const canonicalIds = [...new Set(items.map((c) => c.canonicalProductId).filter(Boolean))];
         if (canonicalIds.length > 0) {
           try {
@@ -1697,31 +1211,30 @@ function StudioCatalogScreen({
                   eligibility: { status: string; reasons: string[] };
                 }[];
               };
-              const nextElig = new Map(
-                body.items.map((w) => [
-                  w.canonicalProductId,
-                  {
-                    status: w.eligibility.status,
-                    reasons: w.eligibility.reasons,
-                    renderState: w.renderState,
-                  },
-                ]),
+              setEligibility(
+                new Map(
+                  body.items.map((w) => [
+                    w.canonicalProductId,
+                    {
+                      status: w.eligibility.status,
+                      reasons: w.eligibility.reasons,
+                      renderState: w.renderState,
+                    },
+                  ]),
+                ),
               );
-              // Load-more pages merge; a fresh load replaces.
-              setEligibility((prev) => (cur ? new Map([...prev, ...nextElig]) : nextElig));
             }
           } catch {
             // Eligibility is additive — a failed lookup never blocks the list.
-            if (!cur) setEligibility(new Map());
+            setEligibility(new Map());
           }
-        } else if (!cur) {
+        } else {
           setEligibility(new Map());
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not load products.');
       } finally {
         setLoading(false);
-        setLoadingMore(false);
       }
     },
     [category],
@@ -1733,15 +1246,7 @@ function StudioCatalogScreen({
       .then(({ categories }) => {
         if (cancelled) return;
         const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-        // Direct tree match first; a single-node alias second (a
-        // multi-node alias like Apparel has no one node to list children
-        // from — its tabs stay 'All' and the list still loads the union).
-        const aliased = aliasFor(category);
-        const node =
-          categories.find((c) => norm(c.name) === norm(category)) ??
-          (aliased && aliased.length === 1
-            ? categories.find((c) => norm(c.name) === norm(aliased[0]))
-            : undefined);
+        const node = categories.find((c) => norm(c.name) === norm(category));
         const children = node?.children.map((c) => c.name) ?? [];
         // "All" first: a department screen opens on the whole department,
         // not on its first child (Apparel used to open on Men and report
@@ -1834,22 +1339,6 @@ function StudioCatalogScreen({
   };
 
   const subtitle = `Showing ${cards.length} of ${total} blanks in ${category} — ${counts.Eligible} eligible · ${counts.Review} in review · ${counts.Discontinued} discontinued. Eligibility is live from the render workspace; a blank with no render assets sits in Review until its contract is built.`;
-  /** Every keeper product in the category is reachable — the list pages
-   *  50 at a time and this button appends the next page (same pattern as
-   *  the ERP product catalog). Without it the list stopped at 50 cards
-   *  while the subtitle reported the full total. */
-  const loadMoreFooter = cursor ? (
-    <div style={{ display: 'flex', justifyContent: 'center', padding: '16px' }}>
-      <button
-        type="button"
-        className={styles.secondaryBtn}
-        disabled={loadingMore}
-        onClick={() => void load(activeSub === 'All' ? undefined : activeSub ?? undefined, cursor)}
-      >
-        {loadingMore ? 'Loading…' : `Load more (${cards.length} of ${total})`}
-      </button>
-    </div>
-  ) : undefined;
   const viewToggle = (
     <div className={styles.viewTabsBar} style={{ border: 'none' }}>
       {(['cards', 'table'] as const).map((v) => (
@@ -1984,7 +1473,6 @@ function StudioCatalogScreen({
           {subTabs}
         </span>
       }
-      footer={loadMoreFooter}
     />
   );
   if (view === 'table') return tableView;
@@ -2073,35 +1561,32 @@ function StudioCatalogScreen({
             <p className={styles.emptyDesc}>No keeper-supplier blanks in this category.</p>
           </div>
         ) : (
-          <>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                gap: 16,
-                padding: 16,
-              }}
-            >
-              {filtered.map((r, idx) => (
-                <ProductCard
-                  key={r.card.id}
-                  card={r.card}
-                  selected={selected.has(idx)}
-                  onToggleSelect={() =>
-                    setSelected((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(idx)) next.delete(idx);
-                      else next.add(idx);
-                      return next;
-                    })
-                  }
-                  onDesign={() => void openBlankProductPage(r.card.id, onNavigate, onToast)}
-                  onView={() => void openBlankProductPage(r.card.id, onNavigate, onToast)}
-                />
-              ))}
-            </div>
-            {loadMoreFooter}
-          </>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gap: 16,
+              padding: 16,
+            }}
+          >
+            {filtered.map((r, idx) => (
+              <ProductCard
+                key={r.card.id}
+                card={r.card}
+                selected={selected.has(idx)}
+                onToggleSelect={() =>
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(idx)) next.delete(idx);
+                    else next.add(idx);
+                    return next;
+                  })
+                }
+                onDesign={() => void openBlankProductPage(r.card.id, onNavigate, onToast)}
+                onView={() => void openBlankProductPage(r.card.id, onNavigate, onToast)}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -3257,30 +2742,22 @@ function DesignStudioSettingsScreen({ onToast }: { onToast: (message: string) =>
 function TabScreenRenderer({
   domain,
   screenId,
-  domains,
   dashboardController,
   onNavigate,
   onCapCreate,
   onCreate,
-  onCreateTable,
-  listRefreshSignal,
   onOpenCreateFlyout,
-  onOpenDocument,
   onOpenPeek,
   onToast,
   wizardPrefill,
 }: {
   domain: DomainKey;
   screenId: string;
-  domains: Record<DomainKey, DomainConfig>;
   dashboardController: DashboardController;
   onNavigate: (domain: DomainKey, screenId: string) => void;
   onCapCreate: (label: string) => void;
   onCreate: (label: string) => void;
-  onCreateTable?: (table: string, title: string, screenKey?: string) => void;
-  listRefreshSignal?: number;
   onOpenCreateFlyout: () => void;
-  onOpenDocument?: (type: DocumentType, id: string | null) => void;
   onOpenPeek: (row: DemoRow, family: string) => void;
   onToast: (message: string) => void;
   wizardPrefill?: { category: string; subcategory?: string } | null;
@@ -3334,18 +2811,17 @@ function TabScreenRenderer({
   // ── Orders module pages ──
   if (domain === 'orders') {
     const ordersProps = {
-      onNavigate: onNavigate as (d: string, s: string) => void,
+      onNavigate,
       onToast,
       onCreate,
       onOpenCreateFlyout,
-      onOpenDocument,
       onOpenPeek: peekTitled,
     };
     switch (screenId) {
       case 'orders-overview':
         return <OrdersOverview {...ordersProps} />;
       case 'orders':
-        return <OrdersWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+        return <OrdersList {...ordersProps} />;
       case 'purchase-orders':
         return <PurchaseOrders {...ordersProps} />;
       case 'returns':
@@ -3363,36 +2839,6 @@ function TabScreenRenderer({
         return <InventoryView {...ordersProps} />;
       default:
         // Fall through to existing screen-specific renderers below
-        break;
-    }
-  }
-
-  // ── Inventory module pages (module 3 spec) ──
-  // Stock on hand / transfers / cycle counts / warehouses land on the
-  // matching InventoryView sub-tab; cost layers, lots, movements,
-  // reservations and serial numbers fall through to ListView via
-  // SCREEN_DEFS below.
-  if (domain === 'inventory') {
-    const inventoryProps = {
-      onNavigate: onNavigate as (d: string, s: string) => void,
-      onToast,
-      onCreate,
-      onOpenCreateFlyout,
-      onOpenDocument,
-      onOpenPeek: peekTitled,
-    };
-    switch (screenId) {
-      case 'inventory-stock-on-hand':
-      case 'inventory':
-        return <InventoryView {...inventoryProps} initialTab="stock" />;
-      case 'inventory-transfers':
-        return <InventoryView {...inventoryProps} initialTab="transfers" />;
-      case 'inventory-cycle-counts':
-        return <InventoryView {...inventoryProps} initialTab="counts" />;
-      case 'inventory-warehouses':
-      case 'inventory-warehouse-locations':
-        return <InventoryView {...inventoryProps} initialTab="warehouses" />;
-      default:
         break;
     }
   }
@@ -3419,8 +2865,7 @@ function TabScreenRenderer({
         'studio-bg-none', 'studio-bg-palette', 'studio-bg-custom',
         'studio-reset-settings', 'studio-my-library', 'studio-my-collections',
         'studio-my-stores', 'studio-my-templates', 'studio-my-orders',
-        'studio-published', 'studio-hidden', 'studio-wizard', 'studio-design',
-        'studio-design-preview', // the design_preview.html port — its own screen, not a canvas category
+        'studio-published', 'studio-hidden', 'studio-wizard', 'studio-design'
       ].includes(screenId)) {
     // Parse the category from the screen id (studio-men → Men)
     const catSlug = screenId.replace('studio-', '');
@@ -3504,7 +2949,7 @@ function TabScreenRenderer({
     return <ErpProductCatalogScreen onToast={onToast} onNavigate={onNavigate} {...node} />;
   }
 
-  if (screenId.startsWith('studio-') && !['studio-wizard', 'studio-design', 'studio-design-preview', 'studio-upload', 'studio-images', 'studio-graphics', 'studio-add-text', 'studio-ai', 'studio-shapes', 'studio-themes', 'studio-templates', 'studio-product-details', 'studio-layers', 'studio-layouts', 'studio-files', 'studio-shutterstock', 'studio-settings', 'studio-show-grid', 'studio-show-guides', 'studio-show-bleeds', 'studio-show-rulers', 'studio-units', 'studio-background-color', 'studio-bg-none', 'studio-bg-palette', 'studio-bg-custom', 'studio-reset-settings', 'studio-my-library', 'studio-my-collections', 'studio-my-stores', 'studio-my-templates', 'studio-my-orders', 'studio-published', 'studio-hidden'].includes(screenId)) {
+  if (screenId.startsWith('studio-') && !['studio-wizard', 'studio-design', 'studio-upload', 'studio-images', 'studio-graphics', 'studio-add-text', 'studio-ai', 'studio-shapes', 'studio-themes', 'studio-templates', 'studio-product-details', 'studio-layers', 'studio-layouts', 'studio-files', 'studio-shutterstock', 'studio-settings', 'studio-show-grid', 'studio-show-guides', 'studio-show-bleeds', 'studio-show-rulers', 'studio-units', 'studio-background-color', 'studio-bg-none', 'studio-bg-palette', 'studio-bg-custom', 'studio-reset-settings', 'studio-my-library', 'studio-my-collections', 'studio-my-stores', 'studio-my-templates', 'studio-my-orders', 'studio-published', 'studio-hidden'].includes(screenId)) {
     const node = catalogNodeFor(screenId);
     return <ErpProductCatalogScreen onToast={onToast} onNavigate={onNavigate} {...node} />;
   }
@@ -3520,16 +2965,9 @@ function TabScreenRenderer({
     case 'mkt-publishing-overview': return <PublishingOverviewScreen {...mktProps} />;
     case 'mkt-create-content': return <CreateContentScreen {...mktProps} />;
     case 'mkt-oversight': return <OversightScreen onToast={onToast} />;
-    case 'mkt-social-channels': return <SocialChannelsScreen {...mktProps} />;
-    case 'mkt-social-queue': return <SocialQueueScreen {...mktProps} />;
-    case 'mkt-social-calendar': return <SocialCalendarScreen {...mktProps} />;
-    case 'mkt-social-library': return <SocialLibraryScreen {...mktProps} />;
-    case 'mkt-social-performance': return <SocialPerformanceScreen {...mktProps} />;
     case 'mkt-promotions': return <PromotionsScreen onToast={onToast} />;
     case 'mkt-newsletter': return <NewsletterScreen onToast={onToast} />;
-    case 'mkt-webforms': return <WebformsScreen onToast={onToast} />;
     case 'mkt-automation': return <AutomationScreen onToast={onToast} />;
-    case 'mkt-sequences': return <SequencesScreen onToast={onToast} />;
     case 'mkt-adcenter': return <AdCenterScreen {...mktProps} />;
     case 'mkt-campaigns': return <CampaignsScreen onToast={onToast} />;
     case 'mkt-adsets': return <AdSetsScreen onToast={onToast} />;
@@ -3558,52 +2996,6 @@ function TabScreenRenderer({
     return <DesignPreviewScreen onToast={onToast} onNavigate={onNavigate} />;
   }
 
-  // ── Design Studio: Tech packs (free-hand studio production documents) ──
-  if (screenId === 'tech-packs') {
-    return <TechPacksListScreen onNavigate={onNavigate} />;
-  }
-  if (screenId === 'tech-pack-editor') {
-    return <TechPackEditorScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'tech-pack-preview') {
-    return <TechPackPreviewScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'studio-design-preview') {
-    return <StudioDesignPreviewScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  // ── Website / CMS editors (doc 25) — hidden screens opened from the
-  //    CMS lists' rows and New buttons (see openCmsEditorForList).
-  if (screenId === 'cms-page-editor') {
-    return <CmsPageEditorScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'cms-banner-editor') {
-    return <CmsBannerEditorScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'cms-popup-editor') {
-    return <CmsPopupEditorScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'cms-navigation-editor') {
-    return <CmsNavigationEditorScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'cms-block-editor') {
-    return <CmsBlockEditorScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'cms-media-library') {
-    return <CmsMediaLibraryScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'cms-settings') {
-    return <CmsSettingsScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'rfqs') {
-    return <RfqsListScreen onNavigate={onNavigate} />;
-  }
-  if (screenId === 'rfq-board') {
-    return <RfqBoardScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-  if (screenId === 'freehand-designer') {
-    return <FreehandDesignerScreen onToast={onToast} onNavigate={onNavigate} />;
-  }
-
   // ── Finance: Expenses & Bills (spec §3) ──
   if (screenId === 'bills-overview') {
     return (
@@ -3614,108 +3006,6 @@ function TabScreenRenderer({
         onOpenCreateFlyout={onOpenCreateFlyout}
       />
     );
-  }
-
-  if (screenId === 'payroll') {
-    // Payroll (doc 28 Batch C) — the dedicated screen: runs + drawer,
-    // employees, deductions, periods, timesheets. Replaces the generic
-    // ListView of acct_payroll_runs for this nav id.
-    return <PayrollScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'close') {
-    // Month-end close (doc 28 Batch G) — periods, closes, templates,
-    // flux, file review, auto-reversals, journal batches.
-    return <CloseScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'fixed-assets') {
-    // Fixed assets (doc 28 Batch H) — register, classes, depreciation
-    // runs. The 'tax-assets' nav id renders TaxSummary (its Assets tab
-    // is the tax-mapping view), so the register lives here.
-    return <FixedAssetsScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'liabilities-credit') {
-    // Liabilities and credit (doc 28 Batch H) — debt instruments,
-    // leases, and the credit-kind bank accounts. Replaces the generic
-    // ListView for this nav id; the credit accounts live on as a tab.
-    return <LiabilitiesScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'revenue-recognition') {
-    // Revenue recognition (doc 28 Batch H) — contracts with
-    // performance obligations and their schedules, plus the generic
-    // prepaid / deferred / accrued recognition schedules.
-    return <RevenueScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'budgets') {
-    // Budgets (doc 28 Batch I) — versions, lines, fill-from-actuals,
-    // budget vs actual from the engine.
-    return <BudgetsScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'dimensions') {
-    // Dimensions (doc 28 Batch I) — tracking dimensions, their
-    // values, and per-account dimension rules.
-    return <DimensionsScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'expense-reports') {
-    // Expense reports (doc 28 Batch I) — draft → submit → approve →
-    // post to the GL (Dr expense, Cr accrued liabilities).
-    return <ExpenseReportsScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'recurring') {
-    // Recurring (doc 28 Batch I) — recurring invoices, bills and
-    // journals; the invoice/bill runners are the engine's.
-    return <RecurringScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'price-books') {
-    // Price books (doc 28 Batch I) — named sets of product price
-    // overrides.
-    return <PriceBooksScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'allocations') {
-    // Allocations (doc 28 Batch I) — cost allocations by percentage
-    // or fixed amount, optionally driven by a dimension.
-    return <AllocationsScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'consolidation') {
-    // Consolidation (doc 28 Batch I) — groups, runs, intercompany,
-    // and FX revaluation (acct_fx_revalue).
-    return <ConsolidationScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'kpis') {
-    // KPIs (doc 28 Batch I) — values from the engine (acct_kpis)
-    // and the definitions it evaluates.
-    return <KpiScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'workflows') {
-    // Workflows (doc 28 Batch I) — approval workflows and their
-    // instances with the action trail.
-    return <WorkflowsScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'accounting-reference') {
-    // Reference data (doc 28 Batch I) — payment terms, currencies,
-    // exchange rates, refund policies, transaction templates,
-    // controls, book mappings, channel accounts, report packages.
-    return <ReferenceScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'system-records') {
-    // System records (doc 28 Batch I) — the read-only registers the
-    // engine writes: roles, balances, sequences, order postings,
-    // gateway clearing, processor events, attachments, customers.
-    return <RegistersScreen onToast={onToast} />;
   }
 
   if (screenId === 'bills') {
@@ -3762,29 +3052,12 @@ function TabScreenRenderer({
     return <ContactsParties onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} onCreate={onCreate} />;
   }
 
-  if (screenId === 'shopify' || screenId === 'etsy' || screenId === 'tiktok' || screenId === 'amazon' || screenId === 'ebay' || screenId === 'whatnot' || screenId === 'facebook-marketplace') {
-    // Catalog → Channels (pack 3): connection, webhook, published
-    // products and channel orders for one provider.
-    const labels: Record<string, string> = {
-      shopify: 'Shopify', etsy: 'Etsy', tiktok: 'TikTok Shop', amazon: 'Amazon',
-      ebay: 'eBay', whatnot: 'Whatnot', 'facebook-marketplace': 'Facebook Marketplace',
-    };
-    return <ChannelsScreen provider={screenId} label={labels[screenId] || screenId} onToast={onToast} />;
-  }
-
-  if (screenId === 'ecommerce') {
-    // Catalog → Channels → Ecommerce (pack 3): KPI stat bar + carts +
-    // checkout sessions from the commerce tables.
-    return <ChannelsScreen provider="ecommerce" label="Ecommerce" onToast={onToast} />;
-  }
-
-  if (screenId === 'gift-cards') {
-    // Gift cards (pack 3): issue/redeem through the accounting RPCs.
-    return <GiftCardsScreen onToast={onToast} />;
-  }
-
   if (screenId === 'leads') {
     return <LeadsPipelineSupabase onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  }
+
+  if (screenId === 'deals') {
+    return <DealsWorkbench onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'appointments') {
@@ -3793,18 +3066,15 @@ function TabScreenRenderer({
     return <AppointmentsScreen onToast={onToast} />;
   }
 
-  if (screenId === 'deals') {
-    return <DealsScreen onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  if (screenId === 'segments') {
+    // Real segments on crm_segments + crm_segment_memberships: list with
+    // member counts, detail drawer with members, create-on-save.
+    return <SegmentsScreen onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'templates') {
     // CRM message templates on crm_message_templates — full CRUD.
     return <TemplatesScreen onToast={onToast} />;
-  }
-
-  if (screenId === 'crm-tracked-records') {
-    // Tracked records — dependents + event timeline (SHIP-IT__115).
-    return <TrackedRecordsScreen onToast={onToast} />;
   }
 
   if (screenId === 'attention') {
@@ -3851,11 +3121,6 @@ function TabScreenRenderer({
     );
   }
 
-  // ── Staff: parties with an employee role (Kim, 2026-11-16) ──
-  if (screenId === 'staff') {
-    return <StaffScreen onToast={onToast} />;
-  }
-
   // ── Contacts: Seller relationships (Supabase seller tables) ──
   if (screenId === 'sellers') {
     // Seller list = profiles ∪ enforcement-derived seller_ids (/api/sellers).
@@ -3863,9 +3128,9 @@ function TabScreenRenderer({
   }
 
   if (screenId === 'seller-detail' || screenId === 'seller-profile') {
-    // Full seller profile page — opened by clicking a row in the Sellers
-    // list. The production SellerDetailScreen is the fallback; our custom
-    // SellerProfilePage (ported from the HTML mockup) is the primary.
+    // Dossier for the seller selected in the Sellers list (sellerStore carries
+    // the selection): profile, violations, appeals, posts — rendered as a full
+    // profile page (same shape as PartyProfile).
     return <SellerProfilePage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
@@ -3996,31 +3261,6 @@ function TabScreenRenderer({
     );
   }
 
-  // Remaining Business Tax children render the existing tax screens
-  // (the return + 1099-K children are filing surfaces; income, assets
-  // and the downloadable summary are tax-summary surfaces).
-  if (screenId === 'tax-return' || screenId === 'tax-1099k') {
-    return (
-      <YearEndFiling
-        onNavigate={onNavigate}
-        onToast={onToast}
-        onCreate={onCreate}
-        onOpenCreateFlyout={onOpenCreateFlyout}
-      />
-    );
-  }
-
-  if (screenId === 'tax-income' || screenId === 'tax-assets' || screenId === 'download-tax-summary') {
-    return (
-      <TaxSummary
-        onNavigate={onNavigate}
-        onToast={onToast}
-        onCreate={onCreate}
-        onOpenCreateFlyout={onOpenCreateFlyout}
-      />
-    );
-  }
-
   if (screenId === 'sales-overview') {
     return (
       <SalesOverview
@@ -4050,6 +3290,8 @@ function TabScreenRenderer({
         onNavigate={onNavigate as (d: string, s: string) => void}
         onToast={onToast}
         onCreate={onCreate}
+        onOpenCreateFlyout={onOpenCreateFlyout}
+        onOpenPeek={onOpenPeek}
       />
     );
   }
@@ -4073,56 +3315,45 @@ function TabScreenRenderer({
   }
 
   if (screenId === 'products') {
-    // Catalog → Products & Variants → Products (and Finance → Products
-    // and services, same list): the real CatalogProductsScreen — live
-    // /api/products rows, ProductProfile on row click, ProductFormDrawer
-    // for create/edit, publish via app_publish_product, bulk reprice.
-    // The CatalogWorkbench that was mounted here is NOT deleted (rule:
-    // never delete without Sunny's say-so) — it is simply unmounted;
-    // its row/bulk/create actions were toasts, not API calls.
+    // The global Catalog products list — REAL data from the products table.
+    // Every row/name click opens ProductProfile (the tabbed product page that
+    // mirrors PartyProfile). Finance's “Products and services” uses the same
+    // list — one catalog, one screen.
     return (
       <CatalogProductsScreen
-        onToast={onToast}
         onNavigate={onNavigate as (d: string, s: string) => void}
+        onToast={onToast}
+        backLabel={domain === 'catalog' ? 'Products' : 'Products and services'}
       />
     );
   }
 
-  // ── Custom catalog pages (ported from HTML mockups) ──
-  // These are the pixel-perfect HTML ports we built. They overlay on top
-  // of the production routing — the production ScreenContent didn't have
-  // these screen IDs, so we add them here.
   if (screenId === 'catalog-overview') {
     return <CatalogOverviewPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
+
   if (screenId === 'listings') {
     return <ListingsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
+
   if (screenId === 'bundles') {
     return <BundlesPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
-  if (screenId === 'brands') {
-    return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
-  }
+
   if (screenId === 'categories') {
     return <CollectionsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
-  // ── Order Detail page — opened by clicking a row in the Orders list ──
-  if (screenId === 'order-detail') {
-    return <OrderDetailPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+  if (screenId === 'brands') {
+    return <BrandsPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
-  if (screenId === 'blanks') {
-    // Catalog → Products & Variants → Blanks (SHIP-IT__250): the
-    // staff-side blanks list over /api/v1/blanks, the same source the
-    // Studio picker reads.
-    return (
-      <BlanksScreen
-        onToast={onToast}
-        onNavigate={onNavigate as (d: string, s: string) => void}
-      />
-    );
+  // NOTE: 'pricing' is no longer a standalone sidebar page. Pricing lives ON
+  // the item as a quick-action drawer (PricingDrawer), wired into
+  // CatalogProductsScreen's row menu. The broken PricingPage has been removed.
+
+  if (screenId === 'ecommerce') {
+    return <EcommercePage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'parties') {
@@ -4141,15 +3372,28 @@ function TabScreenRenderer({
     return <StatementsScreen onToast={onToast} />;
   }
 
-  // ── Published Items & SKUs — real published designs, not demo rows.
+  // ── Published Items & SKUs — merge store-published products into the
+  //    catalog rows. Designs published from the Studio go live here.
   if (screenId === 'published-skus') {
-    return <PublishedDesignsScreen onNavigate={onNavigate} onToast={onToast} />;
+    const published = useDesignCanvas.getState().published;
+    if (published.length > 0) {
+      const existing = DEMO_ROWS['published-skus'] || [];
+      const publishedRows = published.map((p) => ({
+        product: p.name,
+        brand: p.brand,
+        color: p.color,
+        sizes: p.sizes.join('/'),
+        supplier: p.supplier,
+        status: 'Live',
+      }));
+      // Prepend published rows that aren't already in the list.
+      const existingNames = new Set(existing.map((r: DemoRow) => String(r.product)));
+      const newRows = publishedRows.filter((r) => !existingNames.has(r.product));
+      if (newRows.length > 0) {
+        DEMO_ROWS['published-skus'] = [...newRows, ...existing];
+      }
+    }
   }
-
-  // ── Finance list children (payroll / 1099s / contractors /
-  //    payroll-tax) — live rows from the tax + payroll APIs replace
-  //    the demo rows, same DEMO_ROWS mechanism as published-skus. ──
-  ensureLiveShellRows();
 
   // ── Design Studio catalog lists (Lane 5) — live blanks + eligibility,
   //    not the shellData demo rows. ──
@@ -4234,33 +3478,8 @@ function TabScreenRenderer({
     return <WizardScreen kind="best" category="Home Living" onNavigate={onNavigate} onToast={onToast} />;
   }
 
-  // Resolve against the MERGED nav (same map the sidebar and tabs use),
-  // not the static tree — DB-only ids (variants, availability, …) are not
-  // in the static tree, and the static findScreen falls back to the
-  // domain's first screen for them, which rendered the wrong page.
-  const screen = findScreenIn(domains, domain, screenId);
-  const domainLabel = DOMAINS[domain]?.label ?? domain;
-
-  // Settings → Integrations is the provider catalog (its own sidebar,
-  // capability + tier filters, per-app connect) — it replaces the
-  // generic connections list for this one screen.
-  if ((screen.dbId ?? screen.id) === 'settings-system--integrations') {
-    return <IntegrationsCatalog onToast={onToast} />;
-  }
-
-  // Learning → Courses is the LMS view (Kim's lms_view design): courses,
-  // learners and certifications over the learn_* data layer.
-  if ((screen.dbId ?? screen.id) === 'lms-courses') {
-    return <LearningScreen onToast={onToast} />;
-  }
-
-  // Community → UGC Moderation is the moderation queue (Kim's
-  // ugc_modration design; SHIP-IT — Community, Reviews & UGC) over
-  // reviews + seller_social_posts.
-  if ((screen.dbId ?? screen.id) === 'ugc-moderation') {
-    return <UgcModeration onToast={onToast} />;
-  }
-
+  const screen = findScreen(domain, screenId);
+  const domainLabel = DOMAINS[domain].label;
   const def = SCREEN_DEFS[screen.id] || SCREEN_DEFS[screen.id.replace(/-/g, '_')];
 
   let resolvedConfig: ListScreenConfig | OverviewScreenConfig;
@@ -4273,27 +3492,6 @@ function TabScreenRenderer({
       subtitle: 'Overview screen.',
       kpis: [],
       actions: [],
-    };
-  } else if (screen.backingTable) {
-    // DB-registered screen with no hand-written config: serve its backing
-    // table through /api/list-rows' generic fallback (key = the screen id
-    // itself) instead of the dead '__empty' config, which always rendered
-    // an empty list even when the table had rows.
-    resolvedConfig = {
-      mode: 'list',
-      key: screen.dbId ?? screen.id,
-      title: screen.label,
-      subtitle: 'List screen — view tabs, filter bar, bulk bar, row menu, right peek drawer.',
-      family: 'generic',
-      newLabel: 'Create',
-      cols: [
-        { key: 'name', label: 'Name' },
-        { key: 'status', label: 'Status' },
-        { key: 'updated', label: 'Updated' },
-      ],
-      tabs: ['All'],
-      emptyTitle: `No ${screen.label.toLowerCase()} yet`,
-      emptySteps: 'Import from a file or create your first record to get started.',
     };
   } else {
     resolvedConfig = {
@@ -4324,13 +3522,9 @@ function TabScreenRenderer({
   ) : (
     <ListView
       cfg={resolvedConfig}
-      domain={domain}
       domainLabel={domainLabel}
       groupName={screen.group}
-      backingTable={screen.backingTable ?? null}
       onCreate={onCreate}
-      onCreateTable={onCreateTable}
-      listRefreshSignal={listRefreshSignal}
       onOpenCreateFlyout={onOpenCreateFlyout}
       onOpenPeek={onOpenPeek}
       onToast={onToast}
@@ -4342,15 +3536,11 @@ function TabScreenRenderer({
 export default function ScreenContent({
   openTabs,
   activeTabKey,
-  domains,
   dashboardController,
   onNavigate,
   onCapCreate,
   onCreate,
-  onCreateTable,
-  listRefreshSignal,
   onOpenCreateFlyout,
-  onOpenDocument,
   onOpenPeek,
   onToast,
   sideRailCollapsed,
@@ -4416,15 +3606,11 @@ export default function ScreenContent({
               <TabScreenRenderer
                 domain={tab.domain}
                 screenId={tab.screenId}
-                domains={domains}
                 dashboardController={dashboardController}
                 onNavigate={onNavigate}
                 onCapCreate={onCapCreate}
                 onCreate={onCreate}
-                onCreateTable={onCreateTable}
-                listRefreshSignal={listRefreshSignal}
                 onOpenCreateFlyout={onOpenCreateFlyout}
-                onOpenDocument={onOpenDocument}
                 onOpenPeek={onOpenPeek}
                 onToast={onToast}
                 wizardPrefill={tab.domain === 'design' ? wizardPrefill : undefined}

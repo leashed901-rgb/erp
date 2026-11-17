@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import { DomainKey } from '@/data/shellData';
-import { useCashflowForecast } from '@/hooks/useAccountingApi';
 import styles from './CashFlowScreen.module.css';
 
 export interface CashFlowScreenProps {
@@ -10,21 +9,9 @@ export interface CashFlowScreenProps {
   onToast?: (msg: string) => void;
 }
 
-/* Read-only forecast built live from bank balances, open invoices and
-   open bills (/api/accounting/cashflow-forecast). */
-
-const fmt = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
-
-const DAY = 86400000;
-const fmtDate = (d: Date) =>
-  d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-const fmtFull = (isoDate: string) =>
-  new Date(`${isoDate}T12:00:00`).toLocaleDateString('en-US', {
-    month: 'numeric',
-    day: 'numeric',
-    year: 'numeric',
-  });
+// ── Read-only model (spec §2.6) ──
+// Built from open invoices, open bills, recurring templates, and scheduled payments.
+const CASH_ON_HAND = 84210.4;
 
 interface FlowWindow {
   id: 'w30' | 'w60' | 'w90';
@@ -34,94 +21,69 @@ interface FlowWindow {
   moneyOut: number;
 }
 
+const WINDOWS: FlowWindow[] = [
+  { id: 'w30', label: 'Next 30 days', range: 'Nov 14 – Dec 13', moneyIn: 10720.0, moneyOut: 6270.0 },
+  { id: 'w60', label: 'Days 31 – 60', range: 'Dec 14 – Jan 12', moneyIn: 8220.0, moneyOut: 5210.0 },
+  { id: 'w90', label: 'Days 61 – 90', range: 'Jan 13 – Feb 11', moneyIn: 5240.0, moneyOut: 4380.0 },
+];
+
+// The what-if invoice — spec: "what if this invoice pays late".
+const LATE_INVOICE = { no: 'INV-1002', amount: 1240.0, due: '11/27/2026', paysAt: '12/15/2026' };
+
+const SOURCES = [
+  { icon: 'receipt_long', label: 'Open invoices', detail: '4 invoices · $8,420.00 expected', tone: 'in' },
+  { icon: 'description', label: 'Open bills', detail: '3 bills · $4,080.00 due', tone: 'out' },
+  { icon: 'event_repeat', label: 'Recurring templates', detail: '6 templates · $3,180.00 / month', tone: 'in' },
+  { icon: 'schedule_send', label: 'Scheduled payments', detail: '$2,190.00 in the next 30 days', tone: 'out' },
+] as const;
+
+const fmt = (n: number) =>
+  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
+
 export default function CashFlowScreen({ onToast }: CashFlowScreenProps) {
-  const { data } = useCashflowForecast();
   const [lateInvoice, setLateInvoice] = useState<boolean>(false);
 
-  const cashOnHand = data?.cashOnHand ?? 0;
-  const asOf = data ? new Date(`${data.asOf}T12:00:00`) : new Date();
-
-  /* The what-if target: the largest open invoice. */
-  const lateTarget = useMemo(() => {
-    const invoices = data?.invoices ?? [];
-    if (invoices.length === 0) return null;
-    const top = [...invoices].sort((a, b) => b.amount - a.amount)[0];
-    const late = new Date(new Date(`${top.dueDate}T12:00:00`).getTime() + 18 * DAY);
-    return { ...top, paysAt: late.toISOString().slice(0, 10) };
-  }, [data]);
-
-  const windows = useMemo<FlowWindow[]>(() => {
-    const start = asOf.getTime();
-    const mk = (id: FlowWindow['id'], label: string, fromDays: number, toDays: number): FlowWindow => ({
-      id,
-      label,
-      range: `${fmtDate(new Date(start + fromDays * DAY))} – ${fmtDate(new Date(start + toDays * DAY))}`,
-      moneyIn: 0,
-      moneyOut: 0,
+  const windows = useMemo(() => {
+    if (!lateInvoice) return WINDOWS;
+    // INV-1002 shifts from the 30-day window into days 31–60.
+    return WINDOWS.map((w) => {
+      if (w.id === 'w30') return { ...w, moneyIn: w.moneyIn - LATE_INVOICE.amount };
+      if (w.id === 'w60') return { ...w, moneyIn: w.moneyIn + LATE_INVOICE.amount };
+      return w;
     });
-    const ws = [mk('w30', 'Next 30 days', 0, 29), mk('w60', 'Days 31 – 60', 30, 59), mk('w90', 'Days 61 – 90', 60, 89)];
-    const bucket = (isoDate: string) => {
-      const days = Math.floor((new Date(`${isoDate}T12:00:00`).getTime() - start) / DAY);
-      if (days < 30) return ws[0]; // overdue lands in the first window
-      if (days < 60) return ws[1];
-      if (days < 90) return ws[2];
-      return null;
-    };
-    for (const inv of data?.invoices ?? []) {
-      if (!inv.dueDate) continue;
-      const due = lateInvoice && lateTarget && inv.id === lateTarget.id ? lateTarget.paysAt : inv.dueDate;
-      const w = bucket(due);
-      if (w) w.moneyIn += inv.amount;
-    }
-    for (const bill of data?.bills ?? []) {
-      if (!bill.dueDate) continue;
-      const w = bucket(bill.dueDate);
-      if (w) w.moneyOut += bill.amount;
-    }
-    return ws;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, lateInvoice, lateTarget]);
+  }, [lateInvoice]);
 
   const cumulative = useMemo(() => {
-    const rows: (FlowWindow & { cumIn: number; cumOut: number; balance: number })[] = [];
+    const rows: {
+      id: 'w30' | 'w60' | 'w90';
+      label: string;
+      range: string;
+      moneyIn: number;
+      moneyOut: number;
+      cumIn: number;
+      cumOut: number;
+      balance: number;
+    }[] = [];
     let inSum = 0;
     let outSum = 0;
     for (const w of windows) {
       inSum += w.moneyIn;
       outSum += w.moneyOut;
-      rows.push({ ...w, cumIn: inSum, cumOut: outSum, balance: cashOnHand + inSum - outSum });
+      rows.push({
+        ...w,
+        cumIn: inSum,
+        cumOut: outSum,
+        balance: CASH_ON_HAND + inSum - outSum,
+      });
     }
     return rows;
-  }, [windows, cashOnHand]);
+  }, [windows]);
 
-  const maxFlow = Math.max(1, ...windows.map((w) => Math.max(w.moneyIn, w.moneyOut)));
+  const maxFlow = Math.max(...windows.map((w) => Math.max(w.moneyIn, w.moneyOut)));
   const next30 = cumulative[0];
   const totalIn = cumulative[2].cumIn;
   const totalOut = cumulative[2].cumOut;
   const endBalance = cumulative[2].balance;
-
-  const sources = useMemo(() => {
-    const invoices = data?.invoices ?? [];
-    const bills = data?.bills ?? [];
-    const invTotal = invoices.reduce((s, i) => s + i.amount, 0);
-    const billTotal = bills.reduce((s, b) => s + b.amount, 0);
-    const overdueCount =
-      invoices.filter((i) => i.dueDate && i.dueDate < data!.asOf).length +
-      bills.filter((b) => b.dueDate && b.dueDate < data!.asOf).length;
-    const overdueTotal =
-      invoices.filter((i) => i.dueDate && i.dueDate < data!.asOf).reduce((s, i) => s + i.amount, 0) +
-      bills.filter((b) => b.dueDate && b.dueDate < data!.asOf).reduce((s, b) => s + b.amount, 0);
-    return [
-      { icon: 'receipt_long', label: 'Open invoices', detail: `${invoices.length} invoices · ${fmt(invTotal)} expected`, tone: 'in' },
-      { icon: 'description', label: 'Open bills', detail: `${bills.length} bills · ${fmt(billTotal)} due`, tone: 'out' },
-      { icon: 'account_balance', label: 'Bank accounts', detail: `${data?.accounts.length ?? 0} accounts · ${fmt(cashOnHand)} on hand`, tone: 'in' },
-      { icon: 'warning', label: 'Overdue today', detail: `${overdueCount} documents · ${fmt(overdueTotal)} past due`, tone: 'out' },
-    ] as const;
-  }, [data, cashOnHand]);
-
-  const accountMeta = (data?.accounts ?? [])
-    .map((a) => `${a.name}${a.mask ? ` •${a.mask}` : ''}`)
-    .join(' · ');
 
   return (
     <div className={styles.container}>
@@ -155,56 +117,52 @@ export default function CashFlowScreen({ onToast }: CashFlowScreenProps) {
             </p>
           </div>
           {/* What-if toggle */}
-          {lateTarget && (
-            <button
-              type="button"
-              className={`${styles.whatIfToggle} ${lateInvoice ? styles.whatIfToggleOn : ''}`}
-              data-whatif={lateInvoice ? 'on' : 'off'}
-              aria-pressed={lateInvoice}
-              onClick={() => {
-                const next = !lateInvoice;
-                setLateInvoice(next);
-                if (onToast)
-                  onToast(
-                    next
-                      ? `What-if: ${lateTarget.no} now assumed to pay ${fmtFull(lateTarget.paysAt)}`
-                      : `What-if cleared — ${lateTarget.no} back on ${fmtFull(lateTarget.dueDate!)}`
-                  );
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                {lateInvoice ? 'toggle_on' : 'toggle_off'}
+          <button
+            type="button"
+            className={`${styles.whatIfToggle} ${lateInvoice ? styles.whatIfToggleOn : ''}`}
+            data-whatif={lateInvoice ? 'on' : 'off'}
+            aria-pressed={lateInvoice}
+            onClick={() => {
+              const next = !lateInvoice;
+              setLateInvoice(next);
+              if (onToast)
+                onToast(
+                  next
+                    ? `What-if: ${LATE_INVOICE.no} now assumed to pay ${LATE_INVOICE.paysAt}`
+                    : `What-if cleared — ${LATE_INVOICE.no} back on ${LATE_INVOICE.due}`
+                );
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              {lateInvoice ? 'toggle_on' : 'toggle_off'}
+            </span>
+            <span className={styles.whatIfText}>
+              What if this invoice pays late
+              <span className={styles.whatIfMeta}>
+                {LATE_INVOICE.no} · {fmt(LATE_INVOICE.amount)} · due {LATE_INVOICE.due}
               </span>
-              <span className={styles.whatIfText}>
-                What if this invoice pays late
-                <span className={styles.whatIfMeta}>
-                  {lateTarget.no} · {fmt(lateTarget.amount)} · due {fmtFull(lateTarget.dueDate!)}
-                </span>
-              </span>
-            </button>
-          )}
+            </span>
+          </button>
         </div>
 
         {/* KPI row */}
         <div className={styles.kpiRow}>
           <div className={styles.kpiCard}>
             <span className={styles.kpiLabel}>Cash on hand today</span>
-            <span className={styles.kpiValue}>{fmt(cashOnHand)}</span>
-            <span className={styles.kpiMeta}>{accountMeta || 'No bank accounts'}</span>
+            <span className={styles.kpiValue}>{fmt(CASH_ON_HAND)}</span>
+            <span className={styles.kpiMeta}>Chase •9910 · Visa •4421 · Amex •3307</span>
           </div>
           <div className={styles.kpiCard}>
             <span className={styles.kpiLabel}>Money in · next 30 days</span>
             <span className={`${styles.kpiValue} ${styles.kpiIn}`}>{fmt(next30.moneyIn)}</span>
             <span className={styles.kpiMeta}>
-              {lateInvoice && lateTarget
-                ? `Excludes ${lateTarget.no} (${fmt(lateTarget.amount)})`
-                : 'Includes all open invoices'}
+              {lateInvoice ? `Excludes ${LATE_INVOICE.no} (${fmt(LATE_INVOICE.amount)})` : 'Includes all open invoices'}
             </span>
           </div>
           <div className={styles.kpiCard}>
             <span className={styles.kpiLabel}>Money out · next 30 days</span>
             <span className={`${styles.kpiValue} ${styles.kpiOut}`}>{fmt(next30.moneyOut)}</span>
-            <span className={styles.kpiMeta}>Open bills by due date</span>
+            <span className={styles.kpiMeta}>Open bills + scheduled payments</span>
           </div>
           <div className={styles.kpiCard}>
             <span className={styles.kpiLabel}>Projected balance · 30 days</span>
@@ -240,7 +198,7 @@ export default function CashFlowScreen({ onToast }: CashFlowScreenProps) {
                   <div className={styles.barTrack}>
                     <div
                       className={`${styles.bar} ${styles.barIn}`}
-                      style={{ width: `${Math.max((w.moneyIn / maxFlow) * 100, w.moneyIn > 0 ? 2 : 0)}%` }}
+                      style={{ width: `${Math.max((w.moneyIn / maxFlow) * 100, 2)}%` }}
                     />
                   </div>
                   <span className={styles.barValue}>{fmt(w.moneyIn)}</span>
@@ -250,7 +208,7 @@ export default function CashFlowScreen({ onToast }: CashFlowScreenProps) {
                   <div className={styles.barTrack}>
                     <div
                       className={`${styles.bar} ${styles.barOut}`}
-                      style={{ width: `${Math.max((w.moneyOut / maxFlow) * 100, w.moneyOut > 0 ? 2 : 0)}%` }}
+                      style={{ width: `${Math.max((w.moneyOut / maxFlow) * 100, 2)}%` }}
                     />
                   </div>
                   <span className={styles.barValue}>{fmt(w.moneyOut)}</span>
@@ -261,12 +219,12 @@ export default function CashFlowScreen({ onToast }: CashFlowScreenProps) {
                   </span>
                   <span className={styles.windowBalanceValue}>{fmt(w.balance)}</span>
                 </div>
-                {lateInvoice && lateTarget && windows[idx].id !== 'w30' && idx === 1 && (
+                {idx === 0 && lateInvoice && (
                   <div className={styles.windowFlag}>
                     <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
                       bolt
                     </span>
-                    {lateTarget.no} may land in this window
+                    {LATE_INVOICE.no} shifted to days 31–60
                   </div>
                 )}
               </div>
@@ -284,7 +242,7 @@ export default function CashFlowScreen({ onToast }: CashFlowScreenProps) {
             <h2 className={styles.panelTitle}>Built from</h2>
           </div>
           <div className={styles.sourceGrid}>
-            {sources.map((s) => (
+            {SOURCES.map((s) => (
               <div key={s.label} className={styles.sourceCard} data-tone={s.tone}>
                 <span className={`material-symbols-outlined ${styles.sourceIcon}`}>{s.icon}</span>
                 <div>

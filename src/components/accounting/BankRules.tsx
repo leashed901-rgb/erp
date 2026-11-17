@@ -1,54 +1,28 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AccountingScreenProps } from './types';
 import './bank-rules.css';
-import { useBankRules, useBankTransactions, useBankAccounts, useChartOfAccounts, bankRuleMutations, fetchBankRuleStats, type BankRuleStats } from '@/hooks/useAccountingApi';
-import type { BankRuleDto, BankTxnDto } from '@/lib/acctTypes';
-import { exportToCsv } from '@/lib/csvExport';
 
-/* Drawer field/operator labels ↔ the platform's condition vocab
-   (acct_bank_rule_conditions field/operator CHECKs). */
-const FIELD_TO_API: Record<string, string> = {
-  'Bank description': 'description',
-  Payee: 'payee',
-  Amount: 'amount',
-  'Type (deposit / payment)': 'type',
-  Type: 'type',
-};
-const FIELD_FROM_API: Record<string, string> = {
-  description: 'Bank description',
-  payee: 'Payee',
-  amount: 'Amount',
-  reference: 'Bank description',
-  bank_text: 'Bank description',
-};
-const OP_TO_API: Record<string, string> = {
-  Contains: 'contains',
-  'Does not contain': 'not_contains',
-  Equals: 'equals',
-  'Starts with': 'starts_with',
-  'Ends with': 'ends_with',
-  'Greater than': 'gt',
-};
-const OP_FROM_API: Record<string, string> = {
-  contains: 'Contains',
-  not_contains: 'Does not contain',
-  equals: 'Equals',
-  not_equals: 'Equals',
-  starts_with: 'Starts with',
-  ends_with: 'Ends with',
-  gt: 'Greater than',
-  gte: 'Greater than',
-  lt: 'Greater than',
-  lte: 'Greater than',
-  between: 'Equals',
-  regex: 'Contains',
-};
+/* Sample transactions used in the preview (verbatim from the mockup) */
+const SAMPLE_TXNS = [
+  { desc: 'STAPLES #0412', date: '10/30/2026', amt: -142.5 },
+  { desc: 'STAPLES #0418', date: '10/22/2026', amt: -88.15 },
+  { desc: 'STAPLES #0412', date: '10/12/2026', amt: -210.0 },
+  { desc: 'STAPLES.COM', date: '09/28/2026', amt: -45.99 },
+  { desc: 'ADOBE CREATIVE', date: '10/26/2026', amt: -59.99 },
+  { desc: 'ADOBE SYSTEMS', date: '09/26/2026', amt: -59.99 },
+  { desc: 'STRIPE PAYOUT', date: '10/28/2026', amt: 1842.6 },
+  { desc: 'STRIPE FEE', date: '10/28/2026', amt: -52.11 },
+  { desc: 'AWS EMEA CHARGES', date: '10/27/2026', amt: -124.88 },
+  { desc: 'AWS EMEA CHARGES', date: '09/27/2026', amt: -118.44 },
+  { desc: 'UBER TRIP', date: '10/15/2026', amt: -22.4 },
+  { desc: 'UBER EATS', date: '10/18/2026', amt: -34.55 },
+];
 
 type RuleStatus = 'active' | 'paused';
 
 interface RuleRow {
-  id: string;
+  id: number;
   /** Text rendered in the "Rule name" cell */
   name: string;
   /** Value of the row's data-name attribute (edit-drawer prefill + toasts) */
@@ -62,27 +36,6 @@ interface RuleRow {
   status: RuleStatus;
   /** Extra clause in the "When" cell, e.g. 'and amount > $0' */
   extraWhen?: string;
-  dto: BankRuleDto;
-}
-
-const CAT_CLASSES = ['bg-qb-blue/10 text-qb-blue', 'bg-qb-maroon/10 text-qb-maroon', 'bg-qb-green/10 text-qb-green', 'bg-qb-teal/10 text-qb-teal'];
-
-function toRuleRow(dto: BankRuleDto, idx: number): RuleRow {
-  const textCond = dto.conditions.find((c) => c.field !== 'amount');
-  const amountCond = dto.conditions.find((c) => c.field === 'amount');
-  const opSym: Record<string, string> = { gt: '>', gte: '>=', lt: '<', lte: '<=', equals: '=' };
-  return {
-    id: dto.id,
-    name: dto.name,
-    dataName: dto.name,
-    keyword: (textCond?.value || '').toUpperCase(),
-    category: dto.categoryLabel || '—',
-    catClass: CAT_CLASSES[idx % CAT_CLASSES.length],
-    matched: dto.timesApplied,
-    status: dto.isActive ? 'active' : 'paused',
-    extraWhen: amountCond ? `and amount ${opSym[amountCond.operator] || '>'} $${amountCond.value}` : undefined,
-    dto,
-  };
 }
 
 interface CondRow {
@@ -95,7 +48,7 @@ interface CondRow {
 }
 
 interface RowMenuState {
-  rowId: string;
+  rowId: number;
   top: number;
   left: number;
   /** paused state captured when the menu opened (the mockup sets item visibility at open time) */
@@ -108,27 +61,24 @@ const FIRST_OP_OPTIONS = ['Contains', 'Does not contain', 'Equals', 'Starts with
 const ADDED_FIELD_OPTIONS = ['Bank description', 'Payee', 'Amount', 'Type'];
 const ADDED_OP_OPTIONS = ['Contains', 'Does not contain', 'Equals', 'Greater than'];
 
+const INITIAL_RULES: RuleRow[] = [
+  { id: 1, name: 'Staples → Office supplies', dataName: 'Staples → Office supplies', keyword: 'STAPLES', category: 'Office supplies', catClass: 'bg-qb-blue/10 text-qb-blue', matched: 11, status: 'active' },
+  { id: 2, name: 'Adobe → Software', dataName: 'Adobe → Software', keyword: 'ADOBE', category: 'Software', catClass: 'bg-qb-maroon/10 text-qb-maroon', matched: 6, status: 'active' },
+  { id: 3, name: 'Stripe payouts → Stripe clearing', dataName: 'Stripe payouts → Stripe clearing', keyword: 'STRIPE', category: 'Stripe clearing', catClass: 'bg-qb-green/10 text-qb-green', matched: 8, status: 'active', extraWhen: 'and amount > $0' },
+  { id: 4, name: 'AWS → Software', dataName: 'AWS → Software', keyword: 'AWS', category: 'Software', catClass: 'bg-qb-maroon/10 text-qb-maroon', matched: 3, status: 'active' },
+  { id: 5, name: 'Uber → Travel', dataName: 'Uber → Travel (paused)', keyword: 'UBER', category: 'Travel', catClass: 'bg-qb-teal/10 text-qb-teal', matched: 0, status: 'paused' },
+];
+
 /* (n<0?"−":"+")+"$"+… — note the U+2212 minus sign, exactly as in the mockup */
 const money = (n: number) =>
   (n < 0 ? '−' : '+') + '$' + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 export default function BankRules({ onToast }: AccountingScreenProps) {
-  /* ── Table state — live from acct_bank_rules via the API ── */
-  const { rules, refresh: refreshRules } = useBankRules();
-  const { transactions: feedTxns, refresh: refreshFeed } = useBankTransactions(null);
-  const { bankAccounts } = useBankAccounts();
-  const { accounts: coaAccounts } = useChartOfAccounts();
-  const rows = useMemo(() => rules.map(toRuleRow), [rules]);
-  const [stats, setStats] = useState<BankRuleStats | null>(null);
-  const loadStats = () => {
-    void fetchBankRuleStats().then((res) => {
-      if (res.ok && res.data) setStats(res.data);
-    });
-  };
-  useEffect(loadStats, []);
-
+  /* ── Table state ── */
+  const [rows, setRows] = useState<RuleRow[]>(INITIAL_RULES);
   const [viewTab, setViewTab] = useState<'all' | 'active' | 'paused'>('all');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [rlCount, setRlCount] = useState(`1–${INITIAL_RULES.length} of ${INITIAL_RULES.length}`);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [checkAll, setCheckAll] = useState(false);
   const [filterText, setFilterText] = useState('');
 
@@ -141,7 +91,7 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
   const [ruleName, setRuleName] = useState('');
   const [thenCategory, setThenCategory] = useState('');
   const [matchMode, setMatchMode] = useState('Match ALL conditions');
-  const [bankAccount, setBankAccount] = useState('');
+  const [bankAccount, setBankAccount] = useState('All accounts');
   const [turnOnRule, setTurnOnRule] = useState(true);
   const [condRows, setCondRows] = useState<CondRow[]>([
     { id: 1, kind: 'first', field: 'Bank description', op: 'Contains', value: '' },
@@ -151,6 +101,7 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
   const [toastMsg, setToastMsg] = useState('');
   const toastTimer = useRef<number | null>(null);
 
+  const nextRowId = useRef(INITIAL_RULES.length + 1);
   const nextCondId = useRef(2);
 
   const toast = (m: string) => {
@@ -165,97 +116,34 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
     []
   );
 
-  /* ── KPIs — active/paused from the rules; 30d + match rate from
-        the stats endpoint over acct_bank_transactions ── */
+  /* ── KPIs (mockup updateKpis: active/paused counts + "1–N of N" label) ── */
   const kpiActive = rows.filter(r => r.status === 'active').length;
   const kpiPaused = rows.filter(r => r.status === 'paused').length;
+  const updateKpis = (rs: RuleRow[]) => setRlCount(`1–${rs.length} of ${rs.length}`);
 
-  /* ── Live preview: the editor's conditions evaluated against the
-        tenant's real bank feed (latest 500 transactions) ── */
+  /* ── Live preview (mockup updatePreview: reads the first condition's keyword input) ── */
   const firstCond = condRows.find(c => c.kind === 'first');
   const previewKw = (firstCond?.value || '').toUpperCase().trim();
-  const evalCond = (t: BankTxnDto, c: CondRow): boolean => {
-    const api = FIELD_TO_API[c.field] || 'description';
-    if (api === 'type') {
-      if (!c.value.trim()) return true;
-      return t.type === (c.value.toLowerCase().includes('dep') ? 'income' : 'expense');
-    }
-    if (api === 'amount') {
-      const v = parseFloat(c.value.replace(/[$,]/g, ''));
-      if (Number.isNaN(v)) return true;
-      const amt = Math.abs(t.amount);
-      switch (OP_TO_API[c.op] || 'contains') {
-        case 'gt': return amt > v;
-        case 'equals': return amt === v;
-        default: return amt > v;
-      }
-    }
-    const hay = (api === 'payee' ? t.payee || '' : t.description).toUpperCase();
-    const needle = c.value.toUpperCase().trim();
-    if (!needle) return true;
-    switch (OP_TO_API[c.op] || 'contains') {
-      case 'not_contains': return !hay.includes(needle);
-      case 'equals': return hay === needle;
-      case 'starts_with': return hay.startsWith(needle);
-      case 'ends_with': return hay.endsWith(needle);
-      default: return hay.includes(needle);
-    }
-  };
-  const previewMatches = condRows.some(c => c.value.trim())
-    ? feedTxns.filter(t =>
-        matchMode === 'Match ANY condition'
-          ? condRows.some(c => evalCond(t, c))
-          : condRows.every(c => evalCond(t, c)),
-      )
+  const previewMatches = previewKw
+    ? SAMPLE_TXNS.filter(t => t.desc.toUpperCase().includes(previewKw))
     : [];
 
-  const visibleRows = rows.filter(r => {
-    const tabOk = viewTab === 'all' || r.status === viewTab;
-    const q = filterText.trim().toLowerCase();
-    const qOk = !q || r.name.toLowerCase().includes(q) || r.keyword.toLowerCase().includes(q) || r.category.toLowerCase().includes(q);
-    return tabOk && qOk;
-  });
-  const rlCount = `${visibleRows.length} of ${rows.length}`;
+  const visibleRows = viewTab === 'all' ? rows : rows.filter(r => r.status === viewTab);
   const menuRow = menu ? rows.find(r => r.id === menu.rowId) || null : null;
 
-  /* ── Drawer open/close — edit prefills every condition from the
-        rule's real rows; duplicate prefills as a new rule ── */
-  const prefillFrom = (rule: RuleRow) => {
-    setRuleName(rule.dataName);
-    const conds: CondRow[] = rule.dto.conditions.map((c, i) => ({
-      id: nextCondId.current++,
-      kind: i === 0 ? 'first' : 'added',
-      field: FIELD_FROM_API[c.field] || 'Bank description',
-      op: OP_FROM_API[c.operator] || 'Contains',
-      value: c.value,
-    }));
-    if (rule.dto.txnType === 'deposit') {
-      conds.push({ id: nextCondId.current++, kind: 'added', field: 'Type', op: 'Equals', value: 'deposit' });
-    }
-    setCondRows(conds.length ? conds : [{ id: nextCondId.current++, kind: 'first', field: 'Bank description', op: 'Contains', value: '' }]);
-    setThenCategory(rule.dto.categoryAccountId || '');
-    setMatchMode(rule.dto.matchMode === 'any' ? 'Match ANY condition' : 'Match ALL conditions');
-    setBankAccount(rule.dto.bankAccountIds[0] || '');
-    setTurnOnRule(rule.dto.isActive);
-  };
+  /* ── Drawer open/close ── */
   const openDrawer = (rule: RuleRow | null) => {
     if (rule) {
       setEditingRow(rule);
-      prefillFrom(rule);
+      setRuleName(rule.dataName);
+      setCondRows(cs => cs.map(c => (c.kind === 'first' ? { ...c, value: rule.keyword } : c)));
+      setThenCategory(rule.category);
     } else {
       setEditingRow(null);
       setRuleName('');
-      setCondRows([{ id: nextCondId.current++, kind: 'first', field: 'Bank description', op: 'Contains', value: '' }]);
+      setCondRows(cs => cs.map(c => (c.kind === 'first' ? { ...c, value: '' } : c)));
       setThenCategory('');
-      setMatchMode('Match ALL conditions');
-      setBankAccount('');
-      setTurnOnRule(true);
     }
-    setDrawerOpen(true);
-  };
-  const openDuplicate = (rule: RuleRow) => {
-    setEditingRow(null);
-    prefillFrom(rule);
     setDrawerOpen(true);
   };
   const closeDrawer = () => setDrawerOpen(false);
@@ -275,57 +163,44 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
     setCondRows(cs => (cs.length > 1 ? cs.filter(c => c.id !== id) : cs));
   };
 
-  /* ── Save — creates or updates acct_bank_rules + conditions +
-        splits through the API ── */
-  const saveRule = async (andClose: boolean) => {
+  /* ── Save ── */
+  const saveRule = (andClose: boolean) => {
     const name = ruleName.trim();
     if (!name) {
       toast('Rule name required');
       return;
     }
-    let txnType = 'expense';
-    const conditions: { field: string; operator: string; value: string }[] = [];
-    for (const c of condRows) {
-      const api = FIELD_TO_API[c.field] || 'description';
-      if (api === 'type') {
-        if (c.value.toLowerCase().includes('dep')) txnType = 'deposit';
-        continue;
-      }
-      if (!c.value.trim()) continue;
-      conditions.push({ field: api, operator: OP_TO_API[c.op] || 'contains', value: c.value.trim() });
-    }
-    if (!conditions.length) {
-      toast('Add at least one condition with a value');
+    const kw = (firstCond?.value || '').trim();
+    if (!kw) {
+      toast('Add a description keyword');
       return;
     }
-    if (!thenCategory) {
+    const cat = thenCategory;
+    if (!cat) {
       toast('Pick a category');
       return;
     }
-    const input = {
+
+    const tr: RuleRow = {
+      id: nextRowId.current++,
       name,
-      appliesTo: txnType === 'deposit' ? 'money_in' : 'money_out',
-      matchMode: matchMode === 'Match ANY condition' ? 'any' : 'all',
-      txnType,
-      bankAccountIds: bankAccount ? [bankAccount] : [],
-      isActive: turnOnRule,
-      conditions,
-      categoryAccountId: thenCategory,
+      dataName: name,
+      keyword: kw.toUpperCase(),
+      category: cat,
+      catClass: 'bg-qb-blue/10 text-qb-blue',
+      matched: 0,
+      status: 'active',
     };
-    const res = editingRow
-      ? await bankRuleMutations.update(editingRow.id, input)
-      : await bankRuleMutations.create(input);
-    if (!res.ok) {
-      toast(res.error || 'Rule could not be saved');
-      return;
-    }
-    await refreshRules();
-    loadStats();
+    const next = [tr, ...rows];
+    setRows(next);
+    updateKpis(next);
     toast(`Rule "${name}" saved`);
     if (andClose) {
       setDrawerOpen(false);
     } else {
-      openDrawer(null);
+      setRuleName('');
+      setCondRows(cs => cs.map(c => (c.kind === 'first' ? { ...c, value: '' } : c)));
+      setThenCategory('');
     }
   };
 
@@ -335,15 +210,14 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
     openDrawer(row);
   };
 
-  const toggleRule = async (row: RuleRow) => {
+  const toggleRule = (row: RuleRow) => {
     const isOn = row.status !== 'active'; // status after the flip
-    const res = await bankRuleMutations.update(row.id, { isActive: isOn });
-    if (res.ok) {
-      await refreshRules();
-      toast(isOn ? 'Rule activated' : 'Rule paused');
-    } else {
-      toast(res.error || 'Could not change the rule');
-    }
+    const next = rows.map(r =>
+      r.id === row.id ? { ...r, status: (isOn ? 'active' : 'paused') as RuleStatus } : r
+    );
+    setRows(next);
+    updateKpis(next);
+    toast(isOn ? 'Rule activated' : 'Rule paused');
   };
 
   const openRowMenu = (e: React.MouseEvent<HTMLButtonElement>, row: RuleRow) => {
@@ -360,56 +234,55 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
     setMenu(null);
     switch (action) {
       case 'edit':
+      case 'duplicate':
         openDrawer(tr);
         break;
-      case 'duplicate':
-        openDuplicate(tr);
-        break;
       case 'apply-existing': {
-        void bankRuleMutations.apply(tr.id).then(async (res) => {
-          if (res.ok && res.data) {
-            await refreshRules();
-            await refreshFeed();
-            loadStats();
-            toast(`Applied — ${res.data.appliedNow} new match${res.data.appliedNow === 1 ? '' : 'es'} (${res.data.timesApplied} total for this rule)`);
-          } else {
-            toast(res.error || 'Apply failed');
-          }
-        });
+        const matched = Math.floor(Math.random() * 8) + 3;
+        toast(`Applied to ${matched} past transactions`);
+        setRows(rows.map(r => (r.id === tr.id ? { ...r, matched: r.matched + matched } : r)));
         break;
       }
-      case 'view-matched': {
-        const n = feedTxns.filter(t => t.suggestedRuleId === tr.id).length;
-        toast(`"${tr.dataName}" is the suggested rule on ${n} feed transaction${n === 1 ? '' : 's'} — ${tr.matched} applications recorded`);
+      case 'view-matched':
+        toast(`Showing transactions matched by "${tr.dataName}"`);
+        break;
+      case 'pause': {
+        const next = rows.map(r => (r.id === tr.id ? { ...r, status: 'paused' as RuleStatus } : r));
+        setRows(next);
+        updateKpis(next);
+        toast('Rule paused');
         break;
       }
-      case 'pause':
-        void bankRuleMutations.update(tr.id, { isActive: false }).then(async (res) => {
-          if (res.ok) { await refreshRules(); toast('Rule paused'); } else toast(res.error || 'Could not pause');
-        });
+      case 'activate': {
+        const next = rows.map(r => (r.id === tr.id ? { ...r, status: 'active' as RuleStatus } : r));
+        setRows(next);
+        updateKpis(next);
+        toast('Rule activated');
         break;
-      case 'activate':
-        void bankRuleMutations.update(tr.id, { isActive: true }).then(async (res) => {
-          if (res.ok) { await refreshRules(); toast('Rule activated'); } else toast(res.error || 'Could not activate');
-        });
+      }
+      case 'delete': {
+        const next = rows.filter(r => r.id !== tr.id);
+        setRows(next);
+        updateKpis(next);
+        toast('Rule deleted');
         break;
-      case 'delete':
-        void bankRuleMutations.remove(tr.id).then(async (res) => {
-          if (res.ok) { await refreshRules(); loadStats(); toast('Rule deleted'); } else toast(res.error || 'Could not delete');
-        });
-        break;
+      }
     }
   };
 
   /* ── View tabs ── */
-  const handleViewTab = (st: 'all' | 'active' | 'paused') => setViewTab(st);
+  const handleViewTab = (st: 'all' | 'active' | 'paused') => {
+    setViewTab(st);
+    const shown = st === 'all' ? rows.length : rows.filter(r => r.status === st).length;
+    setRlCount(`1–${shown} of ${rows.length}`);
+  };
   const tabClassName = (key: 'all' | 'active' | 'paused', variant: boolean) =>
     `h-full px-3 text-label-md tab-underline${variant ? ' text-on-surface-variant' : ''}${
       viewTab === key ? ' active' : ''
     }`;
 
   /* ── Bulk bar ── */
-  const toggleSelected = (id: string) => {
+  const toggleSelected = (id: number) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -423,39 +296,33 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
     setSelectedIds(checked ? new Set(rows.map(r => r.id)) : new Set());
   };
 
-  const handleBulk = async (act: string) => {
+  const handleBulk = (act: string) => {
     if (act === 'close') {
       setSelectedIds(new Set());
       setCheckAll(false);
       return;
     }
-    const ids = [...selectedIds];
-    const n = ids.length;
-    if (!n) return;
-    let failed = 0;
+    const n = selectedIds.size;
     if (act === 'delete') {
-      for (const id of ids) {
-        const res = await bankRuleMutations.remove(id);
-        if (!res.ok) failed += 1;
-      }
-      toast(`Deleted ${n - failed} rule${n - failed === 1 ? '' : 's'}${failed ? ` — ${failed} failed` : ''}`);
-    } else if (act === 'activate' || act === 'pause') {
-      for (const id of ids) {
-        const res = await bankRuleMutations.update(id, { isActive: act === 'activate' });
-        if (!res.ok) failed += 1;
-      }
-      toast(`${act === 'activate' ? 'Activated' : 'Paused'} ${n - failed} rule${n - failed === 1 ? '' : 's'}${failed ? ` — ${failed} failed` : ''}`);
-    } else if (act === 'run') {
-      const res = await bankRuleMutations.apply(ids[0]);
-      if (res.ok && res.data) {
-        toast(`Rules applied — ${res.data.appliedNow} new match${res.data.appliedNow === 1 ? '' : 'es'} across the feed`);
-        await refreshFeed();
-      } else {
-        toast(res.error || 'Apply failed');
-      }
+      const next = rows.filter(r => !selectedIds.has(r.id));
+      setRows(next);
+      updateKpis(next);
     }
-    await refreshRules();
-    loadStats();
+    if (act === 'activate') {
+      const next = rows.map(r =>
+        selectedIds.has(r.id) ? { ...r, status: 'active' as RuleStatus } : r
+      );
+      setRows(next);
+      updateKpis(next);
+    }
+    if (act === 'pause') {
+      const next = rows.map(r =>
+        selectedIds.has(r.id) ? { ...r, status: 'paused' as RuleStatus } : r
+      );
+      setRows(next);
+      updateKpis(next);
+    }
+    toast(`${act.charAt(0).toUpperCase() + act.slice(1)} on ${n} rule${n !== 1 ? 's' : ''}`);
     setSelectedIds(new Set());
     setCheckAll(false);
   };
@@ -495,7 +362,7 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
             <p className="text-body-sm text-on-surface-variant mt-0.5">Auto-categorize repeating transactions — when the bank description matches, apply the category.</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-export onClick={() => exportToCsv(rows.map(r => ({ name: r.name, keyword: r.keyword, category: r.category, matched: r.matched, status: r.status })), [{ key: 'name', label: 'Rule' }, { key: 'keyword', label: 'Keyword' }, { key: 'category', label: 'Category' }, { key: 'matched', label: 'Matched' }, { key: 'status', label: 'Status' }], 'bank-rules')}>
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-export onClick={() => onToast('Export started — CSV will download')}>
               <span className="material-symbols-outlined text-[16px]">download</span>Export</button>
             <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" data-new-rule onClick={() => openDrawer(null)}>
               <span className="material-symbols-outlined text-[16px]">add</span>New rule</button>
@@ -510,7 +377,7 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
           </div>
           <div className="bg-white rounded-xl border border-surface-dim p-3">
             <span className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Auto-categorized (30d)</span>
-            <div className="text-headline-sm mt-1 tabular-nums">{stats ? stats.autoCategorized30d : '—'}</div>
+            <div className="text-headline-sm mt-1 tabular-nums">28</div>
           </div>
           <div className="bg-white rounded-xl border border-surface-dim p-3">
             <span className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Paused</span>
@@ -518,7 +385,7 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
           </div>
           <div className="bg-white rounded-xl border border-surface-dim p-3">
             <span className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Match rate</span>
-            <div className="text-headline-sm mt-1 tabular-nums">{stats ? `${stats.matchRate}%` : '—'}</div>
+            <div className="text-headline-sm mt-1 tabular-nums">94%</div>
           </div>
         </div>
 
@@ -643,18 +510,23 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
                 <label className="field-label">Category</label>
                 <select className="field-input" data-then-category value={thenCategory} onChange={e => setThenCategory(e.target.value)}>
                   <option value="">— Select category —</option>
-                  {coaAccounts.filter(a => a.isActive).map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
+                  <option>Office supplies</option>
+                  <option>Shipping</option>
+                  <option>Software</option>
+                  <option>Advertising</option>
+                  <option>Meals &amp; entertainment</option>
+                  <option>Travel</option>
+                  <option>Stripe clearing</option>
+                  <option>Ask My Accountant</option>
                 </select>
               </div>
               <div>
                 <label className="field-label">Apply to bank account</label>
                 <select className="field-input" value={bankAccount} onChange={e => setBankAccount(e.target.value)}>
-                  <option value="">All accounts</option>
-                  {bankAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.name}{a.maskedNumber ? ` •${a.maskedNumber.slice(-4)}` : ''}</option>
-                  ))}
+                  <option>All accounts</option>
+                  <option>Chase •9910</option>
+                  <option>Visa •4421</option>
+                  <option>Amex •2103</option>
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -671,16 +543,16 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
               <span className="text-[11px] text-on-surface-variant"><span data-preview-count>{previewMatches.length}</span> recent transactions</span>
             </div>
             <div className="border border-surface-dim rounded-lg overflow-hidden" data-preview-list>
-              {!condRows.some(c => c.value.trim()) ? (
-                <div className="text-[11px] text-on-surface-variant text-center py-4">Enter a condition value to preview matched transactions.</div>
+              {!previewKw ? (
+                <div className="text-[11px] text-on-surface-variant text-center py-4">Enter a description keyword to preview matched transactions.</div>
               ) : previewMatches.length === 0 ? (
                 <div className="text-[11px] text-on-surface-variant text-center py-4">No recent transactions match "<strong>{previewKw}</strong>".</div>
               ) : (
-                previewMatches.slice(0, 6).map((t) => (
-                  <div className="preview-txn" key={t.id}>
-                    <span className="text-[11px] text-on-surface-variant w-20">{new Date(`${t.date}T00:00:00`).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</span>
-                    <span className="flex-1 font-medium truncate">{t.description}</span>
-                    <span className={`amt ${t.amount < 0 ? 'text-error' : 'text-secondary'}`}>{money(t.amount)}</span>
+                previewMatches.slice(0, 6).map((t, i) => (
+                  <div className="preview-txn" key={i}>
+                    <span className="text-[11px] text-on-surface-variant w-20">{t.date}</span>
+                    <span className="flex-1 font-medium truncate">{t.desc}</span>
+                    <span className={`amt ${t.amt < 0 ? 'text-error' : 'text-secondary'}`}>{money(t.amt)}</span>
                   </div>
                 ))
               )}

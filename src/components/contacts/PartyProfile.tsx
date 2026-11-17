@@ -18,7 +18,7 @@
  * lifecycle stage changer (customers) / 1099 & terms (vendors) / kind & status
  * (suppliers) / lead source & follow-up (leads).
  */
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   useParty,
   usePlatformMutations,
@@ -28,12 +28,36 @@ import {
 import { useCustomerTransactions } from '@/hooks/useAccounting';
 import { exportToCsv } from '@/lib/csvExport';
 import { useSellerStore } from '@/lib/sellerStore';
-import { platformActions } from '@/hooks/usePlatformApi';
 import PartyFormDrawer, { type PartyFormEditTarget } from './PartyFormDrawer';
 import SequencingTab from './SequencingTab';
-import { OrdersTab, InvoicesTab, ReturnsTab, TicketsTab } from './PartyAdditionalTabs';
+import {
+  OrdersTab,
+  InvoicesTab,
+  ReturnsTab,
+  TicketsTab,
+  TrackedTab,
+  CallsTab,
+  FilesTab,
+  ADDL_COUNTS,
+} from './PartyAdditionalTabs';
 
-type Tab = 'transactions' | 'activity' | 'statements' | 'recurring' | 'details' | 'latefees' | 'notes' | 'tasks' | 'records' | 'calls' | 'files' | 'sequencing' | 'orders' | 'invoices' | 'returns' | 'tickets';
+type Tab =
+  | 'transactions'
+  | 'activity'
+  | 'statements'
+  | 'recurring'
+  | 'details'
+  | 'latefees'
+  | 'notes'
+  | 'tasks'
+  | 'sequencing'
+  | 'orders'
+  | 'invoices'
+  | 'returns'
+  | 'tickets'
+  | 'tracked'
+  | 'calls'
+  | 'files';
 
 const money = (n: number | null | undefined) => `$${(Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function initials(name: string) {
@@ -61,14 +85,17 @@ const TABS: { id: Tab; label: string; badge?: string }[] = [
   { id: 'latefees', label: 'Late Fees' },
   { id: 'notes', label: 'Notes' },
   { id: 'tasks', label: 'Tasks', badge: 'New' },
-  { id: 'records', label: 'Tracked Records' },
+  { id: 'tracked', label: 'Tracked Records' },
   { id: 'calls', label: 'Calls' },
   { id: 'files', label: 'Files' },
   { id: 'sequencing', label: 'Sequences', badge: 'New' },
-  { id: 'orders', label: 'Orders' },
-  { id: 'invoices', label: 'Invoices' },
-  { id: 'returns', label: 'Returns' },
-  { id: 'tickets', label: 'Support tickets' },
+  // Customer-bound finance/commerce objects — these live ON the customer
+  // record, not in bifurcated views (USER-GUIDE: orders, finance, accounting
+  // all integrate back to the customer object).
+  { id: 'orders', label: 'Orders', badge: String(ADDL_COUNTS.orders) },
+  { id: 'invoices', label: 'Invoices', badge: String(ADDL_COUNTS.invoices) },
+  { id: 'returns', label: 'Returns', badge: String(ADDL_COUNTS.returns) },
+  { id: 'tickets', label: 'Support tickets', badge: String(ADDL_COUNTS.tickets) },
 ];
 
 /* "New transaction" menu — adapts to role: customers get Invoice/Receipt,
@@ -101,7 +128,7 @@ interface PartyProfileProps {
   onToast: (m: string) => void;
   onBack: () => void;
   onNavigate?: (d: string, s: string) => void;
-  onCreate?: (label: string, prefill?: { partyName?: string; partyId?: string; source?: string; email?: string | null }) => void;
+  onCreate?: (label: string, prefill?: { partyName?: string; partyId?: string; source?: string }) => void;
 }
 
 export default function PartyProfile({ partyId, source, backLabel, summary, onToast, onBack, onNavigate, onCreate }: PartyProfileProps) {
@@ -110,335 +137,6 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
   const [txnMenuOpen, setTxnMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
-  // Custom fields — the header cell's pencil opens the editor for THIS
-  // party: definitions for the party's source table (the entity type)
-  // with this party's platform_custom_field_values, saved through the
-  // registry action custom_fields.set.
-  interface CfField { fieldId: string; key: string; label: string; type: string; options: unknown; required: boolean; helpText: string | null; value: string | number | boolean | null }
-  const [cfOpen, setCfOpen] = useState(false);
-  const [cfFields, setCfFields] = useState<CfField[]>([]);
-  const [cfDraft, setCfDraft] = useState<Record<string, string>>({});
-  const [cfMsg, setCfMsg] = useState<{ text: string; error: boolean } | null>(null);
-  const [cfSaving, setCfSaving] = useState(false);
-
-  // ── Communicate + cross-module creates (CRM pack, 2026-11-15) ──
-  // Send a customer message: compose drawer with template picker,
-  // through POST /api/parties/[id]/email (party.email action).
-  const [msgOpen, setMsgOpen] = useState(false);
-  const [msgSubject, setMsgSubject] = useState('');
-  const [msgBody, setMsgBody] = useState('');
-  const [msgTemplates, setMsgTemplates] = useState<{ id: string; name: string; subject: string | null; body: string; category: string | null }[]>([]);
-  const [msgBusy, setMsgBusy] = useState(false);
-  const [msgNote, setMsgNote] = useState<string | null>(null);
-  // Create support ticket from this party.
-  const [tkOpen, setTkOpen] = useState(false);
-  const [tkSubject, setTkSubject] = useState('');
-  const [tkPriority, setTkPriority] = useState('normal');
-  const [tkBusy, setTkBusy] = useState(false);
-  const [tkNote, setTkNote] = useState<string | null>(null);
-  // Book appointment (customers).
-  const [apOpen, setApOpen] = useState(false);
-  const [apDate, setApDate] = useState('');
-  const [apTime, setApTime] = useState('09:00');
-  const [apBusy, setApBusy] = useState(false);
-  const [apNote, setApNote] = useState<string | null>(null);
-  // Open a deal for this customer.
-  const [dlOpen, setDlOpen] = useState(false);
-  const [dlName, setDlName] = useState('');
-  const [dlAmount, setDlAmount] = useState('');
-  const [dlBusy, setDlBusy] = useState(false);
-  const [dlNote, setDlNote] = useState<string | null>(null);
-
-  // ── Tracked records (CRM pack): dependents of this party
-  // (crm_dependents) and their lifecycle events (crm_record_events).
-  // The APIs shipped with no consuming screen; this tab is the
-  // consumer — list + add record, per-record event timeline + add
-  // event, all through /api/crm/dependents and /api/crm/record-events.
-  interface TrackedRecord { id: string; name: string; dependent_type: string; status: string | null; date_of_birth: string | null; identifier: string | null; is_active: boolean }
-  interface RecordEvent { id: string; event_type: string; occurred_at: string; reference_number: string | null; status_from: string | null; status_to: string | null; amount: number | null }
-  const [records, setRecords] = useState<TrackedRecord[]>([]);
-  const [recordsLoaded, setRecordsLoaded] = useState(false);
-  const [recordEvents, setRecordEvents] = useState<Record<string, RecordEvent[]>>({});
-  const [openRecordId, setOpenRecordId] = useState<string | null>(null);
-  const [newRecordName, setNewRecordName] = useState('');
-  const [newRecordType, setNewRecordType] = useState('child');
-  const [recordBusy, setRecordBusy] = useState(false);
-  const [eventDraft, setEventDraft] = useState<{ type: string; ref: string; statusTo: string }>({ type: 'status_change', ref: '', statusTo: '' });
-
-  const loadRecords = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/crm/dependents?customer_id=${encodeURIComponent(partyId)}`);
-      const j = await r.json();
-      setRecords((j.data as TrackedRecord[]) || []);
-    } catch { setRecords([]); }
-    setRecordsLoaded(true);
-  }, [partyId]);
-
-  useEffect(() => { if (tab === 'records' && !recordsLoaded) loadRecords(); }, [tab, recordsLoaded, loadRecords]);
-
-  const toggleRecordEvents = useCallback(async (recordId: string) => {
-    if (openRecordId === recordId) { setOpenRecordId(null); return; }
-    setOpenRecordId(recordId);
-    if (!recordEvents[recordId]) {
-      try {
-        const r = await fetch(`/api/crm/record-events?dependent_id=${encodeURIComponent(recordId)}`);
-        const j = await r.json();
-        setRecordEvents(prev => ({ ...prev, [recordId]: (j.data as RecordEvent[]) || [] }));
-      } catch { setRecordEvents(prev => ({ ...prev, [recordId]: [] })); }
-    }
-  }, [openRecordId, recordEvents]);
-
-  async function handleAddRecord() {
-    if (!newRecordName.trim()) return;
-    setRecordBusy(true);
-    try {
-      const r = await fetch('/api/crm/dependents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ primary_customer_id: partyId, name: newRecordName.trim(), dependent_type: newRecordType }) });
-      const j = await r.json();
-      if (!r.ok) { onToast(j.error?.message || 'Could not add the tracked record'); return; }
-      setNewRecordName('');
-      setRecordsLoaded(false);
-      await loadRecords();
-      onToast('Tracked record added');
-    } finally { setRecordBusy(false); }
-  }
-
-  async function handleAddEvent(recordId: string) {
-    setRecordBusy(true);
-    try {
-      const r = await fetch('/api/crm/record-events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dependent_id: recordId, event_type: eventDraft.type, reference_number: eventDraft.ref || undefined, status_to: eventDraft.statusTo || undefined }) });
-      const j = await r.json();
-      if (!r.ok) { onToast(j.error?.message || 'Could not add the event'); return; }
-      setEventDraft({ type: 'status_change', ref: '', statusTo: '' });
-      const rr = await fetch(`/api/crm/record-events?dependent_id=${encodeURIComponent(recordId)}`);
-      const jj = await rr.json();
-      setRecordEvents(prev => ({ ...prev, [recordId]: (jj.data as RecordEvent[]) || [] }));
-      onToast('Event recorded');
-    } finally { setRecordBusy(false); }
-  }
-
-  // ── Calls (CRM pack): the party's call log (crm_calls). Per the
-  // user guide, logging a call on a customer puts it on the party
-  // timeline with direction, outcome and duration — this tab is that
-  // surface: list + log a call, through /api/crm/calls. Leads key by
-  // lead_id, everyone else by customer_id.
-  interface CallRow { id: string; direction: string; status: string | null; disposition: string | null; started_at: string; duration_seconds: number | null; notes: string | null; from_number: string | null; to_number: string | null }
-  const [calls, setCalls] = useState<CallRow[]>([]);
-  const [callsLoaded, setCallsLoaded] = useState(false);
-  const [callBusy, setCallBusy] = useState(false);
-  const [callDraft, setCallDraft] = useState<{ direction: string; disposition: string; minutes: string; notes: string }>({ direction: 'outbound', disposition: '', minutes: '', notes: '' });
-
-  const callKeyParam = source === 'crm_leads' ? `lead_id=${encodeURIComponent(partyId)}` : `customer_id=${encodeURIComponent(partyId)}`;
-
-  const loadCalls = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/crm/calls?${callKeyParam}`);
-      const j = await r.json();
-      setCalls((j.data as CallRow[]) || []);
-    } catch { setCalls([]); }
-    setCallsLoaded(true);
-  }, [callKeyParam]);
-
-  useEffect(() => { if (tab === 'calls' && !callsLoaded) loadCalls(); }, [tab, callsLoaded, loadCalls]);
-
-  async function handleLogCall() {
-    setCallBusy(true);
-    try {
-      const body: Record<string, unknown> = {
-        direction: callDraft.direction,
-        disposition: callDraft.disposition.trim() || undefined,
-        duration_seconds: callDraft.minutes ? Math.round(Number(callDraft.minutes) * 60) : undefined,
-        notes: callDraft.notes.trim() || undefined,
-        started_at: new Date().toISOString(),
-        status: 'completed',
-      };
-      if (source === 'crm_leads') body.lead_id = partyId; else body.customer_id = partyId;
-      const r = await fetch('/api/crm/calls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const j = await r.json();
-      if (!r.ok) { onToast(j.error?.message || 'Could not log the call'); return; }
-      setCallDraft({ direction: 'outbound', disposition: '', minutes: '', notes: '' });
-      setCallsLoaded(false);
-      await loadCalls();
-      onToast('Call logged');
-    } finally { setCallBusy(false); }
-  }
-
-  // ── Files (CRM pack): the party's documents (crm_documents) —
-  // "every document attaches to the party" (user guide). List + add,
-  // through /api/crm/documents.
-  interface DocRow { id: string; name: string; status: string | null; uploaded_at: string; expires_at: string | null; mime_type: string | null; file_size_bytes: number | null }
-  const [docs, setDocs] = useState<DocRow[]>([]);
-  const [docsLoaded, setDocsLoaded] = useState(false);
-  const [docBusy, setDocBusy] = useState(false);
-  const [newDocName, setNewDocName] = useState('');
-  const [newDocStatus, setNewDocStatus] = useState('pending');
-
-  const loadDocs = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/crm/documents?customer_id=${encodeURIComponent(partyId)}`);
-      const j = await r.json();
-      setDocs((j.data as DocRow[]) || []);
-    } catch { setDocs([]); }
-    setDocsLoaded(true);
-  }, [partyId]);
-
-  useEffect(() => { if (tab === 'files' && !docsLoaded) loadDocs(); }, [tab, docsLoaded, loadDocs]);
-
-  async function handleAddDoc() {
-    if (!newDocName.trim()) return;
-    setDocBusy(true);
-    try {
-      const r = await fetch('/api/crm/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newDocName.trim(), customer_id: partyId, status: newDocStatus }) });
-      const j = await r.json();
-      if (!r.ok) { onToast(j.error?.message || 'Could not add the document'); return; }
-      setNewDocName('');
-      setDocsLoaded(false);
-      await loadDocs();
-      onToast('Document added');
-    } finally { setDocBusy(false); }
-  }
-
-  const openCompose = useCallback(async () => {
-    setMsgNote(null);
-    setMsgOpen(true);
-    try {
-      const r = await fetch('/api/crm/templates');
-      const j = await r.json();
-      setMsgTemplates((j.data as typeof msgTemplates) || []);
-    } catch { /* templates optional */ }
-  }, []);
-
-  async function handleSendMessage() {
-    setMsgBusy(true);
-    setMsgNote(null);
-    try {
-      const r = await fetch(`/api/parties/${partyId}/email?source=${encodeURIComponent(source || '')}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject: msgSubject, body: msgBody, to: party?.email || undefined }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error?.message || 'Send failed');
-      setMsgNote(`Queued to ${j.data.to} from ${j.data.from} — the mail worker delivers it, and the message is on this party's timeline.`);
-      setMsgSubject('');
-      setMsgBody('');
-      refresh();
-    } catch (e: any) {
-      setMsgNote(`Error: ${e.message}`);
-    } finally {
-      setMsgBusy(false);
-    }
-  }
-
-  async function handleCreateTicket() {
-    setTkBusy(true);
-    setTkNote(null);
-    try {
-      const r = await fetch('/api/v1/tickets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subject: tkSubject,
-          priority: tkPriority,
-          requester_customer_id: source === 'crm_customers' ? partyId : null,
-          requester_name: displayName,
-          requester_email: party?.email || null,
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error?.message || 'Create failed');
-      setTkNote(`Ticket ${j.data?.ticket_ref || ''} created for ${displayName}.`);
-      setTkSubject('');
-    } catch (e: any) {
-      setTkNote(`Error: ${e.message}`);
-    } finally {
-      setTkBusy(false);
-    }
-  }
-
-  async function handleBookAppointment() {
-    setApBusy(true);
-    setApNote(null);
-    try {
-      const r = await fetch('/api/crm/appointments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer_id: partyId, date: apDate, time: apTime }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error?.message || j?.error || 'Booking failed');
-      setApNote(`Appointment booked for ${apDate} at ${apTime}.`);
-      refresh();
-    } catch (e: any) {
-      setApNote(`Error: ${e.message}`);
-    } finally {
-      setApBusy(false);
-    }
-  }
-
-  async function handleCreateDeal() {
-    setDlBusy(true);
-    setDlNote(null);
-    try {
-      const pr = await fetch('/api/crm/pipelines');
-      const pj = await pr.json();
-      const pipelines = (pj.data as { id: string; is_default?: boolean }[]) || [];
-      const pipeline = pipelines.find((x) => x.is_default) || pipelines[0];
-      if (!pipeline) throw new Error('No pipeline exists yet — create one in the pipeline screen first');
-      const sr = await fetch(`/api/crm/pipeline-stages?pipeline_id=${pipeline.id}`);
-      const sj = await sr.json();
-      const stages = ((sj.data as { id: string; sort_order: number }[]) || []).sort((a, b) => a.sort_order - b.sort_order);
-      if (!stages[0]) throw new Error('The pipeline has no stages yet');
-      const r = await fetch('/api/crm/deals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: dlName,
-          amount: Number(dlAmount) || 0,
-          pipeline_id: pipeline.id,
-          stage_id: stages[0].id,
-          customer_id: partyId,
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error?.message || 'Create failed');
-      setDlNote(`Deal "${dlName}" opened in the pipeline's first stage.`);
-      setDlName('');
-      setDlAmount('');
-    } catch (e: any) {
-      setDlNote(`Error: ${e.message}`);
-    } finally {
-      setDlBusy(false);
-    }
-  }
-  const loadCustomFields = useCallback(() => {
-    fetch(`/api/platform/customization?kind=values&entityType=${encodeURIComponent(source)}&entityId=${encodeURIComponent(partyId)}`)
-      .then((r) => r.json())
-      .then((j) => {
-        const defs = (j.data as CfField[]) || [];
-        setCfFields(defs);
-        setCfDraft(Object.fromEntries(defs.map((d) => [d.key, d.value === null || d.value === undefined ? '' : String(d.value)])));
-      })
-      .catch(() => {});
-  }, [source, partyId]);
-  useEffect(() => { loadCustomFields(); }, [loadCustomFields]);
-  const saveCustomFields = async () => {
-    const values: Record<string, unknown> = {};
-    for (const f of cfFields) {
-      const raw = cfDraft[f.key] ?? '';
-      if (f.type === 'number' || f.type === 'currency' || f.type === 'percent') values[f.key] = raw === '' ? null : Number(raw);
-      else if (f.type === 'checkbox' || f.type === 'boolean') values[f.key] = raw === 'true';
-      else values[f.key] = raw === '' ? null : raw;
-    }
-    setCfSaving(true);
-    const res = await platformActions.setCustomFields(source, partyId, values);
-    setCfSaving(false);
-    if (res.ok) {
-      setCfMsg({ text: 'Custom fields saved', error: false });
-      loadCustomFields();
-    } else {
-      setCfMsg({ text: res.error || 'Could not save custom fields', error: true });
-    }
-  };
   const [noteDrawerOpen, setNoteDrawerOpen] = useState(false);
   const [taskFilter, setTaskFilter] = useState<'all' | 'open' | 'done' | 'overdue'>('all');
 
@@ -800,14 +498,6 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
             <div className="flex items-center gap-2 mt-2">
               <button className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center hover:bg-surface-container-high" title="Create note" onClick={focusNoteComposer}><span className="material-symbols-outlined text-[18px]">edit_note</span></button>
               <button className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center hover:bg-surface-container-high" title="Create task" onClick={() => setTaskDrawerOpen(true)}><span className="material-symbols-outlined text-[18px]">task_alt</span></button>
-              <button className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center hover:bg-surface-container-high" title="Send a message to this party" onClick={() => void openCompose()}><span className="material-symbols-outlined text-[18px]">mail</span></button>
-              <button className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center hover:bg-surface-container-high" title="Create support ticket" onClick={() => { setTkNote(null); setTkOpen(true); }}><span className="material-symbols-outlined text-[18px]">support_agent</span></button>
-              {isCustomer && (
-                <button className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center hover:bg-surface-container-high" title="Book appointment" onClick={() => { setApNote(null); setApOpen(true); }}><span className="material-symbols-outlined text-[18px]">calendar_month</span></button>
-              )}
-              {isCustomer && (
-                <button className="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center hover:bg-surface-container-high" title="Open a deal" onClick={() => { setDlNote(null); setDlOpen(true); }}><span className="material-symbols-outlined text-[18px]">handshake</span></button>
-              )}
             </div>
           </div>
 
@@ -816,7 +506,7 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
             <div className="space-y-4">
               <div>
                 <div className="font-semibold text-on-surface-variant mb-1">Email</div>
-                {party?.email ? <button className="text-primary hover:underline" onClick={() => void openCompose()} title="Send a message to this party">{party.email}</button> : <button className="text-primary hover:underline" onClick={openEdit}>Add email</button>}
+                {party?.email ? <a href={`mailto:${party.email}`} className="text-primary hover:underline">{party.email}</a> : <button className="text-primary hover:underline" onClick={openEdit}>Add email</button>}
               </div>
               <div>
                 <div className="font-semibold text-on-surface-variant mb-1">{isVendor ? 'Terms' : 'Billing address'}</div>
@@ -850,14 +540,7 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
               </div>
               <div>
                 <div className="font-semibold text-on-surface-variant mb-1">Custom Fields</div>
-                {cfFields.filter((f) => f.value !== null && f.value !== undefined && f.value !== '').length > 0 && (
-                  <div className="text-[13px] space-y-0.5">
-                    {cfFields.filter((f) => f.value !== null && f.value !== undefined && f.value !== '').map((f) => (
-                      <div key={f.fieldId}><span className="text-on-surface-variant">{f.label}: </span>{String(f.value)}</div>
-                    ))}
-                  </div>
-                )}
-                <button className="mt-1 text-on-surface-variant hover:text-on-surface" onClick={() => { setCfMsg(null); setCfOpen(true); }} aria-label="Edit custom fields"><span className="material-symbols-outlined text-[18px]">edit</span></button>
+                <button className="mt-1 text-on-surface-variant hover:text-on-surface" onClick={openEdit}><span className="material-symbols-outlined text-[18px]">edit</span></button>
               </div>
             </div>
           </div>
@@ -1160,7 +843,7 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
                       // Seller relationships workspace (onboarding, violations,
                       // appeals, social feed) without losing context.
                       useSellerStore.getState().setSelectedSellerId(partyId);
-                      onNavigate?.('contacts', 'seller-detail');
+                      onNavigate?.('contacts', 'seller-profile');
                     }}
                   >
                     <span className="material-symbols-outlined text-[16px]">storefront</span>Open seller workspace
@@ -1256,212 +939,6 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
           </div>
         )}
 
-        {/* 9. Tracked records — dependents + their lifecycle events */}
-        {tab === 'records' && (
-          <div>
-            <div className="flex items-center justify-between mb-4 border-b border-surface-dim pb-2">
-              <div className="text-[13px] text-on-surface-variant">{records.length} tracked record(s)</div>
-            </div>
-            {!recordsLoaded ? (
-              <div className="text-[13px] text-on-surface-variant mt-8">Loading…</div>
-            ) : records.length === 0 ? (
-              <div className="empty-state mt-12">
-                <span className="material-symbols-outlined">folder_open</span>
-                <div className="font-semibold text-[14px] text-on-surface mt-4">No tracked records yet</div>
-                <div className="text-[12px] text-on-surface-variant mt-1">Records you track for this party (dependents, assets, cases) will appear here with their event timelines.</div>
-              </div>
-            ) : (
-              <div className="space-y-3 mb-4">
-                {records.map(rec => (
-                  <div key={rec.id} className="bg-white border border-surface-dim rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-[14px]">{rec.name}</span>
-                        <span className="pill tag">{rec.dependent_type}</span>
-                        {rec.status && <span className="pill tag">{rec.status}</span>}
-                        {rec.identifier && <span className="text-[12px] text-on-surface-variant">#{rec.identifier}</span>}
-                      </div>
-                      <button className="text-[13px] font-semibold text-primary hover:underline" onClick={() => toggleRecordEvents(rec.id)}>
-                        {openRecordId === rec.id ? 'Hide events' : 'Events'}
-                      </button>
-                    </div>
-                    <div className="text-[12px] text-on-surface-variant mt-1">
-                      {rec.date_of_birth ? `Born ${fmtDate(rec.date_of_birth)} · ` : ''}{rec.is_active ? 'Active' : 'Inactive'}
-                    </div>
-                    {openRecordId === rec.id && (
-                      <div className="mt-3 border-t border-surface-dim pt-3">
-                        {(recordEvents[rec.id] || []).length === 0 ? (
-                          <div className="text-[12px] text-on-surface-variant">No events recorded yet.</div>
-                        ) : (
-                          <div className="space-y-2 mb-3">
-                            {(recordEvents[rec.id] || []).map(ev => (
-                              <div key={ev.id} className="flex items-center justify-between text-[13px]">
-                                <span><span className="pill tag mr-2">{ev.event_type}</span>{ev.status_to ? `→ ${ev.status_to}` : ''}{ev.reference_number ? ` · ref ${ev.reference_number}` : ''}</span>
-                                <span className="text-[11px] text-on-surface-variant">{fmtDate(ev.occurred_at)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <select className="h-8 px-2 border border-surface-dim rounded text-[13px] bg-white" value={eventDraft.type} onChange={e => setEventDraft(d => ({ ...d, type: e.target.value }))} aria-label="Event type">
-                            <option value="status_change">Status change</option>
-                            <option value="vaccination">Vaccination</option>
-                            <option value="appointment">Appointment</option>
-                            <option value="document">Document</option>
-                            <option value="note">Note</option>
-                          </select>
-                          <input className="h-8 px-2 border border-surface-dim rounded text-[13px]" placeholder="New status (optional)" value={eventDraft.statusTo} onChange={e => setEventDraft(d => ({ ...d, statusTo: e.target.value }))} />
-                          <input className="h-8 px-2 border border-surface-dim rounded text-[13px]" placeholder="Reference # (optional)" value={eventDraft.ref} onChange={e => setEventDraft(d => ({ ...d, ref: e.target.value }))} />
-                          <button className="h-8 px-3 bg-primary text-white text-[13px] font-semibold rounded disabled:opacity-50" disabled={recordBusy} onClick={() => handleAddEvent(rec.id)}>Add event</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-2 pt-2 flex-wrap">
-              <input className="h-9 px-3 border border-surface-dim rounded text-[13px] flex-1 min-w-[180px]" placeholder="New tracked record — name" value={newRecordName} onChange={e => setNewRecordName(e.target.value)} />
-              <select className="h-9 px-2 border border-surface-dim rounded text-[13px] bg-white" value={newRecordType} onChange={e => setNewRecordType(e.target.value)} aria-label="Record type">
-                <option value="child">Child</option>
-                <option value="pet">Pet</option>
-                <option value="asset">Asset</option>
-                <option value="case">Case</option>
-                <option value="other">Other</option>
-              </select>
-              <button className="h-9 px-4 bg-primary text-white text-[13px] font-semibold rounded disabled:opacity-50 flex items-center gap-1" disabled={recordBusy || !newRecordName.trim()} onClick={handleAddRecord}>
-                <span className="material-symbols-outlined text-[16px]">add</span>Add record
-              </button>
-            </div>
-          </div>
-        )}
-
-        {tab === 'calls' && (
-          <div>
-            <div className="flex items-center justify-between mb-4 border-b border-surface-dim pb-2">
-              <div className="text-[13px] text-on-surface-variant">{calls.length} call(s) on this party</div>
-            </div>
-            {!callsLoaded ? (
-              <div className="text-[13px] text-on-surface-variant mt-8">Loading…</div>
-            ) : calls.length === 0 ? (
-              <div className="empty-state mt-12">
-                <span className="material-symbols-outlined">call</span>
-                <div className="font-semibold text-[14px] text-on-surface mt-4">No calls logged yet</div>
-                <div className="text-[12px] text-on-surface-variant mt-1">Calls with this party will appear here with direction, outcome and duration.</div>
-              </div>
-            ) : (
-              <div className="space-y-3 mb-4">
-                {calls.map(c => (
-                  <div key={c.id} className="bg-white border border-surface-dim rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{c.direction === 'inbound' ? 'call_received' : 'call_made'}</span>
-                        <span className="font-semibold text-[14px] capitalize">{c.direction}</span>
-                        {c.disposition && <span className="pill tag">{c.disposition}</span>}
-                        {c.status && <span className="pill tag">{c.status}</span>}
-                      </div>
-                      <span className="text-[11px] text-on-surface-variant">{new Date(c.started_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                    </div>
-                    <div className="text-[12px] text-on-surface-variant mt-1">
-                      {c.duration_seconds ? `${Math.floor(c.duration_seconds / 60)}m ${c.duration_seconds % 60}s` : 'Duration not recorded'}
-                      {c.from_number || c.to_number ? ` · ${c.from_number || ''}${c.from_number && c.to_number ? ' → ' : ''}${c.to_number || ''}` : ''}
-                    </div>
-                    {c.notes && <div className="text-[13px] mt-2">{c.notes}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-2 pt-2 flex-wrap">
-              <select className="h-9 px-2 border border-surface-dim rounded text-[13px] bg-white" value={callDraft.direction} onChange={e => setCallDraft(d => ({ ...d, direction: e.target.value }))} aria-label="Direction">
-                <option value="outbound">Outbound</option>
-                <option value="inbound">Inbound</option>
-              </select>
-              <input className="h-9 px-3 border border-surface-dim rounded text-[13px]" placeholder="Outcome (e.g. reached, voicemail)" value={callDraft.disposition} onChange={e => setCallDraft(d => ({ ...d, disposition: e.target.value }))} />
-              <input className="h-9 px-3 border border-surface-dim rounded text-[13px] w-28" placeholder="Minutes" inputMode="decimal" value={callDraft.minutes} onChange={e => setCallDraft(d => ({ ...d, minutes: e.target.value }))} />
-              <input className="h-9 px-3 border border-surface-dim rounded text-[13px] flex-1 min-w-[180px]" placeholder="Notes (optional)" value={callDraft.notes} onChange={e => setCallDraft(d => ({ ...d, notes: e.target.value }))} />
-              <button className="h-9 px-4 bg-primary text-white text-[13px] font-semibold rounded disabled:opacity-50 flex items-center gap-1" disabled={callBusy} onClick={handleLogCall}>
-                <span className="material-symbols-outlined text-[16px]">add</span>Log call
-              </button>
-            </div>
-          </div>
-        )}
-
-        {tab === 'files' && (
-          <div>
-            <div className="flex items-center justify-between mb-4 border-b border-surface-dim pb-2">
-              <div className="text-[13px] text-on-surface-variant">{docs.length} document(s) attached to this party</div>
-            </div>
-            {!docsLoaded ? (
-              <div className="text-[13px] text-on-surface-variant mt-8">Loading…</div>
-            ) : docs.length === 0 ? (
-              <div className="empty-state mt-12">
-                <span className="material-symbols-outlined">description</span>
-                <div className="font-semibold text-[14px] text-on-surface mt-4">No documents yet</div>
-                <div className="text-[12px] text-on-surface-variant mt-1">Contracts, IDs, certificates and other files for this party will appear here.</div>
-              </div>
-            ) : (
-              <div className="bg-white border border-surface-dim rounded-xl overflow-hidden mb-4">
-                <table className="data-table">
-                  <thead><tr><th>Document</th><th>Status</th><th>Uploaded</th><th>Expires</th></tr></thead>
-                  <tbody>
-                    {docs.map(d => (
-                      <tr key={d.id}>
-                        <td className="font-medium">{d.name}</td>
-                        <td>{d.status ? <span className="pill tag">{d.status}</span> : '—'}</td>
-                        <td>{fmtDate(d.uploaded_at)}</td>
-                        <td>{d.expires_at ? fmtDate(d.expires_at) : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div className="flex items-center gap-2 pt-2 flex-wrap">
-              <input className="h-9 px-3 border border-surface-dim rounded text-[13px] flex-1 min-w-[180px]" placeholder="New document — name" value={newDocName} onChange={e => setNewDocName(e.target.value)} />
-              <select className="h-9 px-2 border border-surface-dim rounded text-[13px] bg-white" value={newDocStatus} onChange={e => setNewDocStatus(e.target.value)} aria-label="Document status">
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="signed">Signed</option>
-                <option value="rejected">Rejected</option>
-              </select>
-              <button className="h-9 px-4 bg-primary text-white text-[13px] font-semibold rounded disabled:opacity-50 flex items-center gap-1" disabled={docBusy || !newDocName.trim()} onClick={handleAddDoc}>
-                <span className="material-symbols-outlined text-[16px]">add</span>Add document
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 12. Sequencing — CRM sequences + route builder + this party's enrolled sequences */}
-        {tab === 'sequencing' && (
-          <SequencingTab
-            partyId={partyId}
-            partyName={displayName}
-            onToast={onToast}
-          />
-        )}
-
-        {/* 13. Orders — every sales order this customer has placed. Row click
-                opens the full Order Detail page. */}
-        {tab === 'orders' && (
-          <OrdersTab onToast={onToast} onNavigate={onNavigate} />
-        )}
-
-        {/* 14. Invoices — instant charges issued to this customer. Distinct
-                from Statements (which are 30-day rolling summaries). */}
-        {tab === 'invoices' && (
-          <InvoicesTab onToast={onToast} />
-        )}
-
-        {/* 15. Returns — RMAs linked to this customer. */}
-        {tab === 'returns' && (
-          <ReturnsTab onToast={onToast} />
-        )}
-
-        {/* 16. Support tickets — tickets opened by/for this customer. */}
-        {tab === 'tickets' && (
-          <TicketsTab onToast={onToast} />
-        )}
-
         {/* 8. Tasks */}
         {tab === 'tasks' && (
           <div>
@@ -1526,6 +1003,55 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
             </div>
           </div>
         )}
+
+        {/* 9. Sequencing — combines CRM sequences + route builder + this
+                party's enrolled-sequences view. See SequencingTab.tsx. */}
+        {tab === 'sequencing' && (
+          <SequencingTab
+            partyId={partyId}
+            partyName={displayName}
+            onToast={onToast}
+          />
+        )}
+
+        {/* 10. Tracked records — properties/addresses tracked against this party. */}
+        {tab === 'tracked' && (
+          <TrackedTab onToast={onToast} />
+        )}
+
+        {/* 11. Calls — inbound/outbound call log. */}
+        {tab === 'calls' && (
+          <CallsTab onToast={onToast} />
+        )}
+
+        {/* 12. Files — documents uploaded against this party. */}
+        {tab === 'files' && (
+          <FilesTab onToast={onToast} />
+        )}
+
+        {/* 13. Orders — every sales order this customer has placed. Row
+                click opens the full Order Detail page (same as the Orders
+                list → order-detail navigation). */}
+        {tab === 'orders' && (
+          <OrdersTab onToast={onToast} onNavigate={onNavigate} />
+        )}
+
+        {/* 14. Invoices — instant charges issued to this customer.
+                NOTE: distinct from Statements (which are 30-day rolling
+                summaries of charges over time — see the 'statements' tab). */}
+        {tab === 'invoices' && (
+          <InvoicesTab onToast={onToast} />
+        )}
+
+        {/* 15. Returns — RMAs linked to this customer. */}
+        {tab === 'returns' && (
+          <ReturnsTab onToast={onToast} />
+        )}
+
+        {/* 16. Support tickets — tickets opened by/for this customer. */}
+        {tab === 'tickets' && (
+          <TicketsTab onToast={onToast} />
+        )}
         </>
         )}
       </div>
@@ -1579,220 +1105,6 @@ export default function PartyProfile({ partyId, source, backLabel, summary, onTo
       )}
 
       {/* ═══ TASK DRAWER ═══ */}
-
-      {/* Send a message to this party */}
-      {msgOpen && (
-        <>
-          <div className="drawer-scrim open" onClick={() => setMsgOpen(false)} />
-          <div className="drawer open" style={{ width: 480 }}>
-            <div className="flex items-center justify-between px-6 h-14 border-b border-surface-dim shrink-0">
-              <h3 className="text-[16px] font-semibold">Send a message</h3>
-              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setMsgOpen(false)}><span className="material-symbols-outlined text-[20px]">close</span></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <div>
-                <label className="field-label">To</label>
-                <div className="text-[13px]">{displayName} · {party?.email || 'no email on file'}</div>
-              </div>
-              {msgTemplates.length > 0 && (
-                <div>
-                  <label className="field-label">Template</label>
-                  <select
-                    className="field-input"
-                    defaultValue=""
-                    onChange={(e) => {
-                      const t = msgTemplates.find((x) => x.id === e.target.value);
-                      if (t) { setMsgSubject(t.subject || ''); setMsgBody(t.body || ''); }
-                    }}
-                  >
-                    <option value="">Start blank…</option>
-                    {msgTemplates.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}{t.category ? ` · ${t.category}` : ''}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="field-label">Subject</label>
-                <input className="field-input" value={msgSubject} onChange={(e) => setMsgSubject(e.target.value)} />
-              </div>
-              <div>
-                <label className="field-label">Message</label>
-                <textarea className="field-input" rows={8} value={msgBody} onChange={(e) => setMsgBody(e.target.value)} />
-              </div>
-              {msgNote && <p className="text-[13px] text-on-surface-variant">{msgNote}</p>}
-            </div>
-            <div className="px-6 py-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">
-              <button className="h-9 px-4 border border-surface-dim rounded text-[13px] font-medium hover:bg-surface-container-low" onClick={() => setMsgOpen(false)}>Close</button>
-              <button className="h-9 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container disabled:opacity-40" onClick={() => void handleSendMessage()} disabled={!msgSubject.trim() || !msgBody.trim() || !party?.email || msgBusy}>
-                {msgBusy ? 'Sending…' : 'Send message'}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Create support ticket */}
-      {tkOpen && (
-        <>
-          <div className="drawer-scrim open" onClick={() => setTkOpen(false)} />
-          <div className="drawer open" style={{ width: 480 }}>
-            <div className="flex items-center justify-between px-6 h-14 border-b border-surface-dim shrink-0">
-              <h3 className="text-[16px] font-semibold">Create support ticket</h3>
-              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setTkOpen(false)}><span className="material-symbols-outlined text-[20px]">close</span></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <p className="text-[13px] text-on-surface-variant">For {displayName}{party?.email ? ` · ${party.email}` : ''}. The ticket opens in Support with this party as the requester.</p>
-              <div>
-                <label className="field-label">Subject</label>
-                <input className="field-input" value={tkSubject} onChange={(e) => setTkSubject(e.target.value)} autoFocus />
-              </div>
-              <div>
-                <label className="field-label">Priority</label>
-                <select className="field-input" value={tkPriority} onChange={(e) => setTkPriority(e.target.value)}>
-                  <option value="low">Low</option>
-                  <option value="normal">Normal</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </div>
-              {tkNote && <p className="text-[13px] text-on-surface-variant">{tkNote}</p>}
-            </div>
-            <div className="px-6 py-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">
-              <button className="h-9 px-4 border border-surface-dim rounded text-[13px] font-medium hover:bg-surface-container-low" onClick={() => setTkOpen(false)}>Close</button>
-              <button className="h-9 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container disabled:opacity-40" onClick={() => void handleCreateTicket()} disabled={!tkSubject.trim() || tkBusy}>
-                {tkBusy ? 'Creating…' : 'Create ticket'}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Book appointment */}
-      {apOpen && (
-        <>
-          <div className="drawer-scrim open" onClick={() => setApOpen(false)} />
-          <div className="drawer open" style={{ width: 480 }}>
-            <div className="flex items-center justify-between px-6 h-14 border-b border-surface-dim shrink-0">
-              <h3 className="text-[16px] font-semibold">Book appointment</h3>
-              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setApOpen(false)}><span className="material-symbols-outlined text-[20px]">close</span></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <p className="text-[13px] text-on-surface-variant">With {displayName}. Times are in the workspace timezone.</p>
-              <div>
-                <label className="field-label">Date</label>
-                <input className="field-input" type="date" value={apDate} onChange={(e) => setApDate(e.target.value)} />
-              </div>
-              <div>
-                <label className="field-label">Time</label>
-                <input className="field-input" type="time" value={apTime} onChange={(e) => setApTime(e.target.value)} />
-              </div>
-              {apNote && <p className="text-[13px] text-on-surface-variant">{apNote}</p>}
-            </div>
-            <div className="px-6 py-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">
-              <button className="h-9 px-4 border border-surface-dim rounded text-[13px] font-medium hover:bg-surface-container-low" onClick={() => setApOpen(false)}>Close</button>
-              <button className="h-9 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container disabled:opacity-40" onClick={() => void handleBookAppointment()} disabled={!apDate || apBusy}>
-                {apBusy ? 'Booking…' : 'Book appointment'}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Open a deal */}
-      {dlOpen && (
-        <>
-          <div className="drawer-scrim open" onClick={() => setDlOpen(false)} />
-          <div className="drawer open" style={{ width: 480 }}>
-            <div className="flex items-center justify-between px-6 h-14 border-b border-surface-dim shrink-0">
-              <h3 className="text-[16px] font-semibold">Open a deal</h3>
-              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setDlOpen(false)}><span className="material-symbols-outlined text-[20px]">close</span></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              <p className="text-[13px] text-on-surface-variant">For {displayName}. Opens in the default pipeline's first stage.</p>
-              <div>
-                <label className="field-label">Deal name</label>
-                <input className="field-input" value={dlName} onChange={(e) => setDlName(e.target.value)} autoFocus />
-              </div>
-              <div>
-                <label className="field-label">Amount</label>
-                <input className="field-input" type="number" min="0" value={dlAmount} onChange={(e) => setDlAmount(e.target.value)} />
-              </div>
-              {dlNote && <p className="text-[13px] text-on-surface-variant">{dlNote}</p>}
-            </div>
-            <div className="px-6 py-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">
-              <button className="h-9 px-4 border border-surface-dim rounded text-[13px] font-medium hover:bg-surface-container-low" onClick={() => setDlOpen(false)}>Close</button>
-              <button className="h-9 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container disabled:opacity-40" onClick={() => void handleCreateDeal()} disabled={!dlName.trim() || dlBusy}>
-                {dlBusy ? 'Opening…' : 'Open deal'}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {cfOpen && (
-        <>
-          <div className="drawer-scrim open" onClick={() => setCfOpen(false)} />
-          <div className="drawer open" style={{ width: 480 }}>
-            <div className="flex items-center justify-between px-6 h-14 border-b border-surface-dim shrink-0">
-              <h3 className="text-[16px] font-semibold">Custom fields</h3>
-              <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" onClick={() => setCfOpen(false)}><span className="material-symbols-outlined text-[20px]">close</span></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {cfFields.length === 0 && (
-                <p className="text-[13px] text-on-surface-variant">
-                  No custom fields are defined for this record type yet. Definitions live in Settings → Customization → Custom fields.
-                </p>
-              )}
-              {cfFields.map((f) => (
-                <div key={f.fieldId}>
-                  <label className="field-label" htmlFor={`pp-cf-${f.key}`}>{f.label}{f.required ? ' *' : ''}</label>
-                  {f.type === 'checkbox' || f.type === 'boolean' ? (
-                    <input
-                      id={`pp-cf-${f.key}`}
-                      type="checkbox"
-                      checked={(cfDraft[f.key] ?? '') === 'true'}
-                      onChange={(e) => setCfDraft((prev) => ({ ...prev, [f.key]: e.target.checked ? 'true' : 'false' }))}
-                    />
-                  ) : f.type === 'select' && Array.isArray(f.options) ? (
-                    <select
-                      id={`pp-cf-${f.key}`}
-                      className="field-input"
-                      value={cfDraft[f.key] ?? ''}
-                      onChange={(e) => setCfDraft((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                    >
-                      <option value="">—</option>
-                      {(f.options as unknown[]).map((o) => {
-                        const v = typeof o === 'object' && o !== null ? String((o as { value?: unknown }).value ?? '') : String(o);
-                        return <option key={v} value={v}>{v}</option>;
-                      })}
-                    </select>
-                  ) : (
-                    <input
-                      id={`pp-cf-${f.key}`}
-                      type={f.type === 'number' || f.type === 'currency' || f.type === 'percent' ? 'number' : f.type === 'date' ? 'date' : 'text'}
-                      className="field-input"
-                      value={cfDraft[f.key] ?? ''}
-                      onChange={(e) => setCfDraft((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                      placeholder={f.helpText || ''}
-                    />
-                  )}
-                </div>
-              ))}
-              {cfMsg && (
-                <p role="status" className="text-[13px]" style={{ color: cfMsg.error ? '#b3261e' : '#2e7d32' }}>{cfMsg.text}</p>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">
-              <button className="btn" onClick={() => setCfOpen(false)}>Close</button>
-              <button className="btn btn-primary" disabled={cfSaving || cfFields.length === 0} onClick={() => void saveCustomFields()}>
-                {cfSaving ? 'Saving…' : 'Save custom fields'}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
       {taskDrawerOpen && (
         <>
           <div className="drawer-scrim open" onClick={() => setTaskDrawerOpen(false)} />

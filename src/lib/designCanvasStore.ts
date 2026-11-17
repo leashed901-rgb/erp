@@ -10,19 +10,11 @@ import {
   createDesign,
   getBlank,
   getDesign,
-  listAssets,
   listBlanks,
   listCategories,
-  listCollections,
-  listDesigns,
-  setDesignTemplate,
-  updateDesign,
   type BlankCard,
   type BlankDetail,
   type CategoryNavNode,
-  type CollectionRow,
-  type DesignAsset,
-  type DesignListItem,
   type PlacementSpec,
 } from './podApi';
 
@@ -641,43 +633,6 @@ const initialSavedImages = loadLsArray<SavedImage>(LS_KEYS.images, []);
 const initialSavedTemplates = loadLsArray<SavedTemplate>(LS_KEYS.templates, []);
 const initialCollection = loadLsArray<SavedCollectionItem>(LS_KEYS.collection, []);
 
-function designToSavedTemplate(d: DesignListItem): SavedTemplate {
-  return {
-    id: d.id,
-    name: d.name,
-    blankKey: d.supplier_catalog_product_id ?? undefined,
-    color: d.garment_color ?? undefined,
-    createdAt: d.updated_at,
-  };
-}
-
-function assetToSavedImage(a: DesignAsset): SavedImage {
-  const meta = (a.metadata ?? {}) as Record<string, unknown>;
-  const origin: SavedImage['origin'] =
-    a.kind === 'ai'
-      ? 'ai'
-      : meta.license === 'Wikimedia Commons'
-        ? 'inspiration'
-        : 'upload';
-  return {
-    id: a.id,
-    name: String(meta.originalName ?? a.storagePath.split('/').pop() ?? a.id),
-    src: a.url ?? '',
-    origin,
-    createdAt: a.createdAt,
-  };
-}
-
-function designToCollectionItem(d: DesignListItem): SavedCollectionItem {
-  return {
-    id: d.id,
-    name: d.name,
-    kind: 'product',
-    productId: d.supplier_catalog_product_id ?? undefined,
-    createdAt: d.updated_at,
-  };
-}
-
 // ── Store ──
 interface DesignCanvasState {
   /** Loaded blank (null = empty canvas). */
@@ -690,10 +645,6 @@ interface DesignCanvasState {
   printArea: string;
   /** Product page modal — open with a catalog product when a thumbnail is clicked. */
   productPage: CatalogProduct | null;
-  /** Tech pack editor — the open tech pack id (screenId tech-pack-editor). */
-  techPackId: string | null;
-  /** RFQ board — the open RFQ id (screenId rfq-board). */
-  rfqId: string | null;
   /** Confirmation modal (productguide.html "Supplier Selected" → Enter Studio). */
   confirmOpen: boolean;
   /** Published products — go live to the global Catalog (Published Items & SKUs). */
@@ -726,10 +677,6 @@ interface DesignCanvasState {
   catalogCards: BlankCard[];
   catalogStatus: 'idle' | 'loading' | 'ready' | 'error';
   catalogError: string | null;
-  /** Total cards the active category holds (blanks API meta). */
-  catalogTotal: number | null;
-  /** Opaque offset for the next page of the active category, or null. */
-  catalogCursor: string | null;
   /** Full blank detail — provider skeletons, base price, variant colors. */
   blankDetail: BlankDetail | null;
   blankDetailStatus: 'idle' | 'loading' | 'ready' | 'error';
@@ -791,10 +738,6 @@ interface DesignCanvasState {
   selectColor: (c: BlankColor) => void;
   openProductPage: (p: CatalogProduct) => void;
   closeProductPage: () => void;
-  openTechPack: (id: string) => void;
-  closeTechPack: () => void;
-  openRfq: (id: string) => void;
-  closeRfq: () => void;
   setConfirmOpen: (open: boolean) => void;
   clearProduct: () => void;
   publishProduct: (supplier: string) => PublishedProduct;
@@ -810,24 +753,12 @@ interface DesignCanvasState {
   savedTemplates: SavedTemplate[];
   /** Collection — previews + product refs the user saved. */
   collection: SavedCollectionItem[];
-  /** Real collections a design can be saved to (collections table). */
-  collections: CollectionRow[];
-  /** Load templates + images + collections from the API (call on mount). */
-  savedLibrariesStatus: 'idle' | 'loading' | 'ready' | 'error';
-  savedLibrariesError: string | null;
-  loadSavedLibraries: () => Promise<void>;
   /** Save an uploaded or AI-generated image to the Images library. */
   saveImage: (img: Omit<SavedImage, 'id' | 'createdAt'>) => SavedImage;
   /** Save the current canvas state as a reusable template. */
-  saveTemplate: (
-    name: string,
-    blank?: { id: string; canonicalProductId?: string },
-  ) => Promise<SavedTemplate>;
+  saveTemplate: (name: string) => SavedTemplate;
   /** Save a preview or product reference to the Collection. */
-  saveToCollection: (
-    item: Omit<SavedCollectionItem, 'id' | 'createdAt'>,
-    blank?: { id: string; canonicalProductId?: string },
-  ) => Promise<SavedCollectionItem>;
+  saveToCollection: (item: Omit<SavedCollectionItem, 'id' | 'createdAt'>) => SavedCollectionItem;
   /** Remove a saved image / template / collection item. */
   removeImage: (id: string) => void;
   removeTemplate: (id: string) => void;
@@ -835,8 +766,6 @@ interface DesignCanvasState {
 
   setCategory: (cat: string, sub: string) => void;
   loadCategoryProducts: (cat?: string, sub?: string) => Promise<void>;
-  /** Append the next page of the active category (flyout Load more). */
-  loadMoreCategoryProducts: () => Promise<void>;
   loadBlankDetail: (id: string) => Promise<BlankDetail | null>;
   loadBlankFromDetail: (detail: BlankDetail) => void;
   /** Start designing: creates the draft design, then loads the canvas. */
@@ -953,8 +882,6 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
   mode: 'edit',
   printArea: 'front',
   productPage: null,
-  techPackId: null,
-  rfqId: null,
   confirmOpen: false,
   published: [],
   supplierCategory: null,
@@ -979,8 +906,6 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
   catalogCards: [],
   catalogStatus: 'idle',
   catalogError: null,
-  catalogTotal: null,
-  catalogCursor: null,
   blankDetail: null,
   blankDetailStatus: 'idle',
   blankDetailError: null,
@@ -1073,21 +998,8 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
       // BlankDetail extends BlankCard, so the loaded detail is the queue card.
       get().addToQueue(blankCardToCategoryProduct(detail));
       if (i === 0) {
-        // Load the first blank onto the canvas (sets product/mode/printArea)
-        // AND create the draft design row. startDesign does both — and
-        // without the row the canvas has no designId, so Save is dead
-        // ("Nothing to save") even with a product loaded and layers drawn.
-        // That was the catalog/product-page Design path: openStudio loaded
-        // the blank but never created the row. A failed create still loads
-        // the blank (the designer is never blocked on the network); Save
-        // then honestly reports there is nothing to save.
-        if (!get().designId) {
-          await get()
-            .startDesign(detail)
-            .catch(() => get().loadBlankFromDetail(detail));
-        } else {
-          get().loadBlankFromDetail(detail);
-        }
+        // Load the first blank onto the canvas (sets product/mode/printArea).
+        get().loadBlankFromDetail(detail);
         get().computeBlockers();
       }
     }
@@ -1171,10 +1083,6 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
 
   openProductPage: (p) => set({ productPage: p }),
   closeProductPage: () => set({ productPage: null }),
-  openTechPack: (id) => set({ techPackId: id }),
-  closeTechPack: () => set({ techPackId: null }),
-  openRfq: (id) => set({ rfqId: id }),
-  closeRfq: () => set({ rfqId: null }),
   setConfirmOpen: (open) => set({ confirmOpen: open }),
 
   clearProduct: () => set({ product: null, mode: 'edit', printArea: 'front' }),
@@ -1215,9 +1123,6 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
   savedImages: initialSavedImages,
   savedTemplates: initialSavedTemplates,
   collection: initialCollection,
-  collections: [],
-  savedLibrariesStatus: 'idle',
-  savedLibrariesError: null,
 
   saveImage: (img) => {
     const saved: SavedImage = {
@@ -1232,106 +1137,34 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
     return saved;
   },
 
-  saveTemplate: async (name, blank) => {
+  saveTemplate: (name) => {
     const s = get();
-    let designId = s.designId;
-    if (!designId) {
-      // No draft on the canvas — create the design from the blank (or the
-      // loaded product) and flag it as a template in the same call.
-      const blankId =
-        blank?.canonicalProductId ?? s.product?.key ?? s.blankDetail?.canonicalProductId;
-      if (!blankId) {
-        throw new Error('No design draft loaded — start designing from a product first.');
-      }
-      const created = await createDesign({
-        name,
-        blankId,
-        supplierCatalogProductId: blank?.id ?? s.blankDetail?.id,
-        garmentColor: s.color.name,
-        productType: name,
-        isTemplate: true,
-      });
-      designId = created.id;
-      set({ designId });
-    } else {
-      if (name && name !== s.product?.name) {
-        await updateDesign(designId, { name });
-      }
-      await setDesignTemplate(designId, true);
-    }
-    const { items } = await listDesigns({ template: true, limit: 100 });
-    const next = items.map(designToSavedTemplate);
+    const tpl: SavedTemplate = {
+      id: `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      blankKey: s.product?.key,
+      color: s.color.name,
+      printArea: s.printArea,
+      createdAt: new Date().toISOString(),
+    };
+    const prev = Array.isArray(get().savedTemplates) ? get().savedTemplates : [];
+    const next = [tpl, ...prev];
     set({ savedTemplates: next });
-    const saved = next.find((t) => t.id === designId);
-    if (!saved) throw new Error('Template saved but not listed — reload and check.');
-    return saved;
+    saveLs(LS_KEYS.templates, next);
+    return tpl;
   },
 
-  loadSavedLibraries: async () => {
-    set({ savedLibrariesStatus: 'loading', savedLibrariesError: null });
-    try {
-      const [{ items: templates }, { assets }, { items: collections }] =
-        await Promise.all([
-          listDesigns({ template: true, limit: 100 }),
-          listAssets({ limit: 100 }),
-          listCollections(),
-        ]);
-      set({
-        savedTemplates: templates.map(designToSavedTemplate),
-        savedImages: assets.map(assetToSavedImage),
-        collections,
-        savedLibrariesStatus: 'ready',
-      });
-    } catch (e) {
-      set({
-        savedLibrariesStatus: 'error',
-        savedLibrariesError:
-          e instanceof Error ? e.message : 'Could not load saved libraries.',
-      });
-    }
-  },
-
-  saveToCollection: async (item, blank) => {
-    const s = get();
-    // Target collection: the drawer's selection, else the first active one.
-    let collections = s.collections;
-    if (collections.length === 0) {
-      ({ items: collections } = await listCollections());
-      set({ collections });
-    }
-    const target =
-      collections.find((c) => c.id === s.collectionId && c.active) ??
-      collections.find((c) => c.active) ??
-      null;
-    if (!target) {
-      throw new Error('No collections yet — create one in the Studio drawer first.');
-    }
-    let designId = s.designId;
-    if (!designId) {
-      const blankId =
-        blank?.canonicalProductId ?? s.product?.key ?? s.blankDetail?.canonicalProductId;
-      if (!blankId) {
-        throw new Error('No design draft loaded — start designing from a product first.');
-      }
-      const created = await createDesign({
-        name: item.name,
-        blankId,
-        supplierCatalogProductId: blank?.id ?? s.blankDetail?.id,
-        garmentColor: s.color.name,
-        productType: item.name,
-        collectionId: target.id,
-      });
-      designId = created.id;
-      set({ designId });
-    } else {
-      await updateDesign(designId, { collectionId: target.id });
-    }
-    const { items } = await listDesigns({ collectionId: target.id, limit: 100 });
-    const next = items.map(designToCollectionItem);
-    set({ collection: next, collectionId: target.id });
-    const saved = next.find((c) => c.id === designId);
-    if (!saved) throw new Error('Saved to the collection but not listed — reload and check.');
-    return saved;
+  saveToCollection: (item) => {
+    const entry: SavedCollectionItem = {
+      id: `col-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      ...item,
+    };
+    const prev = Array.isArray(get().collection) ? get().collection : [];
+    const next = [entry, ...prev];
+    set({ collection: next });
+    saveLs(LS_KEYS.collection, next);
+    return entry;
   },
 
   removeImage: (id) => {
@@ -1363,13 +1196,11 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
     const subcategory = sub ?? get().activeSubcategory;
     set({ catalogStatus: 'loading', catalogError: null });
     try {
-      const { items, nextCursor, meta } = await listBlanks({ category, subcategory, limit: 50 });
+      const { items } = await listBlanks({ category, subcategory });
       set({
         catalogCards: items,
         catalogProducts: items.map((c) => blankCardToCategoryProduct(c)),
         catalogStatus: 'ready',
-        catalogTotal: meta?.total ?? items.length,
-        catalogCursor: nextCursor,
       });
     } catch (e) {
       // No invented fallback: the previous list stays visible, the error
@@ -1378,28 +1209,6 @@ export const useDesignCanvas = create<DesignCanvasState>((set, get) => ({
         catalogStatus: 'error',
         catalogError: e instanceof Error ? e.message : 'Could not load products.',
       });
-    }
-  },
-
-  loadMoreCategoryProducts: async () => {
-    const s = get();
-    const cursor = s.catalogCursor;
-    if (!cursor || s.catalogStatus === 'loading') return;
-    try {
-      const { items, nextCursor, meta } = await listBlanks({
-        category: s.activeCategory,
-        subcategory: s.activeSubcategory,
-        cursor,
-        limit: 50,
-      });
-      set((cur) => ({
-        catalogCards: [...cur.catalogCards, ...items],
-        catalogProducts: [...cur.catalogProducts, ...items.map((c) => blankCardToCategoryProduct(c))],
-        catalogTotal: meta?.total ?? cur.catalogTotal,
-        catalogCursor: nextCursor,
-      }));
-    } catch {
-      // The loaded pages stay; Load more just doesn't advance this time.
     }
   },
 

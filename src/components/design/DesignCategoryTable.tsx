@@ -146,9 +146,8 @@ export default function DesignCategoryTable({ path, category, subcategory, onToa
     ? filtered.reduce((s, b) => s + (b.baseCost || 0), 0) / filtered.length
     : 0;
 
+  const loadBlank = useDesignCanvas((s) => s.loadBlank);
   const loadBlankDetail = useDesignCanvas((s) => s.loadBlankDetail);
-  const startDesign = useDesignCanvas((s) => s.startDesign);
-  const loadBlankFromDetail = useDesignCanvas((s) => s.loadBlankFromDetail);
   const saveToCollection = useDesignCanvas((s) => s.saveToCollection);
   const saveTemplate = useDesignCanvas((s) => s.saveTemplate);
   const openProductPage = useDesignCanvas((s) => s.openProductPage);
@@ -165,32 +164,17 @@ export default function DesignCategoryTable({ path, category, subcategory, onToa
     else setSelected(new Set(filtered.map((p) => p.id)));
   }
 
-  async function handleSelectAndDesign(blank: BlankCard) {
-    const detail = await loadBlankDetail(blank.id);
-    if (!detail) {
-      onToast('Could not load that product — try again.');
-      return;
-    }
-    try {
-      await startDesign(detail);
-    } catch {
-      // Draft creation failed (network) — still design.
-      loadBlankFromDetail(detail);
-    }
+  function handleSelectAndDesign(blank: BlankCard) {
+    const family = blank.family;
+    const blankKey = family === 'drinkware' ? 'mug' : family === 'books' ? 'book' : 'tee';
+    loadBlank(blankKey);
     onNavigate('design', 'new-design');
-    onToast(`"${blank.name}" loaded onto canvas.`);
+    onToast(`"${blank.name}" loaded onto canvas — Design drawer opened.`);
   }
 
-  async function handlePreview(blank: BlankCard) {
-    try {
-      await saveToCollection(
-        { name: `${blank.name} — preview`, kind: 'preview' },
-        { id: blank.id, canonicalProductId: blank.canonicalProductId },
-      );
-      onToast(`Preview saved to Collection: "${blank.name}".`);
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not save to Collection.');
-    }
+  function handlePreview(blank: BlankCard) {
+    saveToCollection({ name: `${blank.name} — preview`, kind: 'preview' });
+    onToast(`Preview saved to Collection: "${blank.name}".`);
   }
 
   function handleViewProductPage(blank: BlankCard) {
@@ -201,13 +185,9 @@ export default function DesignCategoryTable({ path, category, subcategory, onToa
     onNavigate('design', 'product-page');
   }
 
-  async function handleSaveAsTemplate(blank: BlankCard) {
-    try {
-      await saveTemplate(blank.name, { id: blank.id, canonicalProductId: blank.canonicalProductId });
-      onToast(`"${blank.name}" saved as a template.`);
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not save the template.');
-    }
+  function handleSaveAsTemplate(blank: BlankCard) {
+    saveTemplate(blank.name);
+    onToast(`"${blank.name}" saved as a template.`);
   }
 
   function handleExport() {
@@ -453,17 +433,7 @@ export default function DesignCategoryTable({ path, category, subcategory, onToa
                           <button onClick={() => { setRowMenuForId(null); handleSaveAsTemplate(blank); }}>
                             <span className="material-symbols-outlined">view_quilt</span>Save to My templates
                           </button>
-                          <button onClick={() => { setRowMenuForId(null); void (async () => {
-                            try {
-                              await saveToCollection(
-                                { name: blank.name, kind: 'product' },
-                                { id: blank.id, canonicalProductId: blank.canonicalProductId },
-                              );
-                              onToast(`Saved "${blank.name}" to Collection.`);
-                            } catch (e) {
-                              onToast(e instanceof Error ? e.message : 'Could not save to Collection.');
-                            }
-                          })(); }}>
+                          <button onClick={() => { setRowMenuForId(null); saveToCollection({ name: blank.name, kind: 'product' }); onToast(`Saved "${blank.name}" to Collection.`); }}>
                             <span className="material-symbols-outlined">bookmark</span>Save to Collection
                           </button>
                         </div>

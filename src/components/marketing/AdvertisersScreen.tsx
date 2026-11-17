@@ -1,12 +1,9 @@
-/* eslint-disable react-hooks/rules-of-hooks, react-hooks/refs, react-hooks/immutability */
 'use client';
 /* AdvertisersScreen — 1:1 port of upload/marketing_extracted/Marketing/ad center mangemnt .html
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useEffect, useMemo, useState } from 'react';
-import { adMutations, useAdAdvertisers, useAdCampaigns } from '@/hooks/useAdvertisingApi';
-import type { AdAdvertiser as AdAdvertiserDto } from '@/lib/adTypes';
+import { useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -36,14 +33,18 @@ interface Advertiser {
   created: string;
 }
 
+const ADVERTISERS: Advertiser[] = [
+  { id: 'ADV-1001', legalName: 'Unsaid Company Inc.', displayName: 'Unsaid', email: 'ads@unsaid.app', phone: '+1 (901) 210-3145', country: 'United States', bizType: 'C-Corp', taxId: '••-•••4471', verify: 'Verified', status: 'Active', networks: ['Meta', 'TikTok', 'Google'], billing: 'Visa •4421', creditLimit: 15000, campaigns: 4, spend: 18420, access: [{ email: 'jordan@unsaid.app', role: 'Owner' }, { email: 'sarah@unsaid.app', role: 'Manager' }], created: '2026-01-15' },
+  { id: 'ADV-1002', legalName: 'Orion Apparel LLC', displayName: 'Orion Apparel', email: 'billing@orion.co', phone: '+1 (555) 220-4412', country: 'United States', bizType: 'LLC', taxId: '••-•••8821', verify: 'Verified', status: 'Active', networks: ['Meta', 'Pinterest'], billing: 'Mastercard •8801', creditLimit: 8000, campaigns: 2, spend: 6210, access: [{ email: 'ap@orion.co', role: 'Owner' }, { email: 'media@orion.co', role: 'Analyst' }], created: '2026-03-02' },
+  { id: 'ADV-1003', legalName: 'Blue Ridge Co.', displayName: 'Blue Ridge', email: 'ads@blueridge.co', phone: '+1 (555) 882-1102', country: 'United States', bizType: 'LLC', taxId: '••-•••1144', verify: 'Pending', status: 'Pending', networks: ['Meta'], billing: 'Visa •4421', creditLimit: 5000, campaigns: 0, spend: 0, access: [{ email: 'billing@blueridge.co', role: 'Owner' }], created: '2026-10-20' },
+  { id: 'ADV-1004', legalName: 'Maple Supply Inc.', displayName: 'Maple Supply', email: 'ar@maplesupply.io', phone: '+1 (555) 774-9810', country: 'Canada', bizType: 'C-Corp', taxId: '••-•••7789', verify: 'Verified', status: 'Suspended', networks: ['Google'], billing: 'Bank transfer', creditLimit: 12000, campaigns: 1, spend: 0, access: [{ email: 'ar@maplesupply.io', role: 'Owner' }, { email: 'finance@maplesupply.io', role: 'Billing' }], created: '2026-05-14' },
+  { id: 'ADV-1005', legalName: 'Northwind Labs LLC', displayName: 'Northwind Labs', email: 'marketing@northwindlabs.io', phone: '+1 (555) 310-8844', country: 'United States', bizType: 'LLC', taxId: '••-•••6620', verify: 'Verified', status: 'Active', networks: ['Meta', 'Google'], billing: 'Visa •4421', creditLimit: 20000, campaigns: 3, spend: 9840, access: [{ email: 'marketing@northwindlabs.io', role: 'Owner' }, { email: 'ops@northwindlabs.io', role: 'Manager' }, { email: 'reporting@northwindlabs.io', role: 'Analyst' }], created: '2026-02-10' },
+  { id: 'ADV-1006', legalName: 'Acme Corp', displayName: 'Acme Corp', email: 'ap@acme.com', phone: '+1 (555) 001-9921', country: 'United States', bizType: 'C-Corp', taxId: '••-•••4410', verify: 'Pending', status: 'Pending', networks: ['Meta', 'TikTok', 'Google', 'Pinterest'], billing: '—', creditLimit: 0, campaigns: 0, spend: 0, access: [{ email: 'ap@acme.com', role: 'Owner' }], created: '2026-11-01' },
+  { id: 'ADV-1007', legalName: 'Gelato Pty Ltd', displayName: 'Gelato', email: 'ads@gelato.co', phone: '+61 2 8000 0000', country: 'Australia', bizType: 'Partnership', taxId: '••-•••3390', verify: 'Verified', status: 'Active', networks: ['TikTok'], billing: 'Mastercard •8801', creditLimit: 6000, campaigns: 1, spend: 3120, access: [{ email: 'ads@gelato.co', role: 'Owner' }, { email: 'billing@gelato.co', role: 'Billing' }], created: '2026-06-30' },
+  { id: 'ADV-1008', legalName: 'Printify Ltd.', displayName: 'Printify', email: 'hello@printify.com', phone: '+1 (555) 400-1120', country: 'United States', bizType: 'S-Corp', taxId: '••-•••2201', verify: 'Verified', status: 'Invited', networks: ['Meta', 'Pinterest'], billing: '—', creditLimit: 0, campaigns: 0, spend: 0, access: [{ email: 'hello@printify.com', role: 'Owner' }], created: '2026-11-02' },
+];
 
 const NETWORKS = ['Meta', 'TikTok', 'Google', 'Pinterest'] as const;
-
-/* ad_advertisers carries display_name + status only; campaign counts
-   and spend aggregate from ad_campaigns by advertiser_id. Legal name,
-   contact, billing and tax fields have no columns and render blank. */
-const statusFromDb = (s: string | null) => { const v = (s || 'pending').replace('_', ' '); return v.charAt(0).toUpperCase() + v.slice(1); };
-const statusToDb = (s: string) => s.toLowerCase().replace(' ', '_');
 const ROLES = ['Owner', 'Manager', 'Billing', 'Analyst'] as const;
 const COUNTRIES = ['United States', 'Canada', 'United Kingdom', 'Australia'] as const;
 const BIZ_TYPES = ['LLC', 'C-Corp', 'S-Corp', 'Sole proprietor', 'Partnership'] as const;
@@ -77,43 +78,7 @@ function netAvatarLetter(n: string): string { return n[0]; }
 
 export default function AdvertisersScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's filters, editing, peekId, etc.) ─── */
-  const [items, setItems] = useState<Advertiser[]>([]);
-  const { advertisers: apiAdvertisers, refresh: refreshAdvertisers } = useAdAdvertisers();
-  const { campaigns: apiCampaigns } = useAdCampaigns();
-  useEffect(() => {
-    const byAdv = new Map<string, { count: number; spend: number }>();
-    apiCampaigns.forEach(c => {
-      if (!c.advertiserId) return;
-      const cur = byAdv.get(c.advertiserId) || { count: 0, spend: 0 };
-      cur.count += 1;
-      cur.spend += c.analyticsSpend || c.lifetimeSpend;
-      byAdv.set(c.advertiserId, cur);
-    });
-    setItems(apiAdvertisers.map((d: AdAdvertiserDto) => {
-      const agg = byAdv.get(d.id) || { count: 0, spend: 0 };
-      return {
-        id: d.id,
-        legalName: '',
-        displayName: d.displayName,
-        email: '',
-        phone: '',
-        country: '',
-        bizType: '',
-        taxId: '—',
-        verify: d.status === 'active' ? 'Verified' : 'Pending',
-        status: statusFromDb(d.status),
-        networks: [''],
-        billing: '—',
-        creditLimit: 0,
-        campaigns: agg.count,
-        spend: agg.spend,
-        access: [{ email: '', role: 'Owner' }],
-        created: d.createdAt.slice(0, 10),
-      };
-    }));
-    setNetworks(prev => (prev.has('') ? prev : new Set([...prev, ''])));
-    setDraftNetworks(prev => (prev.has('') ? prev : new Set([...prev, ''])));
-  }, [apiAdvertisers, apiCampaigns]);
+  const [items, setItems] = useState<Advertiser[]>(ADVERTISERS);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('All');
   const [networks, setNetworks] = useState<Set<string>>(new Set(NETWORKS as readonly string[]));
@@ -241,26 +206,25 @@ export default function AdvertisersScreen({ onToast }: MarketingScreenProps) {
       created: editing ? editing.created : new Date().toISOString().slice(0, 10),
     };
   }
-  async function persist(a: Advertiser): Promise<boolean> {
-    try {
-      if (editingId) await adMutations.updateAdvertiser(editingId, { displayName: a.displayName, status: statusToDb(a.status) });
-      else await adMutations.createAdvertiser({ displayName: a.displayName, status: statusToDb(a.status) });
-      refreshAdvertisers();
-      return true;
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not save the advertiser');
-      return false;
-    }
+  function persist(a: Advertiser) {
+    setItems(prev => {
+      if (editingId) {
+        const i = prev.findIndex(x => x.id === editingId);
+        if (i >= 0) { const n = [...prev]; n[i] = a; return n; }
+        return prev;
+      }
+      return [a, ...prev];
+    });
   }
-  async function save() {
+  function save() {
     const a = collectAdvertiser(); if (!a) return;
-    if (!(await persist(a))) return;
+    persist(a);
     closeAdvertiserDrawer();
     onToast(editingId ? 'Advertiser updated' : 'Advertiser created');
   }
-  async function saveAndNew() {
+  function saveAndNew() {
     const a = collectAdvertiser(); if (!a) return;
-    if (!(await persist(a))) return;
+    persist(a);
     setEditingId(null);
     setFLegal(''); setFDisplay(''); setFEmail(''); setFPhone(''); setFTax('');
     setFVerify('Pending');
@@ -271,20 +235,11 @@ export default function AdvertisersScreen({ onToast }: MarketingScreenProps) {
     setFCredit(15000);
     onToast('Saved. New advertiser form ready.');
   }
-  async function saveAndInvite() {
+  function saveAndInvite() {
     const a = collectAdvertiser(); if (!a) return;
-    if (!(await persist(a))) return;
+    persist(a);
     closeAdvertiserDrawer();
     onToast('Saved and sent invite');
-  }
-
-  function setStatusViaApi(a: Advertiser, display: string, verb: string, verified = false) {
-    adMutations.updateAdvertiser(a.id, { status: statusToDb(display) })
-      .then(() => {
-        setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: display, verify: verified ? 'Verified' : x.verify } : x));
-        onToast(`${verb}: ${a.displayName}`);
-      })
-      .catch((e) => onToast(e instanceof Error ? e.message : 'Could not update the advertiser'));
   }
 
   function rowAction(act: string, a: Advertiser) {
@@ -294,12 +249,22 @@ export default function AdvertisersScreen({ onToast }: MarketingScreenProps) {
       case 'view': openPeek(a.id); break;
       case 'invite': openInviteModal(); break;
       case 'verify':
-        setStatusViaApi(a, a.status === 'Pending' ? 'Active' : a.status, 'Marked verified', true);
+        setItems(prev => prev.map(x => x.id === a.id ? { ...x, verify: 'Verified', status: x.status === 'Pending' ? 'Active' : x.status } : x));
+        onToast(`Marked verified: ${a.displayName}`);
         break;
-      case 'suspend': setStatusViaApi(a, 'Suspended', 'Suspended'); break;
-      case 'restore': setStatusViaApi(a, 'Active', 'Restored'); break;
+      case 'suspend':
+        setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: 'Suspended' } : x));
+        onToast(`Suspended: ${a.displayName}`);
+        break;
+      case 'restore':
+        setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: 'Active' } : x));
+        onToast(`Restored: ${a.displayName}`);
+        break;
       case 'close':
-        if (confirm('Close this advertiser account? This cannot be undone.')) setStatusViaApi(a, 'Closed', 'Closed');
+        if (confirm('Close this advertiser account? This cannot be undone.')) {
+          setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: 'Closed' } : x));
+          onToast(`Closed: ${a.displayName}`);
+        }
         break;
     }
   }
@@ -308,16 +273,16 @@ export default function AdvertisersScreen({ onToast }: MarketingScreenProps) {
     if (act === 'close') { setSelected(new Set()); return; }
     const sel = [...selected];
     const n = sel.length;
-    const run = async (fn: (a: Advertiser) => Promise<unknown>, done: string) => {
-      try {
-        for (const a of items.filter(x => sel.includes(x.id))) await fn(a);
-        refreshAdvertisers();
-        onToast(done);
-      } catch (e) { onToast(e instanceof Error ? e.message : 'Bulk action failed'); }
-    };
-    if (act === 'suspend') void run((a) => adMutations.updateAdvertiser(a.id, { status: 'suspended' }), `Suspended ${n} advertiser(s)`);
-    else if (act === 'restore') void run((a) => adMutations.updateAdvertiser(a.id, { status: 'active' }), `Restored ${n} advertiser(s)`);
-    else if (act === 'verify') void run((a) => adMutations.updateAdvertiser(a.id, { status: a.status === 'Pending' ? 'active' : statusToDb(a.status) }), `Marked ${n} advertiser(s) verified`);
+    if (act === 'suspend') {
+      setItems(prev => prev.map(a => sel.includes(a.id) ? { ...a, status: 'Suspended' } : a));
+      onToast(`Suspended ${n} advertiser(s)`);
+    } else if (act === 'restore') {
+      setItems(prev => prev.map(a => sel.includes(a.id) ? { ...a, status: 'Active' } : a));
+      onToast(`Restored ${n} advertiser(s)`);
+    } else if (act === 'verify') {
+      setItems(prev => prev.map(a => sel.includes(a.id) ? { ...a, verify: 'Verified', status: a.status === 'Pending' ? 'Active' : a.status } : a));
+      onToast(`Marked ${n} advertiser(s) verified`);
+    }
     setSelected(new Set());
   }
 

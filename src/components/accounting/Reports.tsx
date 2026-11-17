@@ -3,14 +3,168 @@ import './reports.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
 import type { AccountingScreenProps } from './types';
-import { fetchReport, useSavedReportViews, reportViewMutations } from '@/hooks/useAccountingApi';
-import { exportToCsv } from '@/lib/csvExport';
-import type { ReportDto, SavedViewDto } from '@/lib/acctTypes';
 
-/* Report rows are computed live by /api/accounting/reports/[id]
-   from the posted general ledger + AR/AP/tax subledgers. */
+/* ═══════════════════════════════════════════════════════════ */
+/* REPORT DATA                                                */
+/* ═══════════════════════════════════════════════════════════ */
 
-type ReportRow = ReportDto['rows'][number];
+interface ReportRow {
+  kind: 'section' | 'sub' | 'total' | 'final';
+  cells: string[];
+  label?: string;
+}
+
+interface ReportDef {
+  title: string;
+  range: string;
+  rows: ReportRow[];
+}
+
+/* Keyed by the library card data-report ids. (The mockup's REPORTS object
+   spelled the A/R aging entry "arain" while its card says data-report="araging";
+   keyed here by the card id so the card's openReport action works.) */
+const REPORTS: Record<string, ReportDef> = {
+  pnl: {
+    title: 'Profit and Loss',
+    range: 'November 1 – 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Income', '', ''] },
+      { kind: 'sub',     cells: ['Sales — Apparel', '$8,420.00', '$62,180.00'] },
+      { kind: 'sub',     cells: ['Shipping income', '$1,204.00', '$8,204.00'] },
+      { kind: 'sub',     cells: ['Sales — Wall Art', '$2,110.00', '$18,940.00'] },
+      { kind: 'total',   label: 'Total income', cells: ['$11,734.00', '$89,324.00'] },
+      { kind: 'section', cells: ['Cost of goods sold', '', ''] },
+      { kind: 'sub',     cells: ['COGS — Apparel', '$3,120.00', '$18,140.00'] },
+      { kind: 'sub',     cells: ['COGS — Wall Art', '$870.00', '$7,240.00'] },
+      { kind: 'total',   label: 'Total COGS', cells: ['$3,990.00', '$25,380.00'] },
+      { kind: 'total',   label: 'Gross profit', cells: ['$7,744.00', '$63,944.00'] },
+      { kind: 'section', cells: ['Expenses', '', ''] },
+      { kind: 'sub',     cells: ['Office supplies', '$142.50', '$1,418.00'] },
+      { kind: 'sub',     cells: ['Software & subscriptions', '$59.99', '$719.88'] },
+      { kind: 'sub',     cells: ['Shipping & delivery', '$84.20', '$1,410.00'] },
+      { kind: 'sub',     cells: ['Advertising', '$1,240.00', '$9,240.00'] },
+      { kind: 'sub',     cells: ['Bank fees', '$12.00', '$124.00'] },
+      { kind: 'total',   label: 'Total expenses', cells: ['$1,538.69', '$12,911.88'] },
+      { kind: 'final',   label: 'Net operating income', cells: ['$6,205.31', '$51,032.12'] },
+    ],
+  },
+  bs: {
+    title: 'Balance Sheet',
+    range: 'As of November 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Assets', ''] },
+      { kind: 'sub',     cells: ['Business checking', '$84,210.40'] },
+      { kind: 'sub',     cells: ['Accounts receivable', '$8,420.00'] },
+      { kind: 'sub',     cells: ['Stripe clearing', '$1,842.60'] },
+      { kind: 'total',   label: 'Total assets', cells: ['$94,473.00'] },
+      { kind: 'section', cells: ['Liabilities', ''] },
+      { kind: 'sub',     cells: ['Accounts payable', '$4,080.00'] },
+      { kind: 'sub',     cells: ['Sales tax payable', '$1,880.00'] },
+      { kind: 'total',   label: 'Total liabilities', cells: ['$5,960.00'] },
+      { kind: 'section', cells: ['Equity', ''] },
+      { kind: 'sub',     cells: ["Owner's equity", '$66,010.00'] },
+      { kind: 'sub',     cells: ['Retained earnings', '$22,503.00'] },
+      { kind: 'total',   label: 'Total equity', cells: ['$88,513.00'] },
+      { kind: 'final',   label: 'Total liabilities + equity', cells: ['$94,473.00'] },
+    ],
+  },
+  cashflow: {
+    title: 'Statement of Cash Flows',
+    range: 'November 1 – 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Operating activities', ''] },
+      { kind: 'sub',     cells: ['Net income', '$6,205.31'] },
+      { kind: 'sub',     cells: ['Increase in A/R', '−$8,420.00'] },
+      { kind: 'sub',     cells: ['Increase in A/P', '$4,080.00'] },
+      { kind: 'total',   label: 'Net from operating', cells: ['$1,865.31'] },
+      { kind: 'section', cells: ['Investing activities', ''] },
+      { kind: 'sub',     cells: ['Purchase of equipment', '−$2,400.00'] },
+      { kind: 'total',   label: 'Net from investing', cells: ['−$2,400.00'] },
+      { kind: 'section', cells: ['Financing activities', ''] },
+      { kind: 'sub',     cells: ['Owner contribution', '$5,000.00'] },
+      { kind: 'total',   label: 'Net from financing', cells: ['$5,000.00'] },
+      { kind: 'final',   label: 'Net change in cash', cells: ['$4,465.31'] },
+    ],
+  },
+  araging: {
+    title: 'A/R Aging Summary',
+    range: 'As of November 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Customer', 'Current', '1–30', '31–60', '61+', 'Total'] },
+      { kind: 'sub',     cells: ['Acme Corp', '$1,240.00', '—', '—', '—', '$1,240.00'] },
+      { kind: 'sub',     cells: ['Maple Supply', '—', '$890.00', '—', '—', '$890.00'] },
+      { kind: 'sub',     cells: ['Northwind Labs', '—', '—', '$2,100.00', '—', '$2,100.00'] },
+      { kind: 'sub',     cells: ['Lakeside Design', '—', '—', '—', '$1,850.00', '$1,850.00'] },
+      { kind: 'final',   label: 'Total', cells: ['$1,240.00', '$890.00', '$2,100.00', '$1,850.00', '$6,080.00'] },
+    ],
+  },
+  salesbycustomer: {
+    title: 'Sales by Customer Summary',
+    range: 'November 1 – 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Customer', 'Revenue', '% of total'] },
+      { kind: 'sub',     cells: ['Acme Corp', '$8,640.00', '34%'] },
+      { kind: 'sub',     cells: ['Blue Ridge Co.', '$7,410.00', '29%'] },
+      { kind: 'sub',     cells: ['Northwind Labs', '$4,240.00', '17%'] },
+      { kind: 'sub',     cells: ['Orion Apparel', '$3,890.00', '15%'] },
+      { kind: 'sub',     cells: ['Maple Supply', '$1,180.00', '5%'] },
+      { kind: 'final',   label: 'Total', cells: ['$25,360.00', '100%'] },
+    ],
+  },
+  expensesbyvendor: {
+    title: 'Expenses by Vendor Summary',
+    range: 'November 1 – 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Vendor', 'Expenses', 'Bills'] },
+      { kind: 'sub',     cells: ['Printful', '$12,410.00', '8'] },
+      { kind: 'sub',     cells: ['Gelato', '$6,240.00', '4'] },
+      { kind: 'sub',     cells: ['Printify', '$4,180.00', '3'] },
+      { kind: 'sub',     cells: ['Adobe', '$719.88', '12'] },
+      { kind: 'sub',     cells: ['Staples', '$1,418.00', '9'] },
+      { kind: 'final',   label: 'Total', cells: ['$24,967.88', '36'] },
+    ],
+  },
+  gl: {
+    title: 'General Ledger',
+    range: 'November 1 – 30, 2026 · All accounts',
+    rows: [
+      { kind: 'section', cells: ['Date', 'Description', 'Account', 'Debit', 'Credit'] },
+      { kind: 'sub',     cells: ['11/01/2026', 'Invoice 1002', 'Sales — Apparel', '—', '$1,240.00'] },
+      { kind: 'sub',     cells: ['11/01/2026', 'Invoice 1002', 'A/R', '$1,240.00', '—'] },
+      { kind: 'sub',     cells: ['11/03/2026', 'Staples receipt', 'Office supplies', '$142.50', '—'] },
+      { kind: 'sub',     cells: ['11/03/2026', 'Staples receipt', 'Business checking', '—', '$142.50'] },
+      { kind: 'sub',     cells: ['11/10/2026', 'Stripe payout', 'Business checking', '$1,842.60', '—'] },
+      { kind: 'sub',     cells: ['11/10/2026', 'Stripe payout', 'Stripe clearing', '—', '$1,842.60'] },
+      { kind: 'final',   label: 'Total for period', cells: ['', '', '$3,225.10', '$3,225.10'] },
+    ],
+  },
+  tb: {
+    title: 'Trial Balance',
+    range: 'As of November 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Account', 'Debit', 'Credit'] },
+      { kind: 'sub',     cells: ['1000 · Business checking', '$84,210.40', '—'] },
+      { kind: 'sub',     cells: ['1100 · Accounts receivable', '$8,420.00', '—'] },
+      { kind: 'sub',     cells: ['2000 · Accounts payable', '—', '$4,080.00'] },
+      { kind: 'sub',     cells: ['2200 · Sales tax payable', '—', '$1,880.00'] },
+      { kind: 'sub',     cells: ["3000 · Owner's equity", '—', '$66,010.00'] },
+      { kind: 'sub',     cells: ['4000 · Sales — Apparel', '—', '$42,180.00'] },
+      { kind: 'sub',     cells: ['5000 · COGS — Apparel', '$8,140.00', '—'] },
+      { kind: 'final',   label: 'Total', cells: ['$100,770.40', '$114,150.00'] },
+    ],
+  },
+  salestax: {
+    title: 'Sales Tax Liability',
+    range: 'November 1 – 30, 2026',
+    rows: [
+      { kind: 'section', cells: ['Jurisdiction', 'Collected', 'Paid', 'Owed'] },
+      { kind: 'sub',     cells: ['Tennessee', '$1,410.00', '$920.00', '$490.00'] },
+      { kind: 'sub',     cells: ['California', '$840.00', '$0.00', '$840.00'] },
+      { kind: 'sub',     cells: ['New York', '$550.00', '$0.00', '$550.00'] },
+      { kind: 'final',   label: 'Total', cells: ['$2,800.00', '$920.00', '$1,880.00'] },
+    ],
+  },
+};
 
 /* ── Library cards (data-report / data-category / data-title) ── */
 
@@ -45,16 +199,16 @@ interface ColItem {
   checked: boolean;
 }
 
-type CustTab = 'data' | 'visual' | 'saved';
+const INITIAL_COLS: ColItem[] = [
+  { col: 'account', label: 'Account', checked: true },
+  { col: 'period', label: 'Nov 2026', checked: true },
+  { col: 'ytd', label: 'Jan – Nov 2026 (YTD)', checked: true },
+  { col: 'pct', label: '% of income', checked: false },
+  { col: 'budget', label: 'Budget', checked: false },
+  { col: 'variance', label: 'Variance', checked: false },
+];
 
-/* Current-month defaults + preset ranges, computed from the real clock */
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-const monthBounds = (d: Date) => ({
-  from: iso(new Date(d.getFullYear(), d.getMonth(), 1)),
-  to: iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
-});
-const NOW = new Date();
-const THIS_MONTH = monthBounds(NOW);
+type CustTab = 'data' | 'visual' | 'saved';
 
 export default function Reports({}: AccountingScreenProps) {
   /* Toast (mockup-local, 1800ms) */
@@ -76,24 +230,19 @@ export default function Reports({}: AccountingScreenProps) {
   const [rptTab, setRptTab] = useState('all');
 
   /* Viewer: title / range text (two DOM spots, synced like the script) */
-  const [viewerSub, setViewerSub] = useState('');
-  const [reportRange, setReportRange] = useState('');
+  const [viewerSub, setViewerSub] = useState('Nov 1 – Nov 30, 2026');
+  const [reportRange, setReportRange] = useState('November 1 – 30, 2026');
 
   /* Date range */
-  const [rangeFrom, setRangeFrom] = useState(THIS_MONTH.from);
-  const [rangeTo, setRangeTo] = useState(THIS_MONTH.to);
+  const [rangeFrom, setRangeFrom] = useState('2026-11-01');
+  const [rangeTo, setRangeTo] = useState('2026-11-30');
   const [rangePreset, setRangePreset] = useState('Custom');
-
-  /* Live report data + saved views */
-  const [reportData, setReportData] = useState<ReportDto | null>(null);
-  const [reportLoading, setReportLoading] = useState(false);
-  const { views: savedViews, refresh: refreshViews } = useSavedReportViews();
 
   /* Customize drawer state */
   const [custOpen, setCustOpen] = useState(false);
   const [custTab, setCustTab] = useState<CustTab>('data');
-  const [cols, setCols] = useState<ColItem[]>([]);
-  const [rowsSel, setRowsSel] = useState('All rows');
+  const [cols, setCols] = useState<ColItem[]>(INITIAL_COLS);
+  const [rowsSel, setRowsSel] = useState('All accounts');
   const [filterExcludeZero, setFilterExcludeZero] = useState(false);
   const [filterComparePrior, setFilterComparePrior] = useState(false);
   const [filterShowPct, setFilterShowPct] = useState(false);
@@ -109,114 +258,62 @@ export default function Reports({}: AccountingScreenProps) {
   const dragSrc = useRef<string | null>(null);
   const [draggingCol, setDraggingCol] = useState<string | null>(null);
 
-  const currentReport = reportData && reportData.id === currentReportId ? reportData : null;
-  const activeTitle = currentReport ? currentReport.title : (REPORT_CARDS.find((c) => c.id === currentReportId)?.title ?? 'Report');
-  const breadcrumb = view === 'viewer' ? activeTitle : 'Reports';
+  const currentReport = currentReportId ? REPORTS[currentReportId] : null;
+  const activeTitle = currentReport ? currentReport.title : 'Profit and Loss';
+  const breadcrumb = view === 'viewer' && currentReport ? currentReport.title : 'Reports';
 
-  /* VIEWER: open a report — the effect below fetches it live */
+  /* VIEWER: open a report */
   const openReport = (id: string) => {
+    const r = REPORTS[id];
+    if (!r) return;
     setCurrentReportId(id);
     setView('viewer');
+    setViewerSub(r.range);
+    setReportRange(r.range);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  /* Fetch (and refetch on range / compare / pct change) */
-  useEffect(() => {
-    if (view !== 'viewer' || !currentReportId) return;
-    let alive = true;
-    setReportLoading(true);
-    (async () => {
-      const res = await fetchReport(currentReportId, {
-        from: rangeFrom,
-        to: rangeTo,
-        compare: filterComparePrior,
-        pct: filterShowPct,
-      });
-      if (!alive) return;
-      setReportLoading(false);
-      if (res.ok && res.data) {
-        setReportData(res.data);
-        setViewerSub(res.data.range);
-        setReportRange(res.data.range);
-        setCols((prev) => {
-          const prevChecked = new Map(prev.map((c) => [c.col, c.checked]));
-          return res.data!.columns.map((label, i) => ({
-            col: `c${i}`,
-            label: label || 'Account',
-            checked: prevChecked.get(`c${i}`) ?? true,
-          }));
-        });
-      } else {
-        toast(res.error || 'Report failed to load');
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, currentReportId, rangeFrom, rangeTo, filterComparePrior, filterShowPct]);
-
-  /* Visual number formatting applied to money cells at render */
-  const fmtCell = (v: string): string => {
-    const m = /^(−?)\$([\d,]+\.\d{2})$/.exec(v);
-    if (!m) return v;
-    let n = parseFloat(m[2].replace(/,/g, ''));
-    if (m[1]) n = -n;
-    if (divideThousands) n = n / 1000;
-    if (numFormat === 'thousands') {
-      const abs = Math.abs(n);
-      const body = abs >= 1000 ? `${(abs / 1000).toFixed(1)}K` : abs.toFixed(0);
-      return `${n < 0 ? '−' : ''}$${body}`;
-    }
-    const dp = numFormat === 'no-cents' ? 0 : parseInt(decimals, 10);
-    return `${n < 0 ? '−' : ''}$${Math.abs(n).toFixed(dp).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
-  };
-
-  /* Negative-value formatting (red / paren), minus sign is U+2212 */
+  /* Negative-value formatting (red / paren), minus sign is U+2212 like the mockup */
   const formatNeg = (v: string) => {
-    const disp = fmtCell(v);
-    if (!disp || disp === '—' || disp === '') return disp;
-    if (highlightNeg && negFormat === 'red' && disp.startsWith('−')) return <span className="num-neg">{disp}</span>;
-    if (negFormat === 'paren' && disp.startsWith('−')) return <span className="num-neg">{`(${disp.slice(1)})`}</span>;
-    return disp;
+    if (!v || v === '—' || v === '') return v;
+    if (negFormat === 'red' && v.startsWith('−')) return <span className="num-neg">{v}</span>;
+    if (negFormat === 'paren' && v.startsWith('−')) return <span className="num-neg">{`(${v.slice(1)})`}</span>;
+    return v;
   };
 
-  /* Date range preset — computed from the real clock */
+  /* Date range preset */
   const handlePresetChange = (e: ChangeEvent<HTMLSelectElement>) => {
     const preset = e.target.value;
     setRangePreset(preset);
-    const now = new Date();
     let nextFrom = rangeFrom;
     let nextTo = rangeTo;
-    if (preset === 'This month') {
-      const b = monthBounds(now);
-      nextFrom = b.from;
-      nextTo = b.to;
-    }
-    if (preset === 'Last month') {
-      const b = monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-      nextFrom = b.from;
-      nextTo = b.to;
-    }
-    if (preset === 'This quarter') {
-      const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      nextFrom = iso(qStart);
-      nextTo = iso(new Date(qStart.getFullYear(), qStart.getMonth() + 3, 0));
-    }
-    if (preset === 'This year') {
-      nextFrom = `${now.getFullYear()}-01-01`;
-      nextTo = `${now.getFullYear()}-12-31`;
-    }
-    if (preset === 'Last year') {
-      nextFrom = `${now.getFullYear() - 1}-01-01`;
-      nextTo = `${now.getFullYear() - 1}-12-31`;
-    }
+    if (preset === 'This month') { nextFrom = '2026-11-01'; nextTo = '2026-11-30'; }
+    if (preset === 'Last month') { nextFrom = '2026-10-01'; nextTo = '2026-10-31'; }
+    if (preset === 'This quarter') { nextFrom = '2026-10-01'; nextTo = '2026-12-31'; }
+    if (preset === 'This year') { nextFrom = '2026-01-01'; nextTo = '2026-12-31'; }
+    if (preset === 'Last year') { nextFrom = '2025-01-01'; nextTo = '2025-12-31'; }
     setRangeFrom(nextFrom);
     setRangeTo(nextTo);
+    const rangeText = `${nextFrom} – ${nextTo}`;
+    setViewerSub(rangeText);
+    setReportRange(rangeText);
   };
 
-  const handleFromChange = (e: ChangeEvent<HTMLInputElement>) => setRangeFrom(e.target.value);
-  const handleToChange = (e: ChangeEvent<HTMLInputElement>) => setRangeTo(e.target.value);
+  const handleFromChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setRangeFrom(v);
+    const rangeText = `${v} – ${rangeTo}`;
+    setViewerSub(rangeText);
+    setReportRange(rangeText);
+  };
+
+  const handleToChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setRangeTo(v);
+    const rangeText = `${rangeFrom} – ${v}`;
+    setViewerSub(rangeText);
+    setReportRange(rangeText);
+  };
 
   /* Column drag reorder */
   const handleColDragStart = (col: string) => {
@@ -247,58 +344,11 @@ export default function Reports({}: AccountingScreenProps) {
     setCols(prev => prev.map(c => (c.col === col ? { ...c, checked: !c.checked } : c)));
   };
 
-  /* Save view — persists to acct_report_snapshots via the API */
-  const handleSaveView = async () => {
+  /* Save view */
+  const handleSaveView = () => {
     const name = saveName.trim();
     if (!name) { toast('Name required'); return; }
-    if (!currentReportId) { toast('Open a report first'); return; }
-    const res = await reportViewMutations.save({
-      name,
-      from: rangeFrom,
-      to: rangeTo,
-      config: {
-        reportId: currentReportId,
-        cols,
-        rowsSel,
-        filterExcludeZero,
-        filterComparePrior,
-        filterShowPct,
-        numFormat,
-        negFormat,
-        decimals,
-        divideThousands,
-        highlightNeg,
-        highlightCompare,
-      },
-    });
-    if (res.ok) {
-      toast(`Saved view "${name}"`);
-      setSaveName('');
-      await refreshViews();
-    } else toast(res.error || 'View could not be saved');
-  };
-
-  /* Restore a saved view: report, range and every customize option */
-  const applySavedView = (v: SavedViewDto) => {
-    const cfg = v.config || {};
-    const reportId = typeof cfg.reportId === 'string' ? cfg.reportId : null;
-    if (!reportId) { toast('This view has no report'); return; }
-    if (Array.isArray(cfg.cols)) setCols(cfg.cols as ColItem[]);
-    if (typeof cfg.rowsSel === 'string') setRowsSel(cfg.rowsSel);
-    if (typeof cfg.filterExcludeZero === 'boolean') setFilterExcludeZero(cfg.filterExcludeZero);
-    if (typeof cfg.filterComparePrior === 'boolean') setFilterComparePrior(cfg.filterComparePrior);
-    if (typeof cfg.filterShowPct === 'boolean') setFilterShowPct(cfg.filterShowPct);
-    if (typeof cfg.numFormat === 'string') setNumFormat(cfg.numFormat);
-    if (typeof cfg.negFormat === 'string') setNegFormat(cfg.negFormat);
-    if (typeof cfg.decimals === 'string') setDecimals(cfg.decimals);
-    if (typeof cfg.divideThousands === 'boolean') setDivideThousands(cfg.divideThousands);
-    if (typeof cfg.highlightNeg === 'boolean') setHighlightNeg(cfg.highlightNeg);
-    if (typeof cfg.highlightCompare === 'boolean') setHighlightCompare(cfg.highlightCompare);
-    setRangeFrom(v.from || rangeFrom);
-    setRangeTo(v.to || rangeTo);
-    setCustOpen(false);
-    openReport(reportId);
-    toast(`View "${v.name}" applied`);
+    toast(`Saved view "${name}"`);
   };
 
   /* Apply customization (report body re-renders from state automatically) */
@@ -307,65 +357,12 @@ export default function Reports({}: AccountingScreenProps) {
     toast('Customization applied');
   };
 
-  /* Compare / % toggles are computed by the P&L endpoint */
-  const handleCompareToggle = () => {
-    if (!filterComparePrior && currentReportId !== 'pnl') {
-      toast('Compare to prior period is available on Profit and Loss');
-      return;
-    }
-    setFilterComparePrior((v) => !v);
-  };
-  const handlePctToggle = () => {
-    if (!filterShowPct && currentReportId !== 'pnl') {
-      toast('Percentages are available on Profit and Loss');
-      return;
-    }
-    setFilterShowPct((v) => !v);
-  };
-
-  /* Export the visible report as CSV */
-  const handleExport = () => {
-    if (!currentReport) { toast('Nothing to export'); return; }
-    const labels = currentReport.columns.map((c, i) => c || `Column ${i + 1}`);
-    const rows = visibleRows.map((row) => {
-      const obj: Record<string, string> = {};
-      if (row.kind === 'total' || row.kind === 'final') {
-        obj[labels[0]] = row.label || '';
-        row.cells.forEach((c, i) => { obj[labels[i + 1]] = c; });
-      } else {
-        row.cells.forEach((c, i) => { obj[labels[i]] = c; });
-      }
-      return obj;
-    });
-    exportToCsv(rows, labels.map((l) => ({ key: l, label: l })), `${currentReport.id}-report.csv`);
-    toast('Report exported as CSV');
-  };
-
   /* Library filtering (search matches the card's semibold title, tab matches category) */
   const q = reportSearch.toLowerCase();
   const isCardVisible = (card: ReportCardDef) => {
     const matchQ = !q || card.title.toLowerCase().includes(q);
     const matchTab = rptTab === 'all' || card.category === rptTab;
     return matchQ && matchTab;
-  };
-
-  /* Row/column shaping from the customize state */
-  const hideZero = rowsSel === 'Non-zero only' || filterExcludeZero;
-  const visibleRows: ReportRow[] = (currentReport?.rows ?? []).filter((row) => {
-    if (!hideZero || row.kind !== 'sub') return true;
-    return row.cells.slice(1).some((c) => c !== '—' && c !== '' && c !== '$0.00');
-  });
-  const colIdx = (c: ColItem) => parseInt(c.col.slice(1), 10);
-  const orderedCells = (row: ReportRow): { text: string; isCompare: boolean }[] => {
-    if (!currentReport || cols.length === 0) return row.cells.map((text) => ({ text, isCompare: false }));
-    const shown = cols.filter((c) => c.checked);
-    const labelOf = (i: number) => currentReport.columns[i] || '';
-    if (row.kind === 'total' || row.kind === 'final') {
-      return shown
-        .filter((c) => colIdx(c) > 0)
-        .map((c) => ({ text: row.cells[colIdx(c) - 1] ?? '', isCompare: labelOf(colIdx(c)) === 'Prior period' }));
-    }
-    return shown.map((c) => ({ text: row.cells[colIdx(c)] ?? '', isCompare: labelOf(colIdx(c)) === 'Prior period' }));
   };
 
   return (
@@ -397,13 +394,13 @@ export default function Reports({}: AccountingScreenProps) {
             <button
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
               data-new-report
-              onClick={() => toast('Start from a standard report, then Customize → Save as view')}
+              onClick={() => toast('Custom report builder — coming in diligence pass')}
             >
               <span className="material-symbols-outlined text-[16px]">add</span>Custom report</button>
             <button
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
               data-saved-views
-              onClick={() => { setCustTab('saved'); setCustOpen(true); }}
+              onClick={() => toast('Saved views drawer')}
             >
               <span className="material-symbols-outlined text-[16px]">bookmark</span>Saved views</button>
           </div>
@@ -507,13 +504,13 @@ export default function Reports({}: AccountingScreenProps) {
             <button
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
               data-export
-              onClick={handleExport}
+              onClick={() => toast('Export as PDF / XLSX — chooser opens')}
             >
               <span className="material-symbols-outlined text-[16px]">download</span>Export ▾</button>
             <button
               className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
               data-print
-              onClick={() => window.print()}
+              onClick={() => toast('Sending to print…')}
             >
               <span className="material-symbols-outlined text-[16px]">print</span>Print</button>
           </div>
@@ -531,47 +528,34 @@ export default function Reports({}: AccountingScreenProps) {
 
             <table className="w-full rpt-table" data-report-body>
               <tbody>
-                {reportLoading && (
-                  <tr className="sub"><td className="px-4 py-4 text-on-surface-variant">Computing from the general ledger…</td></tr>
-                )}
-                {!reportLoading && currentReport && visibleRows.map((row, ri) => {
-                  const cells = orderedCells(row);
+                {currentReport && currentReport.rows.map((row, ri) => {
                   if (row.kind === 'section') {
                     return (
                       <tr className="section" key={ri}>
-                        {cells.map((c, ci) => <th key={ci}>{c.text}</th>)}
+                        {row.cells.map((c, ci) => <th key={ci}>{c}</th>)}
                       </tr>
                     );
                   }
                   if (row.kind === 'sub') {
                     return (
                       <tr className="sub" key={ri}>
-                        {cells.map((c, ci) => (
-                          <td key={ci} className={ci === 0 ? '' : 'right'} style={highlightCompare && c.isCompare ? { background: '#fff7e6' } : undefined}>
-                            {ci === 0 ? c.text : formatNeg(c.text)}
-                          </td>
-                        ))}
+                        {row.cells.map((c, ci) => <td key={ci} className={ci === 0 ? '' : 'right'}>{formatNeg(c)}</td>)}
                       </tr>
                     );
                   }
                   return (
                     <tr className="total" key={ri} style={row.kind === 'final' ? { background: '#f4f3f7' } : undefined}>
                       <td>{row.label || ''}</td>
-                      {cells.map((c, ci) => (
-                        <td key={ci} className="right" style={highlightCompare && c.isCompare ? { background: '#fff7e6' } : undefined}>{formatNeg(c.text)}</td>
-                      ))}
+                      {row.cells.map((c, ci) => <td key={ci} className="right">{formatNeg(c)}</td>)}
                     </tr>
                   );
                 })}
-                {!reportLoading && currentReport && visibleRows.length === 0 && (
-                  <tr className="sub"><td className="px-4 py-4 text-on-surface-variant">No rows for this period.</td></tr>
-                )}
               </tbody>
             </table>
 
             <div className="p-4 border-t border-surface-dim bg-surface-container-low flex items-center justify-between text-[11px] text-on-surface-variant">
-              <span data-report-updated>Computed live from posted journal entries</span>
-              <span>{currentReport ? `${currentReport.rows.length} rows · Accrual basis` : ''}</span>
+              <span data-report-updated>Last updated 2 minutes ago</span>
+              <span>Categorized 94% · 6 accounts pending review</span>
             </div>
           </div>
         </div>
@@ -612,7 +596,9 @@ export default function Reports({}: AccountingScreenProps) {
             <div className="px-4 py-3 border-b border-surface-dim">
               <div className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold mb-2">Rows</div>
               <select className="w-full h-8 px-2 border border-surface-dim rounded text-[12px]" value={rowsSel} onChange={e => setRowsSel(e.target.value)}>
-                <option>All rows</option>
+                <option>All accounts</option>
+                <option>Income accounts only</option>
+                <option>Expense accounts only</option>
                 <option>Non-zero only</option>
               </select>
             </div>
@@ -639,8 +625,8 @@ export default function Reports({}: AccountingScreenProps) {
               <div className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold mb-2">Filters</div>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" checked={filterExcludeZero} onChange={() => setFilterExcludeZero(v => !v)} /> Exclude zero rows</label>
-                <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" checked={filterComparePrior} onChange={handleCompareToggle} /> Compare to prior period</label>
-                <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" checked={filterShowPct} onChange={handlePctToggle} /> Show percentages</label>
+                <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" checked={filterComparePrior} onChange={() => setFilterComparePrior(v => !v)} /> Compare to prior period</label>
+                <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" checked={filterShowPct} onChange={() => setFilterShowPct(v => !v)} /> Show percentages</label>
               </div>
             </div>
           </div>
@@ -695,22 +681,11 @@ export default function Reports({}: AccountingScreenProps) {
                 value={saveName}
                 onChange={e => setSaveName(e.target.value)}
               />
-              <button className="w-full h-8 bg-primary text-white rounded text-[12px] font-semibold hover:bg-primary-container mb-4" data-save-view onClick={() => void handleSaveView()}>
+              <button className="w-full h-8 bg-primary text-white rounded text-[12px] font-semibold hover:bg-primary-container mb-4" data-save-view onClick={handleSaveView}>
                 <span className="material-symbols-outlined text-[14px] align-middle mr-1">bookmark_add</span>Save as view</button>
 
               <div className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold mb-2">Existing views</div>
-              {savedViews.map((v) => (
-                <div key={v.id} className="flex items-center gap-2 py-2 border-b border-surface-dim">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-body-sm font-medium truncate">{v.name}</div>
-                    <div className="text-[11px] text-on-surface-variant">{v.from} – {v.to}</div>
-                  </div>
-                  <button className="h-7 px-2 text-[11px] font-semibold text-primary border border-surface-dim rounded hover:bg-surface-container-low" onClick={() => applySavedView(v)}>Apply</button>
-                </div>
-              ))}
-              {savedViews.length === 0 && (
-                <div className="text-[11px] text-on-surface-variant text-center py-4">No saved views yet.</div>
-              )}
+              <div className="text-[11px] text-on-surface-variant text-center py-4">No saved views yet.</div>
             </div>
           </div>
         </div>

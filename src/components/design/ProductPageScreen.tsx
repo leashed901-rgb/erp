@@ -224,18 +224,13 @@ export default function ProductPageScreen({ onToast, onNavigate }: ProductPageSc
 
   function handleSaveCollection() {
     if (!d) return;
-    void saveToCollection(
-      { name: displayName, kind: 'product', productId: product.id },
-      { id: product.id, canonicalProductId: product.blankKey },
-    )
-      .then(() => onToast(`Saved "${displayName}" to Collection.`))
-      .catch((e: Error) => onToast(e.message));
+    void saveToCollection(product).then(() => onToast(`Saved "${displayName}" to Collection.`));
   }
 
   const techniques = d?.techniques ?? [];
   const chips: string[] = [];
   if (/\bunisex\b/i.test(displayName)) chips.push('Unisex');
-  if (d?.family) chips.push((d.family as string) === 'apparel' ? 'Apparel' : d.family);
+  if (d?.family) chips.push(d.family === 'apparel' ? 'Apparel' : d.family);
   for (const t of techniques.slice(0, 2)) chips.push(t.label);
 
   return (

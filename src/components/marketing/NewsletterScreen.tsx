@@ -3,11 +3,7 @@
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useCampaigns, useCampaignStats, useSubscribers, campaignMutations } from '@/hooks/useMarketingApi';
-import { useSegments } from '@/hooks/useSegmentsApi';
-import { fetchJson } from '@/hooks/useCrmApi';
-import type { Campaign as CampaignDto } from '@/lib/marketingTypes';
+import { Fragment, useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -28,8 +24,21 @@ interface Campaign {
   status: string;
 }
 
+const CAMPAIGNS: Campaign[] = [
+  { id: 'c1', name: 'October product spotlight', subject: "A closer look at what's new this month", segment: 'All subscribers', recipients: 14286, send: '2026-10-29T15:30', open: '44.2%', click: '7.1%', status: 'Sent' },
+  { id: 'c2', name: 'Weekly digest · W44', subject: 'This week at Unsaid', segment: 'All subscribers', recipients: 14286, send: '2026-11-03T09:00', open: '—', click: '—', status: 'Scheduled' },
+  { id: 'c3', name: 'Holiday teaser', subject: 'Something cozy is coming', segment: 'VIP customers', recipients: 842, send: '2026-11-10T10:00', open: '—', click: '—', status: 'Scheduled' },
+  { id: 'c4', name: 'Black Friday draft', subject: 'Our biggest drop of the year', segment: 'All subscribers', recipients: 14286, send: '—', open: '—', click: '—', status: 'Draft' },
+  { id: 'c5', name: 'New subscriber welcome', subject: 'Welcome to Unsaid', segment: 'New subscribers', recipients: 312, send: 'Automation', open: '—', click: '—', status: 'Paused' },
+];
 
 interface Segment { id: string; label: string; count: number; desc: string; }
+const SEGMENTS: Segment[] = [
+  { id: 'seg-all', label: 'All subscribers', count: 14286, desc: 'Everyone who has opted in' },
+  { id: 'seg-vip', label: 'VIP customers', count: 842, desc: 'LTV > $500' },
+  { id: 'seg-new', label: 'New subscribers', count: 312, desc: 'Joined in the last 30 days' },
+  { id: 'seg-risk', label: 'At-risk', count: 119, desc: 'No opens in 90 days' },
+];
 
 const STATUS_PILL: Record<string, string> = {
   Sent: 'bg-secondary-container text-on-secondary-container',
@@ -41,21 +50,6 @@ const STATUS_PILL: Record<string, string> = {
 };
 
 const TABS = ['All', 'Draft', 'Scheduled', 'Sending', 'Sent', 'Paused'] as const;
-
-const STATUS_TO_DB: Record<string, string> = { Draft: 'draft', Scheduled: 'scheduled', Sending: 'sending', Sent: 'sent', Paused: 'paused', Archived: 'cancelled' };
-const STATUS_FROM_DB: Record<string, string> = { draft: 'Draft', scheduled: 'Scheduled', sending: 'Sending', sent: 'Sent', paused: 'Paused', cancelled: 'Archived' };
-
-function blocksToHtml(blocks: { type: string; content: string }[]): string {
-  return blocks.map(b => {
-    if (b.type === 'hero') return `<h1>${b.content}</h1>`;
-    if (b.type === 'cta') return `<p><a href="#">${b.content}</a></p>`;
-    if (b.type === 'divider') return '<hr/>';
-    return `<p>${b.content.replace(/\n/g, '<br/>')}</p>`;
-  }).join('\n');
-}
-function blocksToText(blocks: { type: string; content: string }[]): string {
-  return blocks.filter(b => b.type !== 'divider').map(b => b.content).join('\n\n');
-}
 const BLOCK_TYPES = ['hero', 'text', 'cta', 'divider'] as const;
 type BlockType = typeof BLOCK_TYPES[number];
 
@@ -64,40 +58,6 @@ const DEFAULT_BLOCKS: Block[] = [
   { id: 'blk-hero', type: 'hero', content: 'Hero image' },
   { id: 'blk-text', type: 'text', content: "Hi there,\n\nWe've just released our fall capsule — a small, considered collection built around the pieces you asked for.\n\nTake a look and let us know what you think." },
   { id: 'blk-cta', type: 'cta', content: 'Shop the drop' },
-];
-
-/* Campaign template presets — the Templates modal's starting points.
-   Each one seeds the builder with its own block layout; previously all
-   three cards opened the same default layout, so the choice did
-   nothing. */
-const TEMPLATE_PRESETS: { icon: string; name: string; sub: string; blocks: Block[] }[] = [
-  {
-    icon: 'campaign', name: 'Product launch', sub: 'Hero + CTA',
-    blocks: [
-      { id: 'tpl-launch-hero', type: 'hero', content: 'Hero image' },
-      { id: 'tpl-launch-text', type: 'text', content: "It's here.\n\nOur newest release just landed — be the first to see it." },
-      { id: 'tpl-launch-cta', type: 'cta', content: 'Shop now' },
-    ],
-  },
-  {
-    icon: 'article', name: 'Weekly digest', sub: 'Sections + links',
-    blocks: [
-      { id: 'tpl-digest-intro', type: 'text', content: "Your weekly roundup.\n\nThe best of this week, in one place." },
-      { id: 'tpl-digest-div1', type: 'divider', content: '' },
-      { id: 'tpl-digest-s1', type: 'text', content: "Section one\n\nAdd your first story or link here." },
-      { id: 'tpl-digest-div2', type: 'divider', content: '' },
-      { id: 'tpl-digest-s2', type: 'text', content: "Section two\n\nAdd your second story or link here." },
-      { id: 'tpl-digest-cta', type: 'cta', content: 'Read more' },
-    ],
-  },
-  {
-    icon: 'redeem', name: 'Promo blast', sub: 'Image + code',
-    blocks: [
-      { id: 'tpl-promo-hero', type: 'hero', content: 'Promo image' },
-      { id: 'tpl-promo-text', type: 'text', content: "A treat for you.\n\nUse code WELCOME10 at checkout for 10% off — this week only." },
-      { id: 'tpl-promo-cta', type: 'cta', content: 'Claim the offer' },
-    ],
-  },
 ];
 
 /* ─── helpers (from HTML <script>) ─── */
@@ -114,39 +74,10 @@ function fmt(iso: string) {
 
 export default function NewsletterScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML `filters`, `peekId`, `rowMenuForId`, builder state) ─── */
-  const { campaigns: apiCampaigns, setCampaigns: setApiCampaigns } = useCampaigns();
-  const { stats } = useCampaignStats();
-  const { subscribers } = useSubscribers();
-  const { data: crmSegments } = useSegments();
-  const confirmedCount = useMemo(() => subscribers.filter(s => s.confirmedAt).length, [subscribers]);
-  const SEGMENTS: Segment[] = useMemo(() => [
-    { id: 'all', label: 'All subscribers', count: confirmedCount, desc: 'Everyone confirmed and opted in' },
-    ...crmSegments.map(s => ({ id: s.id, label: s.name, count: s.member_count || 0, desc: s.segment_type || '' })),
-  ], [confirmedCount, crmSegments]);
-  const statFor = (id: string) => stats.find(s => s.campaignId === id);
-  const items: Campaign[] = useMemo(() => apiCampaigns.map((dto: CampaignDto) => {
-    const seg = (dto.segment || {}) as Record<string, unknown>;
-    const st = statFor(dto.id);
-    const pct = (n: number) => (st && st.sent ? `${(Math.round((n / st.sent) * 1000) / 10).toFixed(1)}%` : '—');
-    return {
-      id: dto.id,
-      name: dto.name,
-      subject: typeof seg.subject === 'string' ? seg.subject : '',
-      segment: typeof seg.label === 'string' ? seg.label : 'All subscribers',
-      recipients: st ? st.sent : 0,
-      send: dto.scheduledAt || dto.completedAt || '—',
-      open: st ? pct(st.opens) : '—',
-      click: st ? pct(st.clicks) : '—',
-      status: STATUS_FROM_DB[dto.status] || 'Draft',
-    };
-  }), [apiCampaigns, stats]);
+  const [items, setItems] = useState<Campaign[]>(CAMPAIGNS);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState<string>('All');
-  const [segments, setSegments] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (SEGMENTS.length && segments.size === 0) setSegments(new Set(SEGMENTS.map(s => s.label)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [SEGMENTS.length]);
+  const [segments, setSegments] = useState<Set<string>>(new Set(SEGMENTS.map(s => s.label)));
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -219,54 +150,36 @@ export default function NewsletterScreen({ onToast }: MarketingScreenProps) {
   function openPeek(id: string) { setPeekId(id); setRowMenu(null); }
   function closePeek() { setPeekId(null); }
 
-  async function setCampaignStatus(c: Campaign, display: string) {
-    const res = await campaignMutations.update(c.id, { status: STATUS_TO_DB[display] || 'draft' });
-    if (!res.ok || !res.data) { onToast('Update failed: ' + (res.error || '')); return; }
-    setApiCampaigns(apiCampaigns.map(x => x.id === c.id ? res.data! : x));
-  }
-
-  async function duplicateCampaign(c: Campaign) {
-    const dto = apiCampaigns.find(x => x.id === c.id);
-    if (!dto) return;
-    const res = await campaignMutations.create({ name: c.name + ' (copy)', segment: dto.segment, templateId: dto.templateId });
-    if (!res.ok || !res.data) { onToast('Duplicate failed: ' + (res.error || '')); return; }
-    setApiCampaigns([res.data, ...apiCampaigns]);
-    onToast('Duplicated');
-  }
-
   function rowAction(act: string, c: Campaign) {
     setRowMenu(null);
     switch (act) {
       case 'open': openBuilder(c.id); break;
       case 'preview': openPeek(c.id); break;
-      case 'duplicate': void duplicateCampaign(c); break;
-      case 'pause': void setCampaignStatus(c, 'Paused').then(() => onToast('Paused')); break;
-      case 'resume': void setCampaignStatus(c, 'Scheduled').then(() => onToast('Resumed')); break;
-      case 'archive': void setCampaignStatus(c, 'Archived').then(() => onToast('Archived')); break;
+      case 'duplicate':
+        setItems(prev => [{ ...c, id: 'c' + Date.now(), name: c.name + ' (copy)', status: 'Draft', send: '—', open: '—', click: '—' }, ...prev]);
+        onToast('Duplicated');
+        break;
+      case 'pause': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'Paused' } : x)); onToast('Paused'); break;
+      case 'resume': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'Scheduled' } : x)); onToast('Resumed'); break;
+      case 'archive': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'Archived' } : x)); onToast('Archived'); break;
     }
   }
 
-  async function bulkAction(act: string) {
+  function bulkAction(act: string) {
     if (act === 'Clear') { setSelected(new Set()); return; }
     const sel = [...selected];
     const n = sel.length;
-    if (n === 0) return;
-    if (act === 'Duplicate') {
-      for (const id of sel) {
-        const c = items.find(x => x.id === id);
-        if (c) await duplicateCampaign(c);
-      }
+    if (act === 'Pause') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'Paused' } : c)); onToast(`Pause · ${n} campaign(s)`); }
+    else if (act === 'Resume') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'Scheduled' } : c)); onToast(`Resume · ${n} campaign(s)`); }
+    else if (act === 'Duplicate') {
+      const copies: Campaign[] = sel.map(id => {
+        const c = items.find(x => x.id === id)!;
+        return { ...c, id: 'c' + Date.now() + Math.random().toString(36).slice(2, 6), name: c.name + ' (copy)', status: 'Draft', send: '—', open: '—', click: '—' };
+      });
+      setItems(prev => [...copies, ...prev]);
       onToast(`Duplicate · ${n} campaign(s)`);
-    } else {
-      const display = act === 'Pause' ? 'Paused' : act === 'Resume' ? 'Scheduled' : 'Archived';
-      let working = apiCampaigns.slice();
-      for (const id of sel) {
-        const res = await campaignMutations.update(id, { status: STATUS_TO_DB[display] });
-        if (res.ok && res.data) working = working.map(x => x.id === id ? res.data! : x);
-      }
-      setApiCampaigns(working);
-      onToast(`${act} · ${n} campaign(s)`);
     }
+    else if (act === 'Archive') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'Archived' } : c)); onToast(`Archive · ${n} campaign(s)`); }
     setSelected(new Set());
   }
 
@@ -280,7 +193,7 @@ export default function NewsletterScreen({ onToast }: MarketingScreenProps) {
   }
 
   /* ─── builder handlers ─── */
-  function openBuilder(id: string | null, preset?: Block[]) {
+  function openBuilder(id: string | null) {
     setEditingId(id);
     setBuilderStep('design');
     setSendMode('now');
@@ -290,19 +203,16 @@ export default function NewsletterScreen({ onToast }: MarketingScreenProps) {
     setNewCampaignMenuOpen(false);
     setTemplatesOpen(false);
     const c = id ? items.find(x => x.id === id) : null;
-    const dto = id ? apiCampaigns.find(x => x.id === id) : null;
-    const seg = (dto?.segment || {}) as Record<string, unknown>;
-    const settings = (seg.settings || {}) as Record<string, unknown>;
     setFName(c ? c.name : '');
-    setFSubject(typeof seg.subject === 'string' ? seg.subject : (c ? c.subject : ''));
-    setFFrom(typeof seg.fromName === 'string' ? seg.fromName : 'Unsaid Company');
-    setFReply(typeof seg.replyTo === 'string' ? seg.replyTo : '');
-    setFPreheader(typeof seg.preheader === 'string' ? seg.preheader : '');
-    setFSendAt(dto?.scheduledAt ? dto.scheduledAt.slice(0, 16) : new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16));
+    setFSubject(c ? c.subject : '');
+    setFFrom('Unsaid Company');
+    setFReply('hello@unsaid.app');
+    setFPreheader('');
+    setFSendAt(new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 16));
     setFApproval('none');
-    setExclUnsub(settings.exclUnsub !== false); setExclBounce(settings.exclBounce !== false); setExclComplaint(settings.exclComplaint !== false);
-    setTrackOpens(settings.trackOpens !== false); setGaUtm(settings.gaUtm !== false); setGaEvent(settings.gaEvent === true);
-    setBlocks(preset ? preset.map(b => ({ ...b })) : Array.isArray(seg.blocks) && (seg.blocks as Block[]).length ? (seg.blocks as Block[]).map(b => ({ ...b })) : DEFAULT_BLOCKS.map(b => ({ ...b })));
+    setExclUnsub(true); setExclBounce(true); setExclComplaint(true);
+    setTrackOpens(true); setGaUtm(true); setGaEvent(false);
+    setBlocks(DEFAULT_BLOCKS.map(b => ({ ...b })));
     setBuilderSegments([c ? c.segment : 'All subscribers']);
     setBuilderOpen(true);
   }
@@ -358,67 +268,43 @@ export default function NewsletterScreen({ onToast }: MarketingScreenProps) {
       approval: fApproval,
     };
   }
-  function segmentPayload(p: ReturnType<typeof collectPayload>) {
-    return {
-      label: p.segment,
-      segments: p.segments,
-      subject: p.subject,
-      preheader: p.preheader,
-      fromName: p.fromName,
-      replyTo: p.replyTo,
-      blocks: p.blocks,
-      settings: { exclUnsub, exclBounce, exclComplaint, trackOpens, gaUtm, gaEvent },
-    };
-  }
-
-  async function saveBuilder() {
+  function saveBuilder() {
     const p = collectPayload();
-    const segment = segmentPayload(p);
     if (editingId) {
-      const res = await campaignMutations.update(editingId, { name: p.name, segment_definition: segment });
-      if (!res.ok || !res.data) { onToast('Save failed: ' + (res.error || '')); return; }
-      setApiCampaigns(apiCampaigns.map(x => x.id === editingId ? res.data! : x));
+      setItems(prev => prev.map(c => c.id === editingId ? { ...c, name: p.name, subject: p.subject, segment: p.segment, recipients: p.recipients } : c));
     } else {
-      const res = await campaignMutations.create({ name: p.name, segment });
-      if (!res.ok || !res.data) { onToast('Save failed: ' + (res.error || '')); return; }
-      setApiCampaigns([res.data, ...apiCampaigns]);
+      setItems(prev => [{ id: 'c' + Date.now(), name: p.name, subject: p.subject, segment: p.segment, recipients: p.recipients, send: '—', open: '—', click: '—', status: 'Draft' }, ...prev]);
     }
     setIsDirty(false);
     closeBuilder();
     onToast('Campaign saved');
   }
-  async function sendBuilder() {
+  function sendBuilder() {
     const p = collectPayload();
-    const segment = segmentPayload(p);
-    let id = editingId;
-    if (id) {
-      const res = await campaignMutations.update(id, { name: p.name, segment_definition: segment });
-      if (!res.ok) { onToast('Save failed: ' + (res.error || '')); return; }
-    } else {
-      const res = await campaignMutations.create({ name: p.name, segment });
-      if (!res.ok || !res.data) { onToast('Save failed: ' + (res.error || '')); return; }
-      id = res.data.id;
-      setApiCampaigns([res.data, ...apiCampaigns]);
-    }
     if (sendMode === 'now') {
-      const res = await campaignMutations.send(id, { subject: p.subject, html: blocksToHtml(p.blocks as Block[]), text: blocksToText(p.blocks as Block[]) });
-      if (!res.ok || !res.data) { onToast('Send failed: ' + (res.error || '')); return; }
-      setApiCampaigns(apiCampaigns.map(x => x.id === id ? { ...x, status: 'sent', completedAt: new Date().toISOString() } : x));
-      onToast(`Sent to ${res.data.enqueued} subscriber(s) from ${res.data.from}`);
+      const id = editingId || 'c' + Date.now();
+      const now = new Date().toISOString();
+      setItems(prev => {
+        if (editingId) return prev.map(c => c.id === editingId ? { ...c, name: p.name, subject: p.subject, segment: p.segment, recipients: p.recipients, status: 'Sending', send: now } : c);
+        return [{ id, name: p.name, subject: p.subject, segment: p.segment, recipients: p.recipients, status: 'Sending', send: now, open: '—', click: '—' }, ...prev];
+      });
+      setIsDirty(false);
+      closeBuilder();
+      onToast('Send prepared — connect ESP to deliver');
     } else {
-      const res = await campaignMutations.update(id, { status: 'scheduled', scheduled_at: fSendAt ? new Date(fSendAt).toISOString() : null });
-      if (!res.ok || !res.data) { onToast('Schedule failed: ' + (res.error || '')); return; }
-      setApiCampaigns(apiCampaigns.map(x => x.id === id ? res.data! : x));
+      const id = editingId || 'c' + Date.now();
+      setItems(prev => {
+        if (editingId) return prev.map(c => c.id === editingId ? { ...c, name: p.name, subject: p.subject, segment: p.segment, recipients: p.recipients, status: 'Scheduled', send: fSendAt } : c);
+        return [{ id, name: p.name, subject: p.subject, segment: p.segment, recipients: p.recipients, status: 'Scheduled', send: fSendAt, open: '—', click: '—' }, ...prev];
+      });
+      setIsDirty(false);
+      closeBuilder();
       onToast('Scheduled');
     }
-    setIsDirty(false);
-    closeBuilder();
   }
-  async function sendTest() {
+  function sendTest() {
     if (!testEmail) { onToast('Enter an email'); return; }
     if (!testEmail.includes('@')) { onToast('Enter a valid email'); return; }
-    const res = await campaignMutations.testSend({ to: testEmail, subject: fSubject || fName, html: blocksToHtml(blocks), text: blocksToText(blocks) });
-    if (!res.ok) { onToast('Test send failed: ' + (res.error || '')); return; }
     onToast('Test sent to ' + testEmail);
   }
   function builderSendTestFromHeader() {
@@ -488,18 +374,18 @@ export default function NewsletterScreen({ onToast }: MarketingScreenProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Subscribers</span>
-          <div className="text-headline-lg mt-1">{confirmedCount.toLocaleString()}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">Confirmed and opted in</div>
+          <div className="text-headline-lg mt-1">14,286</div>
+          <div className="text-[11px] text-secondary mt-1">+312 this month</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
-          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Avg. open rate</span>
-          <div className="text-headline-lg mt-1">{(() => { const s = stats.reduce((a, x) => a + x.sent, 0); const o = stats.reduce((a, x) => a + x.opens, 0); return s ? `${(Math.round((o / s) * 1000) / 10).toFixed(1)}%` : '—'; })()}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">Across sent campaigns</div>
+          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Avg. open rate (30d)</span>
+          <div className="text-headline-lg mt-1">42.8%</div>
+          <div className="text-[11px] text-secondary mt-1">+3.1 pts</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
-          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Avg. click rate</span>
-          <div className="text-headline-lg mt-1">{(() => { const s = stats.reduce((a, x) => a + x.sent, 0); const cl = stats.reduce((a, x) => a + x.clicks, 0); return s ? `${(Math.round((cl / s) * 1000) / 10).toFixed(1)}%` : '—'; })()}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">Across sent campaigns</div>
+          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Avg. click rate (30d)</span>
+          <div className="text-headline-lg mt-1">6.4%</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">Stable</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Drafts &amp; scheduled</span>
@@ -761,8 +647,12 @@ export default function NewsletterScreen({ onToast }: MarketingScreenProps) {
             </div>
             <p className="text-body-sm text-on-surface-variant mb-3">Reusable starting points. Pick a template to open the builder.</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {TEMPLATE_PRESETS.map(tpl => (
-                <button key={tpl.name} className="tpl-card border border-surface-dim rounded-lg overflow-hidden text-left hover:border-primary" onClick={() => { setTemplatesOpen(false); openBuilder(null, tpl.blocks); }}>
+              {[
+                { icon: 'campaign', name: 'Product launch', sub: 'Hero + CTA' },
+                { icon: 'article', name: 'Weekly digest', sub: 'Sections + links' },
+                { icon: 'redeem', name: 'Promo blast', sub: 'Image + code' },
+              ].map(tpl => (
+                <button key={tpl.name} className="tpl-card border border-surface-dim rounded-lg overflow-hidden text-left hover:border-primary" onClick={() => { setTemplatesOpen(false); openBuilder(null); }}>
                   <div className="h-24 bg-surface-container-low flex items-center justify-center"><span className="material-symbols-outlined text-[28px] text-on-surface-variant">{tpl.icon}</span></div>
                   <div className="p-2"><div className="text-[12px] font-semibold">{tpl.name}</div><div className="text-[10px] text-on-surface-variant">{tpl.sub}</div></div>
                 </button>

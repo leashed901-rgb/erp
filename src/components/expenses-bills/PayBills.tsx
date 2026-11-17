@@ -10,15 +10,13 @@ import React, {
 } from 'react';
 import type { ExpensesBillsScreenProps } from './types';
 import { EBL_NAV } from './types';
-import { fetchJson } from '@/hooks/useCrmApi';
-import { useBankAccounts } from '@/hooks/useAccountingApi';
 
 /* ════════════════════════════════════════════════════════════════
    Pay bills screen — 1:1 conversion of upload/Pay bills.html
    ════════════════════════════════════════════════════════════════ */
 
 interface PayBillRow {
-  id: string;
+  id: number;
   vendor: string;
   billno: string;
   due: string;          // ISO date 'YYYY-MM-DD'
@@ -35,9 +33,27 @@ interface ConfirmSummaryItem {
   amount: string;       // already formatted via money()
 }
 
+interface AccountOption {
+  label: string;
+  balance: number;
+}
+
 type DueFilter = 'all' | '7' | '30' | 'overdue';
 
+const INITIAL_ROWS: PayBillRow[] = [
+  { id: 1, vendor: 'Printful',                  billno: 'PF-9211', due: '2026-11-10', dueDisplay: '11/10/2026', balance: 2880.00, overdue: false, checked: false, amount: '2,880.00' },
+  { id: 2, vendor: 'Gelato',                    billno: 'GL-4402', due: '2026-11-15', dueDisplay: '11/15/2026', balance: 1200.00, overdue: false, checked: false, amount: '1,200.00' },
+  { id: 3, vendor: 'Printify',                  billno: 'PR-3388', due: '2026-10-30', dueDisplay: '10/30/2026', balance:  640.00, overdue: true,  checked: false, amount:   '640.00' },
+  { id: 4, vendor: 'Adobe',                     billno: 'AD-9911', due: '2026-11-28', dueDisplay: '11/28/2026', balance:  719.88, overdue: false, checked: false, amount:   '719.88' },
+  { id: 5, vendor: 'Knoxville Utilities Board', billno: 'KUB-8802', due: '2026-12-05', dueDisplay: '12/05/2026', balance:  320.00, overdue: false, checked: false, amount:   '320.00' },
+  { id: 6, vendor: 'Lakeside Design',           billno: 'LD-1104', due: '2026-11-06', dueDisplay: '11/06/2026', balance: 1850.00, overdue: false, checked: false, amount: '1,850.00' },
+];
 
+const ACCOUNTS: AccountOption[] = [
+  { label: 'Chase •9910 · $84,210.40', balance: 84210.40 },
+  { label: 'Visa •4421 · $2,180.00',   balance:  2180.00 },
+  { label: 'Amex •2103 · $5,000.00',   balance:  5000.00 },
+];
 
 const money = (n: number) =>
   '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -64,55 +80,19 @@ export default function PayBills({
     if (toastMsg) onToast(toastMsg);
   }, [toastMsg, onToast]);
 
-  /* ── Row state: open bills from GET /api/accounting/bills ── */
-  const [rows, setRows] = useState<PayBillRow[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const { bankAccounts } = useBankAccounts();
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchJson<{ data: Record<string, unknown>[] }>('/api/accounting/bills')
-      .then(res => {
-        if (cancelled || !res.ok) return;
-        const today = new Date().toISOString().slice(0, 10);
-        setRows(prev => (res.data.data || [])
-          .filter(d => String(d.status) !== 'void')
-          .map(d => {
-            const open = Math.max(0, Number(d.total || 0) - Number(d.amountPaid || 0));
-            const dueISO = String(d.dueDate || '');
-            const keep = prev.find(x => x.id === String(d.id));
-            return {
-              id: String(d.id),
-              vendor: String(d.vendorName || 'Vendor'),
-              billno: String(d.billNumber || ''),
-              due: dueISO,
-              dueDisplay: dueISO ? `${dueISO.slice(5, 7)}/${dueISO.slice(8, 10)}/${dueISO.slice(0, 4)}` : '—',
-              balance: open,
-              overdue: open > 0 && !!dueISO && dueISO < today && String(d.status) !== 'paid',
-              checked: keep?.checked ?? false,
-              amount: keep?.amount ?? open.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','),
-            };
-          })
-          .filter(r => r.balance > 0));
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [refreshKey]);
+  /* ── Row state ── */
+  const [rows, setRows] = useState<PayBillRow[]>(INITIAL_ROWS);
 
   /* ── Filter state ── */
   const [search, setSearch] = useState('');
   const [dueFilter, setDueFilter] = useState<DueFilter>('all');
 
-  /* ── Payment account state (real bank accounts) ── */
-  const [payAccount, setPayAccount] = useState('');
-  const selectedAccount = bankAccounts.find(a => a.id === payAccount) || bankAccounts[0];
-  const balanceNote = selectedAccount ? `Available: ${money(selectedAccount.balance)}` : '';
-  useEffect(() => {
-    if (!payAccount && bankAccounts.length) setPayAccount(bankAccounts[0].id);
-  }, [payAccount, bankAccounts]);
+  /* ── Payment account state ── */
+  const [payAccount, setPayAccount] = useState(ACCOUNTS[0].label);
+  const [balanceNote, setBalanceNote] = useState(`Available: ${money(ACCOUNTS[0].balance)}`);
 
   /* ── Payment date state ── */
-  const [payDate, setPayDate] = useState(new Date().toISOString().slice(0, 10));
+  const [payDate, setPayDate] = useState('2026-11-08');
 
   /* ── Print later state ── */
   const [printLater, setPrintLater] = useState(false);
@@ -218,7 +198,7 @@ export default function PayBills({
      ═══════════════════════════════════════════════════════════════ */
 
   /* Row checkbox change → toggle that row's checked */
-  const handleRowCheck = (id: string, checked: boolean) => {
+  const handleRowCheck = (id: number, checked: boolean) => {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, checked } : r)));
   };
 
@@ -242,7 +222,7 @@ export default function PayBills({
   };
 
   /* amt-input → reformat with commas (preserve decimal) + update row.amount */
-  const handleAmountInput = (id: string, value: string) => {
+  const handleAmountInput = (id: number, value: string) => {
     const raw = value.replace(/[^\d.]/g, '');
     const [int, dec] = raw.split('.');
     const formatted =
@@ -263,7 +243,11 @@ export default function PayBills({
 
   /* Payment account select → update payAccount + balanceNote */
   const handlePayAccount = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setPayAccount(e.target.value);
+    const val = e.target.value;
+    setPayAccount(val);
+    const acct = ACCOUNTS.find((a) => a.label === val);
+    const bal = acct ? acct.balance : 0;
+    setBalanceNote(`Available: ${money(bal)}`);
   };
 
   /* Payment date input */
@@ -288,7 +272,7 @@ export default function PayBills({
     });
     setConfirmSummary(summary);
     setConfirmTotal(money(total));
-    setConfirmAccount(selectedAccount?.name || 'Bank account');
+    setConfirmAccount(payAccount.split(' · ')[0]);
     const [y, m, dd] = payDate.split('-');
     setConfirmDate(`${m}/${dd}/${y}`);
     setConfirmOpen(true);
@@ -297,43 +281,31 @@ export default function PayBills({
   /* Confirm modal Back → close */
   const handleCancelConfirm = () => setConfirmOpen(false);
 
-  /* Confirm modal Pay now → real payments via the pay endpoint.
-     The success modal reports only what the API actually paid. */
-  const handleConfirmPay = async () => {
+  /* Confirm modal Pay now → close confirm, populate + open success */
+  const handleConfirmPay = () => {
     setConfirmOpen(false);
     const selected = rows.filter((r) => r.checked && visibleIds.has(r.id));
-    let paidCount = 0;
-    let paidTotal = 0;
-    let failed = 0;
-    for (const r of selected) {
-      const amt = parseFloat((r.amount || '0').replace(/,/g, '')) || 0;
-      if (!amt) { failed++; continue; }
-      const res = await fetchJson(`/api/v1/documents/${r.id}/pay?type=Bill`, {
-        method: 'POST',
-        body: JSON.stringify({ amount: amt }),
-      });
-      if (res.ok) { paidCount++; paidTotal += amt; }
-      else failed++;
-    }
+    let total = 0;
+    selected.forEach((r) => {
+      total += parseFloat((r.amount || '0').replace(/,/g, '')) || 0;
+    });
     const [y, m, dd] = payDate.split('-');
     setSuccessData({
-      count: paidCount,
-      total: money(paidTotal),
+      count: selected.length,
+      total: money(total),
       date: `${m}/${dd}/${y}`,
-      printNote: failed
-        ? `${failed} payment${failed === 1 ? '' : 's'} failed — those bills remain open.`
-        : printLater
-          ? 'Print later is on — the payments are recorded on the bills; check printing is not connected.'
-          : 'All selected bills were paid.',
+      printNote: printLater
+        ? 'Print later is on — checks queued in the Print Checks workspace.'
+        : 'Print later is off — checks will print now.',
     });
     setSuccessOpen(true);
-    setRefreshKey(k => k + 1);
   };
 
-  /* Success modal Done → close + toast (rows already refreshed) */
+  /* Success modal Done → close, remove paid rows, toast */
   const handleDone = () => {
     setSuccessOpen(false);
-    showToast('Payments recorded');
+    setRows((prev) => prev.filter((r) => !r.checked));
+    showToast('Payments scheduled');
   };
 
   /* Success modal View payments → navigate to Bills (closest existing screen to
@@ -432,8 +404,8 @@ export default function PayBills({
           <div>
             <label className="field-label">Payment account</label>
             <select className="field-input" value={payAccount} onChange={handlePayAccount}>
-              {bankAccounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name} · {money(a.balance)}</option>
+              {ACCOUNTS.map((a) => (
+                <option key={a.label} value={a.label}>{a.label}</option>
               ))}
             </select>
             <div className="text-[11px] text-on-surface-variant mt-1">{balanceNote}</div>

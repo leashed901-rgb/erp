@@ -3,9 +3,7 @@
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useEffect, useMemo, useState } from 'react';
-import { useAdAdvertisers, useAdSpendExpenses } from '@/hooks/useAdvertisingApi';
-import type { AdAdvertiser as AdAdvertiserDto } from '@/lib/adTypes';
+import { useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -26,6 +24,21 @@ interface Advertiser {
   mapped: Record<Network, string>;
 }
 
+const ADVERTISERS: Advertiser[] = [
+  { id: 'ADV-1001', name: 'Unsaid Company Inc.', billing: 'Visa •4421', gate: 'Ready',
+    spend: { Meta: 4410, TikTok: 0, Google: 0, Pinterest: 0 }, mapped: { Meta: '6100', TikTok: '6101', Google: '6102', Pinterest: '6103' } },
+  { id: 'ADV-1002', name: 'Orion Apparel LLC', billing: 'Mastercard •8801', gate: 'Ready',
+    spend: { Meta: 4210, TikTok: 0, Google: 0, Pinterest: 2000 }, mapped: { Meta: '6100', TikTok: '6101', Google: '6102', Pinterest: '6103' } },
+  { id: 'ADV-1003', name: 'Blue Ridge Co.', billing: 'Visa •4421', gate: 'Ready',
+    spend: { Meta: 890, TikTok: 0, Google: 0, Pinterest: 0 }, mapped: { Meta: '6100', TikTok: '6101', Google: '6102', Pinterest: '6103' } },
+  { id: 'ADV-1004', name: 'Maple Supply Inc.', billing: '—', gate: 'Billing on hold',
+    spend: { Meta: 0, TikTok: 0, Google: 3120, Pinterest: 0 }, mapped: { Meta: '6100', TikTok: '6101', Google: '', Pinterest: '6103' } },
+  { id: 'ADV-1005', name: 'Northwind Labs LLC', billing: 'Chase ACH •9910', gate: 'Ready',
+    spend: { Meta: 7500, TikTok: 0, Google: 2340, Pinterest: 0 }, mapped: { Meta: '6100', TikTok: '6101', Google: '6102', Pinterest: '6103' } },
+  { id: 'ADV-1006', name: 'Acme Corp', billing: '—', gate: 'Verification pending',
+    spend: { Meta: 0, TikTok: 0, Google: 0, Pinterest: 0 }, mapped: { Meta: '', TikTok: '', Google: '', Pinterest: '' } },
+];
+
 interface JournalEntry {
   id: string;
   date: string;
@@ -35,6 +48,21 @@ interface JournalEntry {
   status: string;
 }
 
+const JOURNALS: Record<string, JournalEntry[]> = {
+  'ADV-1001': [{ id: 'JE-7031', date: '2026-10-31', amount: 4410, account: '6100', memo: 'Meta Ads — Fall launch · Oct 2026', status: 'Posted' }],
+  'ADV-1002': [
+    { id: 'JE-7032', date: '2026-10-31', amount: 4210, account: '6100', memo: 'Meta Ads — Orion prospecting · Oct 2026', status: 'Posted' },
+    { id: 'JE-7033', date: '2026-10-31', amount: 2000, account: '6103', memo: 'Pinterest Ads — Orion inspo · Oct 2026', status: 'Posted' },
+  ],
+  'ADV-1003': [{ id: 'JE-7034', date: '2026-10-31', amount: 890, account: '6100', memo: 'Meta Ads — Blue Ridge test · Oct 2026', status: 'Posted' }],
+  'ADV-1004': [{ id: 'JE-7035', date: '2026-10-31', amount: 3120, account: '', memo: 'Google Ads — Maple search · Oct 2026', status: 'Unmapped' }],
+  'ADV-1005': [
+    { id: 'JE-7036', date: '2026-10-31', amount: 7500, account: '6100', memo: 'Meta Ads — Northwind lookalike · Oct 2026', status: 'Posted' },
+    { id: 'JE-7037', date: '2026-10-31', amount: 2340, account: '6102', memo: 'Google Ads — Brand search · Oct 2026', status: 'Posted' },
+  ],
+  'ADV-1006': [],
+};
+
 interface ReconRow {
   account: string;
   name: string;
@@ -43,6 +71,13 @@ interface ReconRow {
   state: string;
   lastLocked: string;
 }
+
+const RECON: ReconRow[] = [
+  { account: '6100', name: 'Advertising Expense — Meta', debits: 17010, ledger: 17010, state: 'Open', lastLocked: '2026-10-31' },
+  { account: '6101', name: 'Advertising Expense — TikTok', debits: 0, ledger: 0, state: 'Not started', lastLocked: '—' },
+  { account: '6102', name: 'Advertising Expense — Google', debits: 5460, ledger: 5460, state: 'Open', lastLocked: '—' },
+  { account: '6103', name: 'Advertising Expense — Pinterest', debits: 2000, ledger: 2000, state: 'Open', lastLocked: '—' },
+];
 
 interface FinanceRouteMeta {
   title: string;
@@ -108,28 +143,7 @@ interface FinanceModalState {
 
 export default function AdSpendScreen({ onToast, onNavigate }: MarketingScreenProps) {
   /* ─── state ─── */
-  const [advertisers, setAdvertisers] = useState<Advertiser[]>([]);
-  const { advertisers: apiAdvertisers } = useAdAdvertisers();
-  const { journals: apiJournals, recon: apiRecon } = useAdSpendExpenses();
-  const [journalsByAdvertiser, setJournalsByAdvertiser] = useState<Record<string, JournalEntry[]>>({});
-  const [reconRows, setReconRows] = useState<ReconRow[]>([]);
-  useEffect(() => {
-    setAdvertisers(apiAdvertisers.map((d: AdAdvertiserDto) => ({
-      id: d.id,
-      name: d.displayName,
-      billing: '—',
-      gate: d.status === 'active' ? 'Ready' : (d.status || '—'),
-      spend: { Meta: 0, TikTok: 0, Google: 0, Pinterest: 0 },
-      mapped: { Meta: '', TikTok: '', Google: '', Pinterest: '' },
-    })));
-    const system = apiAdvertisers.find(d => d.isSystem) || apiAdvertisers[0];
-    if (system) {
-      setJournalsByAdvertiser({ [system.id]: apiJournals.map(j => ({ id: j.id, date: j.date, amount: j.amount, account: j.account, memo: j.memo, status: j.status })) });
-    }
-  }, [apiAdvertisers, apiJournals]);
-  useEffect(() => {
-    setReconRows(apiRecon.map(r => ({ account: r.account, name: r.name, debits: r.debits, ledger: r.ledger, state: r.state, lastLocked: r.lastLocked })));
-  }, [apiRecon]);
+  const [advertisers, setAdvertisers] = useState<Advertiser[]>(ADVERTISERS);
   const [period, setPeriod] = useState<PeriodState>(PERIOD_INITIAL);
 
   // CoA mapping drawer
@@ -153,7 +167,7 @@ export default function AdSpendScreen({ onToast, onNavigate }: MarketingScreenPr
   const totalUnmapped = totalSpend - totalMapped;
   const mappedPct = totalSpend ? Math.round(totalMapped / totalSpend * 100) : 0;
 
-  const lockedRecon = useMemo(() => reconRows.filter(r => r.state === 'Locked'), [reconRows]);
+  const lockedRecon = useMemo(() => RECON.filter(r => r.state === 'Locked'), []);
   const statReconciled = lockedRecon.length ? lockedRecon.map(r => r.account).join(', ') : 'Open';
   const statReconciledNote = lockedRecon.length
     ? `Locked accounts: ${lockedRecon.length}`
@@ -265,7 +279,7 @@ export default function AdSpendScreen({ onToast, onNavigate }: MarketingScreenPr
     if (!financeModal) return;
     const { route, nav } = financeModal;
     setFinanceModal(null);
-    if (nav && onNavigate) onNavigate(nav[0] as import('@/data/shellData').DomainKey, nav[1]);
+    if (nav && onNavigate) onNavigate(nav[0], nav[1]);
     onToast('Navigating: ' + route);
   }
 
@@ -329,7 +343,7 @@ export default function AdSpendScreen({ onToast, onNavigate }: MarketingScreenPr
         spend,
         mapped,
         unmapped: spend - mapped,
-        journals: (journalsByAdvertiser[a.id] || []).length,
+        journals: (JOURNALS[a.id] || []).length,
       };
     });
     exportToCsv(rows as unknown as Record<string, unknown>[], [
@@ -347,7 +361,7 @@ export default function AdSpendScreen({ onToast, onNavigate }: MarketingScreenPr
 
   const mapTargetAdvertiser = mapTarget ? advertisers.find(a => a.id === mapTarget.advertiserId) : null;
   const journalAdvertiser = journalAdvertiserId ? advertisers.find(a => a.id === journalAdvertiserId) : null;
-  const journalEntries = journalAdvertiserId ? (journalsByAdvertiser[journalAdvertiserId] || []) : [];
+  const journalEntries = journalAdvertiserId ? (JOURNALS[journalAdvertiserId] || []) : [];
   const rowMenuAdvertiser = rowMenuForId ? advertisers.find(a => a.id === rowMenuForId) : null;
 
   return (
@@ -454,7 +468,7 @@ export default function AdSpendScreen({ onToast, onNavigate }: MarketingScreenPr
                 const unmapped = spend - mapped;
                 const activeNets = (Object.entries(a.spend) as [Network, number][]).filter(([, v]) => v > 0).map(([n]) => n);
                 const gateClass = a.gate === 'Ready' ? 'ok' : a.gate === 'Verification pending' ? 'warn' : 'bad';
-                const journal = journalsByAdvertiser[a.id] || [];
+                const journal = JOURNALS[a.id] || [];
                 return (
                   <tr key={a.id} className="hover:bg-surface-container-low">
                     <td className="px-3 py-2">
@@ -601,7 +615,7 @@ export default function AdSpendScreen({ onToast, onNavigate }: MarketingScreenPr
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-dim">
-              {reconRows.map(r => {
+              {RECON.map(r => {
                 const stateClass = r.state === 'Locked' ? 'ok' : r.state === 'Open' ? 'info' : 'neutral';
                 return (
                   <tr key={r.account} className="hover:bg-surface-container-low">

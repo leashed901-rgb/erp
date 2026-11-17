@@ -1,8 +1,8 @@
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(26, 28, 30, 0.4);
-  backdrop-filter: blur(4px);
+  background: rgba(26, 28, 30, 0.35);
+  backdrop-filter: blur(2px);
   z-index: 100;
   display: none;
   align-items: flex-start;
@@ -17,37 +17,37 @@
 
 .dialog {
   width: 100%;
-  max-width: 1180px;
+  max-width: 920px;
   background-color: #ffffff;
   border-radius: 12px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
-  margin-top: 12px;
-  margin-bottom: 12px;
+  margin: 12px 0;
   overflow: hidden;
 }
 
 @media (min-width: 768px) {
   .dialog {
-    margin-top: 20px;
-    margin-bottom: 20px;
+    margin: 20px 0;
   }
 }
 
 .gradientBar {
-  height: 4px;
+  height: 3px;
   width: 100%;
-  background-image: linear-gradient(to right, #0a6400, #108000, #006c47);
+  background: #0a6400;
 }
 
+/* ── Header — minimal, clean ── */
 .header {
-  padding: 20px 24px 12px;
+  padding: 16px 20px 8px;
+  border-bottom: 1px solid #eeedf1;
 }
 
 .headerTop {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -55,15 +55,15 @@
 .headerBrand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .brandIcon {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
-  background-color: #108000;
-  color: #ffffff;
+  background-color: #f4f3f7;
+  color: #5a6355;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -71,129 +71,137 @@
 
 .titleRow {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
 }
 
 .title {
-  font-size: 24px;
-  line-height: 32px;
-  letter-spacing: -0.015em;
-  font-weight: 700;
-}
-
-.factoryBadge {
-  padding: 2px 8px;
-  border-radius: 9999px;
-  background-color: #8af5be;
-  color: #00714b;
-  font-size: 11px;
-  line-height: 14px;
-  letter-spacing: 0.02em;
-  font-weight: 600;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 500;
+  color: #1a1c1e;
 }
 
 .subtitle {
   font-size: 12px;
   line-height: 16px;
-  color: #5a6355;
-  margin-top: 2px;
+  color: #6f7a69;
+  font-weight: 400;
+  margin-top: 1px;
 }
 
 .closeBtn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #5a6355;
+  color: #6f7a69;
+  border: none;
+  background: transparent;
+  cursor: pointer;
 }
 
 .closeBtn:hover {
-  background-color: #eeedf1;
+  background-color: #f4f3f7;
+  color: #1a1c1e;
 }
 
+/* ── Search ── */
 .searchWrap {
   position: relative;
   display: flex;
   align-items: center;
   width: 100%;
   margin-top: 12px;
+  margin-bottom: 4px;
 }
 
 .searchInput {
   width: 100%;
-  height: 44px;
-  padding-left: 44px;
-  padding-right: 80px;
-  border-radius: 8px;
+  height: 36px;
+  padding-left: 36px;
+  padding-right: 60px;
+  border-radius: 6px;
   background-color: #f4f3f7;
-  font-size: 14px;
-  line-height: 20px;
-  box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+  border: 1px solid #eeedf1;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+  color: #1a1c1e;
 }
 
 .searchInput::placeholder {
-  color: #5a6355;
+  color: #6f7a69;
+  font-weight: 400;
 }
 
 .searchInput:focus {
   outline: none;
+  border-color: #0a6400;
   background-color: #ffffff;
 }
 
 .escKbd {
   position: absolute;
-  right: 12px;
-  font-size: 11px;
-  line-height: 14px;
-  letter-spacing: 0.02em;
-  font-weight: 600;
-  color: #5a6355;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #6f7a69;
   background-color: #eeedf1;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
+.icon20Search {
+  position: absolute;
+  left: 8px;
+  font-size: 16px;
+  color: #6f7a69;
+  pointer-events: none;
+}
+
+/* ── Grid — 3 columns max, clean cards ── */
 .grid {
-  padding: 16px 24px;
-  background-color: #f4f3f7;
+  padding: 12px 16px;
+  background-color: #faf9fc;
   display: grid;
   grid-template-columns: repeat(1, minmax(0, 1fr));
-  gap: 12px;
-  max-height: 560px;
+  gap: 8px;
+  max-height: 520px;
   overflow-y: auto;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
   .grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (min-width: 1280px) {
-  .grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-}
-
+/* ── Domain cards ── */
 .categoryCard {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   background-color: #ffffff;
-  padding: 12px;
+  padding: 10px;
   border-radius: 8px;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  border: 1px solid #eeedf1;
 }
 
 .categoryHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #eeedf1;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f4f3f7;
 }
 
 .categoryHeaderLeft {
@@ -202,152 +210,131 @@
   gap: 6px;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 9999px;
-}
-
-.dotPrimary {
-  background-color: #0a6400;
-}
-
-.dotSecondary {
-  background-color: #006c47;
-}
-
-.dotTertiary {
-  background-color: #0055a5;
-}
-
-.dotQbNavy {
-  background-color: #1f2937;
-}
-
-.dotPrimaryContainer {
-  background-color: #108000;
-}
-
-.dotError {
-  background-color: #ba1a1a;
+.icon16 {
+  font-size: 14px;
+  color: #6f7a69;
 }
 
 .categoryTitle {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 500;
+  color: #5a6355;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 .categoryCount {
   font-size: 10px;
-  color: #5a6355;
-  font-weight: 500;
+  color: #6f7a69;
+  font-weight: 400;
 }
 
+/* ── Items — minimal, non-bold, clean ── */
 .itemsNav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .createItem {
   display: flex;
-  flex-direction: column;
-  padding: 6px 8px;
+  align-items: center;
+  padding: 5px 6px;
   border-radius: 4px;
   text-align: left;
   width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.1s;
 }
 
 .createItem:hover {
-  background-color: #0a6400;
-  color: #ffffff;
+  background-color: #f4f3f7;
 }
 
 .itemLabel {
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 500;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+  color: #1a1c1e;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.createItem:hover .itemLabel {
+  color: #0a6400;
+}
+
+.itemIcon {
+  font-size: 14px;
+  color: #6f7a69;
+  flex-shrink: 0;
+}
+
+.createItem:hover .itemIcon {
+  color: #0a6400;
 }
 
 .itemDesc {
   font-size: 11px;
-  color: #5a6355;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: #6f7a69;
+  font-weight: 400;
+  margin-top: 1px;
+  display: none;
 }
 
-.createItem:hover .itemDesc {
-  color: #cfffbc;
+/* ── Icons ── */
+.icon24 {
+  font-size: 20px;
 }
 
-:global(.material-symbols-outlined).itemIcon {
-  font-size: 16px;
+.icon18 {
+  font-size: 18px;
+}
+
+.icon16Primary {
+  font-size: 14px;
   color: #0a6400;
-}
-
-.createItem:hover :global(.material-symbols-outlined).itemIcon {
-  color: #ffffff;
-}
-
-.footer {
-  padding: 12px 24px;
-  background-color: #eeedf1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.footerLeft {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #5a6355;
-}
-
-.footerGrammar {
-  font-size: 11px;
-  line-height: 14px;
-  letter-spacing: 0.02em;
-  font-weight: 600;
-  color: #1a1c1e;
 }
 
 .strongPrimary {
   color: #0a6400;
+  font-weight: 500;
+}
+
+/* ── Footer — removed (was jargon) ── */
+.footer {
+  display: none;
+}
+
+.footerLeft {
+  display: none;
 }
 
 .footerRight {
-  font-size: 11px;
-  line-height: 14px;
-  letter-spacing: 0.02em;
-  font-weight: 600;
-  color: #5a6355;
+  display: none;
 }
 
-:global(.material-symbols-outlined).icon24 {
-  font-size: 24px;
+.footerGrammar {
+  display: none;
 }
 
-:global(.material-symbols-outlined).icon20Search {
-  position: absolute;
-  left: 12px;
-  font-size: 20px;
-  color: #0a6400;
-  pointer-events: none;
+/* ── Dot classes — no longer used but keep for compatibility ── */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
 }
 
-:global(.material-symbols-outlined).icon18 {
-  font-size: 18px;
-}
+.dotPrimary { background-color: #0a6400; }
+.dotSecondary { background-color: #006c47; }
+.dotTertiary { background-color: #0055a5; }
+.dotQbNavy { background-color: #1f2937; }
+.dotPrimaryContainer { background-color: #108000; }
+.dotError { background-color: #ba1a1a; }
 
-:global(.material-symbols-outlined).icon16Primary {
-  font-size: 16px;
-  color: #0a6400;
+.factoryBadge {
+  display: none;
 }

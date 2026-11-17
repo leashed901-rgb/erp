@@ -1043,6 +1043,11 @@ export default function GlobalShell() {
         onCloseAllTabs={handleCloseAllTabs}
         onBookmarkTab={(tab) => {
           handleAddBookmark(tab.domain, tab.screenId);
+          // Switch to bookmarks mode so the newly bookmarked page is visible
+          setPinMode('bookmarks');
+          // Open the flyout so the user sees the result immediately
+          setFavoritesFlyoutOpen(true);
+          showToast(`Bookmarked — ${tab.label}`);
         }}
         onOpenTabStandalone={(tab) => {
           window.open(`/?view=${tab.domain}:${tab.screenId}&focus=1`, '_blank');

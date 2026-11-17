@@ -785,11 +785,8 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
                 <span className="material-symbols-outlined text-[16px]">play_arrow</span>Test run
               </button>
               <div className="flex">
-                <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main flex items-center gap-1" onClick={saveEditor}>
+                <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={saveEditor}>
                   <span className="material-symbols-outlined text-[16px]">save</span>Save &amp; close
-                </button>
-                <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={handleActivateMenu}>
-                  <span className="material-symbols-outlined text-[16px]">expand_more</span>
                 </button>
               </div>
             </div>

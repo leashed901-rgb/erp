@@ -172,21 +172,12 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
             <p className="text-body-sm text-on-surface-variant mt-0.5">Invoice, Receipt, Credit, Payment — unified ledger. Default sort: Date desc.</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn relative">
-              <button
+            <button
                 type="button"
                 onClick={() => onCreate('New transaction')}
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>New transaction
-              </button>
-              <button
-                type="button"
-                aria-label="New transaction options"
-                onClick={() => setNewMenuOpen(v => !v)}
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
               </button>
               {newMenuOpen && (
                 <div className="row-menu open" style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 60 }} onClick={() => setNewMenuOpen(false)}>
@@ -226,7 +217,6 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
             >
               <span className="material-symbols-outlined text-[16px]">tune</span>Customize
             </button>
-          </div>
         </div>
 
         {/* Create actions row */}

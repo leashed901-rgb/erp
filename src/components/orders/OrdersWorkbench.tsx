@@ -991,55 +991,13 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
             <p className="text-body-sm text-on-surface-variant mt-0.5">All orders across channels · SLAs enforced</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className={`${styles.splitBtn} flex`}>
+            
               <button
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
                 onClick={() => topAction('create')}
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>Create order
               </button>
-              <button
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                onClick={() => {
-                  setDrawer({
-                    icon: 'shopping_cart',
-                    title: 'Create',
-                    sub: 'Choose order type',
-                    body: (
-                      <div className="space-y-2">
-                        {[
-                          { label: 'Sales order', icon: 'shopping_cart', type: 'SalesOrder' },
-                          { label: 'Return / RMA', icon: 'assignment_return', type: 'RMA' },
-                          { label: 'Manual order', icon: 'edit_note', type: 'SalesOrder' },
-                        ].map((opt) => (
-                          <button
-                            key={opt.label}
-                            className="w-full flex items-center gap-2 p-2 rounded hover:bg-surface-container-low text-left"
-                            onClick={() => {
-                              fetch('/api/v1/documents', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ type: opt.type, status: 'draft' }),
-                              }).then(() => {
-                                showToast(`${opt.label} created`);
-                                setDrawer(null);
-                                if (opt.type === 'RMA') refreshReturns(); else refreshOrders();
-                              }).catch(() => showToast('Failed to create'));
-                            }}
-                          >
-                            <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{opt.icon}</span>
-                            <span className="text-[13px] font-medium">{opt.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ),
-                    footer: <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Cancel</button>,
-                  });
-                }}
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
             <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => topAction('report')}>
               <span className="material-symbols-outlined text-[16px]">report_problem</span>Report a problem
             </button>

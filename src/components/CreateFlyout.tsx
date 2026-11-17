@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import { CREATE_REGISTRY, CreateDotToken } from '@/data/shellData';
+'use client';
+
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useTenantActions } from '@/hooks/useTenant';
+import { CREATE_REGISTRY } from '@/data/shellData';
 import styles from './CreateFlyout.module.css';
 
 interface CreateFlyoutProps {
@@ -9,14 +11,79 @@ interface CreateFlyoutProps {
   onSelectCreate: (label: string) => void;
 }
 
-const DOT_CLASS_MAP: Record<CreateDotToken, string> = {
-  'bg-primary': styles.dotPrimary,
-  'bg-secondary': styles.dotSecondary,
-  'bg-tertiary': styles.dotTertiary,
-  'bg-qb-navy': styles.dotQbNavy,
-  'bg-primary-container': styles.dotPrimaryContainer,
-  'bg-error': styles.dotError,
+/**
+ * Domain map — the system has 9 domains. Each tenant action's `module`
+ * field maps to one of these domains. The Create flyout shows create actions
+ * grouped by domain, NOT by the 49 arbitrary `area` values the API returns.
+ */
+const MODULE_TO_DOMAIN: Record<string, { label: string; icon: string }> = {
+  crm:          { label: 'Contacts',      icon: 'groups' },
+  finance:      { label: 'Finance',        icon: 'account_balance' },
+  catalog:      { label: 'Catalog',        icon: 'inventory_2' },
+  orders:       { label: 'Orders',         icon: 'local_shipping' },
+  inventory:    { label: 'Orders',         icon: 'local_shipping' },
+  marketing:    { label: 'Marketing',      icon: 'campaign' },
+  advertising:  { label: 'Marketing',      icon: 'campaign' },
+  social:       { label: 'Marketing',      icon: 'campaign' },
+  studio:       { label: 'Design Studio',  icon: 'palette' },
+  support:      { label: 'Support',        icon: 'support_agent' },
+  payroll:      { label: 'Finance',        icon: 'payments' },
+  business_tax: { label: 'Finance',        icon: 'receipt_long' },
+  sales_tax:    { label: 'Finance',        icon: 'receipt_long' },
+  cap_table:    { label: 'Finance',        icon: 'trending_up' },
+  tasks:        { label: 'Dashboard',      icon: 'dashboard' },
+  time:         { label: 'Dashboard',      icon: 'schedule' },
+  learning:     { label: 'Dashboard',      icon: 'school' },
+  reports:      { label: 'Dashboard',      icon: 'bar_chart' },
+  settings:     { label: 'Settings',       icon: 'settings' },
+  platform:     { label: 'Settings',       icon: 'settings' },
 };
+
+/** Domain display order — matches the rail order. */
+const DOMAIN_ORDER = [
+  'Dashboard',
+  'Contacts',
+  'Catalog',
+  'Design Studio',
+  'Orders',
+  'Finance',
+  'Marketing',
+  'Support',
+  'Settings',
+];
+
+/** Map a CREATE_REGISTRY category title to a domain (fallback when tenant
+ *  actions aren't loaded). */
+const REGISTRY_TO_DOMAIN: Record<string, string> = {
+  'Customers': 'Contacts',
+  'Vendors': 'Contacts',
+  'Team': 'Finance',
+  'Other': 'Finance',
+  'Journal': 'Finance',
+  'Catalog': 'Catalog',
+  'Appointments': 'Contacts',
+};
+
+function iconForAction(action: { object_type?: string; area?: string }): string {
+  const t = action.object_type || '';
+  if (t === 'invoice') return 'receipt_long';
+  if (t === 'estimate') return 'request_quote';
+  if (t === 'bill') return 'description';
+  if (t === 'customer' || t === 'vendor' || t === 'party') return 'person_add';
+  if (t === 'product') return 'inventory_2';
+  if (t === 'order') return 'shopping_cart';
+  if (t === 'rma' || t === 'return') return 'assignment_return';
+  if (t === 'campaign') return 'campaign';
+  if (t === 'post' || t === 'social') return 'share';
+  if (t === 'appointment') return 'event_available';
+  if (t === 'task') return 'task_alt';
+  if (t === 'ticket') return 'support_agent';
+  if (t === 'lead') return 'person_search';
+  if (t === 'deal') return 'trending_up';
+  if (t === 'journal') return 'book';
+  if (t === 'design') return 'palette';
+  return 'add_circle';
+}
 
 export default function CreateFlyout({
   open,
@@ -24,32 +91,75 @@ export default function CreateFlyout({
   onSelectCreate,
 }: CreateFlyoutProps) {
   const [search, setSearch] = useState('');
-  const searchRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
-  // REAL tenant actions from the database — replaces CREATE_REGISTRY
   const { grouped: tenantActions, loaded: actionsLoaded } = useTenantActions();
 
   useEffect(() => {
     if (!open) return;
-    const timer = setTimeout(() => {
-      searchRef.current?.focus();
-    }, 60);
+    const timer = setTimeout(() => searchRef.current?.focus(), 60);
     return () => clearTimeout(timer);
   }, [open]);
 
-  const query = search.toLowerCase().trim();
+  useEffect(() => {
+    if (!open) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [open, onClose]);
 
-  // If tenant actions are loaded, use them; otherwise fall back to CREATE_REGISTRY
+  const query = search.toLowerCase().trim();
   const useTenant = actionsLoaded && Object.keys(tenantActions).length > 0;
+
+  /** Group all actions by domain (not by the 49 arbitrary areas). */
+  const domainGroups = useMemo(() => {
+    const groups: Record<string, { label: string; icon: string }[]> = {};
+
+    if (useTenant) {
+      // Flatten all tenant actions across all areas, then group by domain.
+      const allActions = Object.values(tenantActions).flat();
+      for (const a of allActions) {
+        const domain = MODULE_TO_DOMAIN[a.module]?.label ?? 'Settings';
+        if (!groups[domain]) groups[domain] = [];
+        groups[domain].push({
+          label: a.display_name,
+          icon: iconForAction(a),
+        });
+      }
+    } else {
+      // Fallback: use CREATE_REGISTRY, map categories to domains.
+      for (const cat of CREATE_REGISTRY) {
+        const domain = REGISTRY_TO_DOMAIN[cat.title] ?? 'Finance';
+        if (!groups[domain]) groups[domain] = [];
+        for (const item of cat.items) {
+          groups[domain].push({ label: item.label, icon: item.icon });
+        }
+      }
+    }
+
+    // Filter by search query.
+    if (query) {
+      for (const domain of Object.keys(groups)) {
+        groups[domain] = groups[domain].filter((item) =>
+          item.label.toLowerCase().includes(query)
+        );
+        if (groups[domain].length === 0) delete groups[domain];
+      }
+    }
+
+    return groups;
+  }, [useTenant, tenantActions, query]);
+
+  const totalActions = Object.values(domainGroups).reduce((s, items) => s + items.length, 0);
 
   return (
     <div
       id="flyout-create"
       className={`${styles.scrim} ${open ? styles.open : ''}`}
       onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <div className={styles.dialog}>
@@ -64,11 +174,10 @@ export default function CreateFlyout({
               </div>
               <div>
                 <div className={styles.titleRow}>
-                  <span className={styles.title}>Create New</span>
-                  <span className={styles.factoryBadge}>P1 Universal Factory</span>
+                  <span className={styles.title}>Create</span>
                 </div>
                 <p className={styles.subtitle}>
-                  Grouped by counterparty — CREATE_REGISTRY §B1.
+                  {totalActions} actions across {Object.keys(domainGroups).length} domains
                 </p>
               </div>
             </div>
@@ -84,7 +193,7 @@ export default function CreateFlyout({
               ref={searchRef}
               id="create-search"
               className={styles.searchInput}
-              placeholder="Search creates… (invoice, bill, customer, vendor, product, banner)"
+              placeholder="Search actions…"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -94,64 +203,24 @@ export default function CreateFlyout({
         </div>
 
         <div id="create-grid" className={styles.grid}>
-          {useTenant
-            ? Object.entries(tenantActions).map(([area, actions]) => (
-                <div key={area} className={styles.categoryCard}>
-                  <div className={styles.categoryHeader}>
-                    <div className={styles.categoryHeaderLeft}>
-                      <span className={`${styles.dot} ${styles.dotPrimary}`} />
-                      <span className={styles.categoryTitle}>
-                        {area.charAt(0).toUpperCase() + area.slice(1)}
-                      </span>
-                    </div>
-                    <span className={styles.categoryCount}>{actions.length}</span>
+          {DOMAIN_ORDER.filter((d) => domainGroups[d]?.length).map((domain) => {
+            const items = domainGroups[domain];
+            const domainMeta = Object.values(MODULE_TO_DOMAIN).find((m) => m.label === domain);
+            return (
+              <div key={domain} className={styles.categoryCard}>
+                <div className={styles.categoryHeader}>
+                  <div className={styles.categoryHeaderLeft}>
+                    <span className={`material-symbols-outlined ${styles.icon16}`}>
+                      {domainMeta?.icon || 'add_circle'}
+                    </span>
+                    <span className={styles.categoryTitle}>{domain}</span>
                   </div>
-                  <nav className={styles.itemsNav}>
-                    {actions
-                      .filter((a) => !query || a.display_name.toLowerCase().includes(query) || a.action_code.toLowerCase().includes(query))
-                      .map((action) => (
-                        <button
-                          key={action.action_code}
-                          type="button"
-                          data-create-item={action.display_name}
-                          className={styles.createItem}
-                          onClick={() => onSelectCreate(action.display_name)}
-                        >
-                          <span className={styles.itemLabel}>
-                            <span className={`material-symbols-outlined ${styles.itemIcon}`}>
-                              {action.object_type === 'invoice' ? 'receipt_long'
-                                : action.object_type === 'estimate' ? 'request_quote'
-                                : action.object_type === 'bill' ? 'description'
-                                : action.area === 'vendors' ? 'credit_card'
-                                : action.area === 'catalog' ? 'inventory_2'
-                                : action.area === 'marketing' ? 'campaign'
-                                : 'add_circle'}
-                            </span>
-                            {action.display_name}
-                          </span>
-                          <span className={styles.itemDesc}>{action.display_name}</span>
-                        </button>
-                      ))}
-                  </nav>
+                  <span className={styles.categoryCount}>{items.length}</span>
                 </div>
-              ))
-            : CREATE_REGISTRY.map((cat) => (
-            <div key={cat.title} className={styles.categoryCard}>
-              <div className={styles.categoryHeader}>
-                <div className={styles.categoryHeaderLeft}>
-                  <span className={`${styles.dot} ${DOT_CLASS_MAP[cat.dot]}`} />
-                  <span className={styles.categoryTitle}>{cat.title}</span>
-                </div>
-                <span className={styles.categoryCount}>{cat.items.length}</span>
-              </div>
-              <nav className={styles.itemsNav}>
-                {cat.items.map((item) => {
-                  const fullText = `${item.icon}${item.label} ${item.desc}`.toLowerCase();
-                  const visible = !query || fullText.includes(query);
-                  if (!visible) return null;
-                  return (
+                <nav className={styles.itemsNav}>
+                  {items.map((item, i) => (
                     <button
-                      key={item.label}
+                      key={`${item.label}-${i}`}
                       type="button"
                       data-create-item={item.label}
                       className={styles.createItem}
@@ -163,29 +232,22 @@ export default function CreateFlyout({
                         </span>
                         {item.label}
                       </span>
-                      <span className={styles.itemDesc}>{item.desc}</span>
                     </button>
-                  );
-                })}
-              </nav>
+                  ))}
+                </nav>
+              </div>
+            );
+          })}
+          {totalActions === 0 && (
+            <div className={styles.categoryCard}>
+              <div className={styles.categoryHeader}>
+                <span className={styles.categoryTitle}>No matches</span>
+              </div>
+              <p style={{ padding: '12px', fontSize: '12px', color: '#5a6355' }}>
+                No create actions match &quot;{search}&quot;. Try a different search term.
+              </p>
             </div>
-          ))}
-        </div>
-
-        <div className={styles.footer}>
-          <div className={styles.footerLeft}>
-            <span className={`material-symbols-outlined ${styles.icon16Primary}`}>
-              verified
-            </span>
-            <span className={styles.footerGrammar}>
-              Save grammar: <strong className={styles.strongPrimary}>Save</strong> •{' '}
-              <strong className={styles.strongPrimary}>Save &amp; New</strong> •{' '}
-              <strong className={styles.strongPrimary}>Save &amp; Close</strong>
-            </span>
-          </div>
-          <span className={styles.footerRight}>
-            Universal footer applies to every create
-          </span>
+          )}
         </div>
       </div>
     </div>

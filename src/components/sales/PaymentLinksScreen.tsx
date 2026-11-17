@@ -455,15 +455,9 @@ export default function PaymentLinksScreen({ onNavigate, onToast, onCreate, onOp
               Cancel
             </button>
             <div className="flex items-center gap-2">
-              <div className="flex split-btn">
-                <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main">Save and new</button>
-                <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                  <span className="material-symbols-outlined text-[16px]">expand_more</span>
-                </button>
-              </div>
-              <div className="flex split-btn">
-                <button
-                  className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main"
+              <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low">Save and new</button>
+              <button
+                  className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container"
                   onClick={() => {
                     closeModal();
                     onToast('Payment link created');
@@ -471,10 +465,6 @@ export default function PaymentLinksScreen({ onNavigate, onToast, onCreate, onOp
                 >
                   Create link
                 </button>
-                <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                  <span className="material-symbols-outlined text-[16px]">expand_more</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>

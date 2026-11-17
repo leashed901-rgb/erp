@@ -291,9 +291,6 @@ export default function SalesEstimatesScreen({
       if (!t.closest('#row-menu') && !t.closest('.row-menu-trigger')) {
         setRowMenuOpen(false);
       }
-      if (!t.closest('#new-menu') && !t.closest('.new-split-btn')) {
-        setNewMenuOpen(false);
-      }
     }
     document.addEventListener('click', onDocClick);
     return () => document.removeEventListener('click', onDocClick);
@@ -551,21 +548,12 @@ export default function SalesEstimatesScreen({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button
+            <button
                 onClick={() => onCreate('Estimate')}
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>New estimate
               </button>
-              <button
-                ref={newSplitBtnRef}
-                onClick={handleNewSplitClick}
-                className="new-split-btn h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
             <button
               onClick={() => onToast('Exporting estimates…')}
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
@@ -1045,28 +1033,18 @@ export default function SalesEstimatesScreen({
             >
               <span className="material-symbols-outlined text-[16px] align-middle mr-1">send</span>Send
             </button>
-            <div className="split-btn flex">
-              <button
+            <button
                 onClick={handleDrawerSave}
-                className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main"
+                className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low"
               >
                 Save
               </button>
-              <button className="h-8 px-1.5 border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <div className="split-btn flex">
-              <button
+            <button
                 onClick={handleDrawerConvert}
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container"
               >
                 Convert to invoice
               </button>
-              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
           </div>
         </div>
       </div>

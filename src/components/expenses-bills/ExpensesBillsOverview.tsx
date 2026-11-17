@@ -869,18 +869,8 @@ export default function ExpensesBillsOverview({
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
           <button type="button" className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={closeReceiptDrawer}>Cancel</button>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button type="button" className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={handleRcCreateBill}>Create bill</button>
-              <button type="button" className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <div className="flex split-btn">
-              <button type="button" className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={handleRcCreateExpense}>Create expense</button>
-              <button type="button" className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
+            <button type="button" className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={handleRcCreateBill}>Create bill</button>
+            <button type="button" className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={handleRcCreateExpense}>Create expense</button>
           </div>
         </div>
       </div>
@@ -977,18 +967,8 @@ export default function ExpensesBillsOverview({
             <button type="button" className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low" onClick={handleBillPrint}>
               <span className="material-symbols-outlined text-[16px] align-middle mr-1">print</span>Print
             </button>
-            <div className="flex split-btn">
-              <button type="button" className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={handleBillSave}>Save bill</button>
-              <button type="button" className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <div className="flex split-btn">
-              <button type="button" className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={handleBillSchedule}>Save and schedule payment</button>
-              <button type="button" className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
+            <button type="button" className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={handleBillSave}>Save bill</button>
+            <button type="button" className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={handleBillSchedule}>Save and schedule payment</button>
           </div>
         </div>
       </div>

@@ -425,11 +425,8 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
             <span className="material-symbols-outlined text-[16px]">tune</span>Customize
           </button>
           <div className="flex">
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main flex items-center gap-1" onClick={() => openDiscountDrawer(null)}>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={() => openDiscountDrawer(null)}>
               <span className="material-symbols-outlined text-[16px]">add</span>New discount
-            </button>
-            <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={e => { e.stopPropagation(); setCreateMenuOpen(v => !v); }}>
-              <span className="material-symbols-outlined text-[16px]">expand_more</span>
             </button>
           </div>
         </div>
@@ -948,12 +945,10 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
               <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={closeDiscountDrawer}>Cancel</button>
               <div className="flex items-center gap-2">
                 <div className="flex">
-                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={saveAndNew}>Save and new</button>
-                  <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={saveAndNew}>Save and new</button>
                 </div>
                 <div className="flex">
-                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={save}>Save and close</button>
-                  <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={save}>Save and close</button>
                 </div>
               </div>
             </div>

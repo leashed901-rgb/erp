@@ -751,12 +751,8 @@ export default function Receipts(_props: AccountingScreenProps) {
               <div className="flex items-center gap-2">
                 <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-1" data-match-receipt onClick={handleMatchBtn}>
                   <span className="material-symbols-outlined text-[16px]">link</span>Match to transaction</button>
-                <div className="flex split-btn">
-                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" data-create-expense onClick={handleCreateExpense}>
+                <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" data-create-expense onClick={handleCreateExpense}>
                     Create expense</button>
-                  <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" aria-label="More create options">
-                    <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-                </div>
               </div>
             </div>
           </div>

@@ -307,8 +307,7 @@ export default function ContactsParties({ onToast, onNavigate, initialRole, onCr
             )}
           </div>
           <div className="flex">
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" onClick={() => openDrawer(null)}><span className="material-symbols-outlined text-[16px]">add</span>New party</button>
-            <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={() => setCreateMenuOpen(v => !v)}><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={() => openDrawer(null)}><span className="material-symbols-outlined text-[16px]">add</span>New party</button>
           </div>
         </div>
       </div>

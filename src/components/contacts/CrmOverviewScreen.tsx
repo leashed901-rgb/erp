@@ -133,8 +133,7 @@ export default function CrmOverviewScreen({ onToast, onNavigate, onCreate }: Crm
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => onNavigate ? onNavigate('contacts', 'parties') : onToast('Navigate → Contacts > Parties')}><span className="material-symbols-outlined text-[16px]">groups</span>Open Parties</button>
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => onToast('Navigate → Contacts > Segments')}><span className="material-symbols-outlined text-[16px]">filter_list</span>Segments</button>
           <div className="flex">
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" onClick={() => openCreate('Customer')}><span className="material-symbols-outlined text-[16px]">add</span>Add party</button>
-            <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={() => setCreateMenuOpen(v => !v)}><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={() => openCreate('Customer')}><span className="material-symbols-outlined text-[16px]">add</span>Add party</button>
           </div>
         </div>
       </div>

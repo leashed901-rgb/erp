@@ -280,25 +280,13 @@ export default function YearEndFiling({
                 <span className="material-symbols-outlined text-[16px]">add</span>
                 {busy ? 'Creating…' : 'Create tax return'}
               </button>
-              <div className="flex split-btn">
-                <button
-                  className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main disabled:opacity-40"
+              <button
+                  className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1  disabled:opacity-40"
                   onClick={openEfile}
                   disabled={filings.length === 0}
                 >
                   <span className="material-symbols-outlined text-[16px]">play_arrow</span>Continue filing
                 </button>
-                <button
-                  ref={splitBtnRef}
-                  className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow disabled:opacity-40"
-                  onClick={openFilingMenu}
-                  disabled={filings.length === 0}
-                  aria-haspopup="menu"
-                  aria-expanded={filingMenuOpen}
-                >
-                  <span className="material-symbols-outlined text-[16px]">expand_more</span>
-                </button>
-              </div>
             </div>
           </div>
 

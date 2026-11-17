@@ -617,26 +617,13 @@ export default function Statements({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button
+            <button
                 type="button"
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
                 onClick={() => openStatement(null)}
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>New statement
               </button>
-              <button
-                type="button"
-                ref={newSplitRef}
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleNewMenu();
-                }}
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
             <button
               type="button"
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
@@ -1209,10 +1196,9 @@ export default function Statements({
               <span className="material-symbols-outlined text-[16px] align-middle mr-1">print</span>
               Print
             </button>
-            <div className="split-btn flex">
-              <button
+            <button
                 type="button"
-                className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main"
+                className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low"
                 onClick={() => {
                   showToast('Statement saved as draft');
                   closeDrawer();
@@ -1220,17 +1206,9 @@ export default function Statements({
               >
                 Save draft
               </button>
-              <button
+            <button
                 type="button"
-                className="h-8 px-1.5 border border-surface-dim hover:bg-surface-container-low split-btn-arrow"
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <div className="split-btn flex">
-              <button
-                type="button"
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container"
                 onClick={() => {
                   showToast('Statement sent to customer');
                   closeDrawer();
@@ -1238,13 +1216,6 @@ export default function Statements({
               >
                 Send to customer
               </button>
-              <button
-                type="button"
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
           </div>
         </div>
       </div>

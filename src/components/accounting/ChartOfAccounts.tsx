@@ -412,13 +412,9 @@ export default function ChartOfAccounts(_props: AccountingScreenProps) {
             <p className="text-body-sm text-on-surface-variant mt-0.5">34 accounts · Numbered, typed, mapped to tax lines.</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-new-account onClick={() => openAccountDrawer(null)}>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" data-new-account onClick={() => openAccountDrawer(null)}>
                 <span className="material-symbols-outlined text-[16px]">add</span>New account
               </button>
-              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" data-new-account-split aria-label="New account options" onClick={handleNewAcctSplit}>
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
             <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-run-report onClick={() => toast('Running report across all accounts…')}>
               <span className="material-symbols-outlined text-[16px]">assessment</span>Run report</button>
           </div>
@@ -645,16 +641,8 @@ export default function ChartOfAccounts(_props: AccountingScreenProps) {
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-acct onClick={closeAccountDrawer}>Cancel</button>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" data-save-new onClick={() => saveAccount(false)}>Save and new</button>
-              <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" data-save-acct onClick={() => saveAccount(true)}>Save account</button>
-              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
+            <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" data-save-new onClick={() => saveAccount(false)}>Save and new</button>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" data-save-acct onClick={() => saveAccount(true)}>Save account</button>
           </div>
         </div>
       </div>

@@ -140,10 +140,7 @@ export default function StatementsScreen({ onToast }: StatementsScreenProps) {
       <div className="flex items-center justify-between gap-4 py-4 flex-wrap">
         <div><h1 className="text-headline-lg">Statements</h1><p className="text-body-sm text-on-surface-variant mt-0.5">Batch billing summary — send a customer their account activity for a period</p></div>
         <div className="flex items-center gap-2">
-          <div className="flex split-btn">
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" onClick={() => setDrawerId('__new__')}><span className="material-symbols-outlined text-[16px]">add</span>New statement</button>
-            <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={() => setNewMenuOpen(v => !v)}><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-          </div>
+          <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={() => setDrawerId('__new__')}><span className="material-symbols-outlined text-[16px]">add</span>New statement</button>
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={handleExport}><span className="material-symbols-outlined text-[16px]">download</span>Export</button>
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => onToast('Customize panel')}><span className="material-symbols-outlined text-[16px]">tune</span>Customize</button>
         </div>
@@ -291,8 +288,8 @@ export default function StatementsScreen({ onToast }: StatementsScreenProps) {
               <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => setDrawerId(null)}>Cancel</button>
               <div className="flex items-center gap-2">
                 <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-1" onClick={() => { onToast('Printing statement PDF'); }}><span className="material-symbols-outlined text-[16px] align-middle mr-1">print</span>Print</button>
-                <div className="split-btn flex"><button className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={() => { onToast('Statement saved as draft'); setDrawerId(null); }}>Save draft</button><button className="h-8 px-1.5 border border-surface-dim hover:bg-surface-container-low split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button></div>
-                <div className="split-btn flex"><button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={() => { onToast('Statement sent to customer'); setDrawerId(null); }}>Send to customer</button><button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button></div>
+                <button className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={() => { onToast('Statement saved as draft'); setDrawerId(null); }}>Save draft</button>
+                <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={() => { onToast('Statement sent to customer'); setDrawerId(null); }}>Send to customer</button>
               </div>
             </div>
           </div>

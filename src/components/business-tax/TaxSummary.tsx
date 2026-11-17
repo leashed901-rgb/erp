@@ -274,21 +274,12 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
                 <option>2024</option>
               </select>
             </div>
-            <div className="flex split-btn">
-              <button
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+            <button
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
                 onClick={() => toast('Tax summary exported as PDF')}
               >
                 <span className="material-symbols-outlined text-[16px]">download</span>Export
               </button>
-              <button
-                data-export-split
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                onClick={openExportMenu}
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
             <button
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
               onClick={() => toast('Sending tax summary to print…')}
@@ -573,18 +564,8 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={closeMapDrawer}>Cancel</button>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={() => saveMapping(true)}>Save and next</button>
-              <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={() => saveMapping(false)}>Save mapping</button>
-              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
+            <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={() => saveMapping(true)}>Save and next</button>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={() => saveMapping(false)}>Save mapping</button>
           </div>
         </div>
       </div>

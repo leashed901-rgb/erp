@@ -564,16 +564,8 @@ export default function BankRules({ onToast }: AccountingScreenProps) {
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-rule onClick={closeDrawer}>Cancel</button>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" data-save-new onClick={() => saveRule(false)}>Save and new</button>
-              <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow" aria-label="Save and new options">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" data-save-rule onClick={() => saveRule(true)}>Save rule</button>
-              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" aria-label="Save rule options">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
+            <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" data-save-new onClick={() => saveRule(false)}>Save and new</button>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" data-save-rule onClick={() => saveRule(true)}>Save rule</button>
           </div>
         </div>
       </div>

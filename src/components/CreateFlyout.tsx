@@ -129,7 +129,7 @@ export default function CreateFlyout({
                             </span>
                             {action.display_name}
                           </span>
-                          <span className={styles.itemDesc}>{action.ui_route || action.module}</span>
+                          <span className={styles.itemDesc}>{action.display_name}</span>
                         </button>
                       ))}
                   </nav>

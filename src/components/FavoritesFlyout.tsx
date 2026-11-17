@@ -50,35 +50,19 @@ export function FavoritesFlyout({
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Local switcher state — initialized from the pin, snaps back if pin changes elsewhere.
   const [mode, setMode] = useState<PinMode>(pinMode);
-  const [anchorTop, setAnchorTop] = useState<number>(136);
 
   useEffect(() => {
     setMode(pinMode);
   }, [pinMode]);
 
-  // Anchor the flyout to the rail pin button instead of a hardcoded offset.
+  // Close on Escape
   useEffect(() => {
     if (!open) return;
-    const btn = document.querySelector('[data-rail="favorites"]') as HTMLElement | null;
-    if (!btn) return;
-    const rect = btn.getBoundingClientRect();
-    const desired = Math.max(60, rect.top - 10);
-    const clamped = Math.min(desired, Math.max(60, window.innerHeight - 140));
-    setAnchorTop(clamped);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      if (containerRef.current && containerRef.current.contains(target)) return;
-      if (target.closest('[data-rail="favorites"]')) return;
-      onClose();
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
     };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
   }, [open, onClose]);
 
   if (!open) return null;
@@ -113,14 +97,18 @@ export function FavoritesFlyout({
   const activeCount = mode === 'bookmarks' ? bookmarkItems.length : favoriteItems.length;
 
   return (
-    <div
-      ref={containerRef}
-      className={styles.flyout}
-      style={{ top: anchorTop, maxHeight: `calc(100vh - ${anchorTop + 24}px)` }}
-      role="menu"
-      aria-label="Bookmarks and favorites"
-    >
-      <div className={styles.arrow} style={{ top: 18 }} />
+    <>
+      {/* Scrim — click anywhere outside the drawer to close */}
+      <div
+        className={`${styles.scrim} ${open ? styles.open : ''}`}
+        onClick={onClose}
+      />
+      <div
+        ref={containerRef}
+        className={styles.flyout}
+        role="dialog"
+        aria-label="Bookmarks and favorites"
+      >
       <div className={styles.header}>
         {/* Dual switcher — Bookmarks | Favorites. The rail pin follows the choice. */}
         <div className={styles.switcher} role="tablist" aria-label="Pin switcher">
@@ -332,5 +320,6 @@ export function FavoritesFlyout({
         </span>
       </div>
     </div>
+    </>
   );
 }

@@ -2,34 +2,91 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
 
 /**
- * GET /api/products?q=&status=
+ * ── @platform/commands bridge — legacy direct-write ────────────────────────
+ * This route is one of three designated "anchor" routes (parties,
+ * crm/customers, products) where the data-access unification is documented.
+ *
+ * The canonical data-access path in the monorepo is:
+ *   API route → @platform/commands (defineCommand registry) → @platform/db
+ *   (typed RPC wrappers over p_* Postgres functions) → supabase
+ * The command registry is the single source of truth for what the platform
+ * does — every command is also surfaced to AI agents via apps/mcp-gateway.
+ *
+ * NEW routes should delegate to commands:
+ *   import { getCommandContext, studio } from '@/lib/commands';
+ *   const ctx = getCommandContext(reqUserId);
+ *   const r = await studio.someCommand.run({...}, ctx);
+ *   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+ *
+ * This route (and 138 others) currently calls supabaseAdmin().from('t')...
+ * directly. That works (the staff app is single-tenant, service-role), but
+ * it bypasses the registry — so the audit trail in platform_audit_log loses
+ * the command id, and AI agents can't reach this mutation via MCP. Migrating
+ * the 139 routes is a Phase 2 effort; this comment block establishes the
+ * bridge so the migration has a clear target. Until then, this route stays
+ * on the legacy direct-write path for backward compatibility.
+ *
+ * The bridge lives in apps/web/src/lib/commands.ts — `getCommandContext()`
+ * builds `{ supabase, userId, tenantId }` from supabaseAdmin + DEFAULT_TENANT_ID
+ * + the caller's user id. The studio/techpack/rfq/media command bundles are
+ * re-exported from there so consumers don't need to learn a second import.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * GET /api/products?q=&status=&limit=&offset=
  * The global Catalog products list. Real rows from the `products` table with
  * variant aggregates (count, price range) and order rollups (units, revenue)
  * computed from product_variants + order_items. This is the list the Catalog
  * domain's Products screen renders; every row opens the ProductProfile page.
+ *
+ * Pagination: `limit` (default 500, clamped 1..1000) and `offset` (default 0).
+ * Response shape is unchanged: `{ data: rows }` — a page returns fewer than
+ * `limit` rows when it is the last page. The product order is
+ * (updated_at desc, id asc): the id tiebreak makes offset pagination
+ * deterministic. Unordered offset paging over a large PostgREST table returns
+ * unstable pages (the same query returning different rows), so every paged
+ * fetch in this route carries an explicit ORDER BY.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get('q') || '').trim().toLowerCase();
   const status = searchParams.get('status') || 'all';
 
+  // Pagination params — defaults (500 / 0) preserve the old behavior exactly.
+  const rawLimit = Number.parseInt(searchParams.get('limit') || '', 10);
+  const rawOffset = Number.parseInt(searchParams.get('offset') || '', 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
+
   const sb = supabaseAdmin();
 
-  // Small bounded tables (36 products / 169 variants / 32 order items) —
-  // fetch the slices and aggregate in-route rather than 3 queries per row.
-  const [productsRes, variantsRes, orderItemsRes] = await Promise.all([
-    sb.from('products')
-      .select('id,name,slug,description,short_description,status,category_id,brand,tags,is_featured,is_new,is_best_seller,is_house_favorite,fulfillment_type,created_at,updated_at,published_at,categories(id,name,slug)')
-      .eq('tenant_id', DEFAULT_TENANT_ID)
-      .order('updated_at', { ascending: false })
-      .limit(500),
-    sb.from('product_variants')
-      .select('id,product_id,sku,price,compare_at_price,is_active,status')
-      .eq('tenant_id', DEFAULT_TENANT_ID)
-      .limit(2000),
+  let productsQuery = sb.from('products')
+    .select('id,name,slug,description,short_description,status,category_id,brand,tags,is_featured,is_new,is_best_seller,is_house_favorite,fulfillment_type,created_at,updated_at,published_at,image,categories(id,name,slug)')
+    .eq('tenant_id', DEFAULT_TENANT_ID)
+    .order('updated_at', { ascending: false })
+    .order('id', { ascending: true });
+  // Status is pushed into the query so a filtered walk still pages over the
+  // whole catalog; 'all' (the default) adds no filter, as before.
+  if (status && status !== 'all') productsQuery = productsQuery.eq('status', status);
+  // Search is pushed into the query too: the old code fetched one page and
+  // filtered it in memory, so a search could only ever find products that
+  // happened to be on the requested page (with 3,489 products, "White Mug"
+  // returned nothing). ilike over name/brand/slug/description scans the
+  // whole catalog; the in-memory pass below still adds tag matching on the
+  // returned rows. Commas are stripped (they split PostgREST .or() terms)
+  // and % / _ are escaped so they match literally.
+  if (q) {
+    const esc = q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/,/g, '');
+    productsQuery = productsQuery.or(`name.ilike.%${esc}%,brand.ilike.%${esc}%,slug.ilike.%${esc}%,description.ilike.%${esc}%`);
+  }
+
+  const [productsRes, orderItemsRes] = await Promise.all([
+    productsQuery.range(offset, offset + limit - 1),
     sb.from('order_items')
       .select('id,order_id,product_variant_id,quantity,unit_price')
       .eq('tenant_id', DEFAULT_TENANT_ID)
+      .order('id', { ascending: true })
       .limit(2000),
   ]);
 
@@ -37,15 +94,47 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: { code: 'INTERNAL', message: productsRes.error.message } }, { status: 500 });
   }
 
+  // Variants for exactly this page's products. The old code fetched the first
+  // 2,000 variants tenant-wide with no order — with 160k variants the
+  // per-product aggregates were wrong for most products. Fetch per page in
+  // 100-id .in() chunks (long URLs get rejected), each chunk ordered
+  // (product_id, id) and ranged in 1,000-row slices: PostgREST caps a single
+  // response at 1,000 rows, and unordered offset paging is unstable.
+  const pageIds = (productsRes.data || []).map((p: any) => p.id);
+  const fetchVariantsFor = async (ids: string[]) => {
+    const rows: any[] = [];
+    let vOffset = 0;
+    for (;;) {
+      const { data, error } = await sb.from('product_variants')
+        .select('id,product_id,sku,price,compare_at_price,is_active,status')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .in('product_id', ids)
+        .order('product_id', { ascending: true })
+        .order('id', { ascending: true })
+        .range(vOffset, vOffset + 999);
+      if (error || !data) break;
+      rows.push(...data);
+      if (data.length < 1000) break;
+      vOffset += 1000;
+    }
+    return rows;
+  };
+  const idChunks: string[][] = [];
+  for (let i = 0; i < pageIds.length; i += 100) idChunks.push(pageIds.slice(i, i + 100));
+  const variantRows = (await Promise.all(idChunks.map(fetchVariantsFor))).flat();
+
   // variant → product lookup + per-product aggregates
   const variantProduct = new Map<string, string>();
   const agg = new Map<string, { variant_count: number; active_variant_count: number; price_min: number | null; price_max: number | null }>();
-  for (const v of (variantsRes.data || [])) {
+  for (const v of variantRows) {
     variantProduct.set(v.id, v.product_id);
     const a = agg.get(v.product_id) || { variant_count: 0, active_variant_count: 0, price_min: null, price_max: null };
     a.variant_count++;
     if (v.is_active && v.status === 'active') a.active_variant_count++;
-    const p = Number(v.price);
+    // NULL price means the supplier gave no price (Printify catalog variants
+    // carry none). Number(null) is 0, so a null must be skipped explicitly —
+    // otherwise every Printify product would report a $0.00 price range.
+    const p = v.price == null ? NaN : Number(v.price);
     if (!Number.isNaN(p)) {
       a.price_min = a.price_min == null ? p : Math.min(a.price_min, p);
       a.price_max = a.price_max == null ? p : Math.max(a.price_max, p);
@@ -93,10 +182,13 @@ export async function GET(req: NextRequest) {
       created_at: p.created_at,
       updated_at: p.updated_at,
       published_at: p.published_at,
+      image: p.image,
     };
   });
 
-  // Search filter — name, brand, slug, tags, description
+  // Search filter — name, brand, slug, tags, description. The DB query
+  // above already narrowed to matching rows across the whole catalog; this
+  // in-memory pass only adds tag matching on the returned rows.
   if (q) {
     rows = rows.filter((r: any) =>
       [r.name, r.brand, r.slug, r.description, (r.tags || []).join(' ')]
@@ -156,8 +248,20 @@ export async function POST(req: NextRequest) {
     is_best_seller: !!body.is_best_seller,
     is_house_favorite: !!body.is_house_favorite,
     fulfillment_type: body.fulfillment_type || 'stocked',
+    supplier_id: body.supplier_id || null,
+    preferred_supplier_id: body.preferred_supplier_id || null,
+    income_account_id: body.income_account_id || null,
+    cogs_account_id: body.cogs_account_id || null,
   };
   if (body.status === 'published') insert.published_at = new Date().toISOString();
+
+  // A seller lists a product by setting created_by_seller_id (marketplace
+  // journey): validate the seller exists for this tenant, else 400.
+  if (body.created_by_seller_id) {
+    const { data: seller } = await sb.from('sellers').select('id').eq('tenant_id', DEFAULT_TENANT_ID).eq('id', body.created_by_seller_id).maybeSingle();
+    if (!seller) return NextResponse.json({ error: { code: 'VALIDATION', message: 'Unknown created_by_seller_id' } }, { status: 400 });
+    insert.created_by_seller_id = body.created_by_seller_id;
+  }
 
   const { data, error } = await sb.from('products').insert(insert).select('*').single();
   if (error) {

@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const insert = {
     tenant_id: DEFAULT_TENANT_ID,
     name: String(body.name),
-    code: String(body.code || body.name.slice(0, 3).toUpperCase()),
+    code: String(body.code || String(body.name).slice(0, 3).toUpperCase()),
     address_line1: body.address_line1 || '',
     address_line2: body.address_line2 || null,
     city: body.city || '',

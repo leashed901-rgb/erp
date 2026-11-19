@@ -77,6 +77,45 @@ export async function GET(req: NextRequest) {
   }
 }
 
+/**
+ * DELETE /api/v1/files?id= — delete an asset: the design_assets row, then
+ * the stored object (best-effort — a missing object must not fail the
+ * delete). The library's remove action had no server counterpart before
+ * this; it only dropped the row from browser state.
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const id = new URL(req.url).searchParams.get('id');
+    if (!id) return apiError('Asset id is required (?id=).', 400);
+    const { data: existing, error: getErr } = await supabaseAdmin()
+      .from('design_assets')
+      .select('id,storage_path,bucket')
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .eq('id', id)
+      .maybeSingle();
+    if (getErr) throw new Error(`design_assets: ${getErr.message}`);
+    if (!existing) return apiError(`No asset ${id}.`, 404);
+    const { error: delErr } = await supabaseAdmin()
+      .from('design_assets')
+      .delete()
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .eq('id', id);
+    if (delErr) throw new Error(`design_assets delete: ${delErr.message}`);
+    const storagePath = existing.storage_path as string;
+    const bucket = (existing.bucket as string) || BUCKET;
+    let storageRemoved = false;
+    if (storagePath) {
+      const { error: rmErr } = await supabaseAdmin()
+        .storage.from(bucket)
+        .remove([storagePath]);
+      storageRemoved = !rmErr;
+    }
+    return NextResponse.json({ deleted: id, storageRemoved });
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : 'Failed to delete asset.');
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();

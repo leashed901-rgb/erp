@@ -15,6 +15,20 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import type {
+  CrmDealRow,
+  CrmPipelineRow,
+  CrmPipelineStageRow,
+  CrmDealStageHistoryRow,
+  CrmPipelineSummaryRow,
+  CrmLeadScoringRuleRow,
+  CrmLeadScoreBandRow,
+} from '@/lib/crmTypes';
+
+/** Canonical DTO names from the CRM module docs (01–03), re-exported
+ *  so screens import Deal / Pipeline / Lead / ScoringRule / ScoreBand
+ *  from the same file they get the hooks from. */
+export type { Deal, Pipeline, PipelineStage, Lead, ScoringRule, ScoreBand } from '@/lib/crmTypes';
 
 /* ────────────────────────────────────────────────────────────
    Types
@@ -44,6 +58,12 @@ export interface UnifiedParty {
   commissionRate?: number | null;
   addedAt: string;
   lastActivity: string | null;
+  // Doc 07 vendor enrichment (present when the row is a pay-side party):
+  contractorW9Status?: string | null;
+  track1099?: boolean;
+  vendorKind?: string | null;
+  openBalance?: number;
+  ytdPaid?: number;
 }
 
 export interface CrmCustomer {
@@ -169,6 +189,9 @@ export interface CrmLead {
   conversion_date: string | null;
   customer_id: string | null;
   lead_type?: string | null;
+  score?: number | null;
+  priority?: string | null;
+  scored_at?: string | null;
   first_contact_at?: string | null;
   last_activity_at?: string | null;
   next_follow_up_at?: string | null;
@@ -203,258 +226,6 @@ export interface CrmTask {
   status: string;
   due_at: string | null;
   created_at: string;
-}
-
-/* ────────────────────────────────────────────────────────────
-   Deals & Pipelines (crm_deals, crm_pipelines, crm_pipeline_stages)
-   ──────────────────────────────────────────────────────────── */
-
-export interface PipelineStage {
-  id: string;
-  pipeline_id: string;
-  name: string;
-  sort_order: number;
-  probability: number | null;
-  stage_kind: string | null; // open | won | lost
-  rotting_days: number | null;
-  created_at: string;
-}
-
-export interface Pipeline {
-  id: string;
-  name: string;
-  description: string | null;
-  is_default: boolean;
-  is_active: boolean;
-  currency: string;
-  stages?: PipelineStage[];
-  created_at: string;
-}
-
-export interface Deal {
-  id: string;
-  deal_number: string;
-  name: string;
-  pipeline_id: string;
-  stage_id: string;
-  status: string; // open, won, lost
-  customer_id: string | null;
-  lead_id: string | null;
-  owner_staff_id: string | null;
-  amount: number;
-  currency: string;
-  probability: number;
-  expected_close_date: string | null;
-  source: string | null;
-  notes: string | null;
-  lost_reason: string | null;
-  won_at: string | null;
-  lost_at: string | null;
-  stage_entered_at: string;
-  created_at: string;
-  updated_at: string;
-}
-
-/* ────────────────────────────────────────────────────────────
-   Lead scoring (crm_lead_scoring_rules, crm_lead_score_bands)
-   ──────────────────────────────────────────────────────────── */
-
-export interface ScoringRule {
-  id: string;
-  field: string;        // has_email, has_phone, inbound, engaged_7d, stale, source_equals
-  operator: string;     // eq, ne, gt, lt, exists, not_exists, contains
-  value: string | null;
-  points: number;       // can be negative (e.g. stale −20)
-  is_active: boolean;
-  label?: string | null;
-  created_at?: string;
-}
-
-export interface ScoreBand {
-  id: string;
-  label: string;        // hot, warm, cold
-  min_score: number;
-  max_score: number;
-  color?: string | null;
-}
-
-/** Invoice row (the unified shape from /api/v1/documents?type=Invoice). */
-export interface InvoiceRow {
-  id: string;
-  invoice_number: string;
-  customer_id: string | null;
-  customer_name?: string | null;
-  invoice_date: string | null;
-  due_date: string | null;
-  status: string;       // DRAFT, OPEN, PAID, VOID, OVERDUE
-  total: number;
-  open_balance: number;
-  subtotal?: number;
-  tax_total?: number;
-  currency: string;
-  sent_at?: string | null;
-  paid_at?: string | null;
-  voided_at?: string | null;
-  posted_at?: string | null;
-  void_reason?: string | null;
-  source_system?: string | null;
-}
-
-/** Estimate row (from /api/estimates). */
-export interface EstimateRow {
-  id: string;
-  number: string;
-  customer_id: string | null;
-  customer_name?: string | null;
-  issue_date: string | null;
-  expiry_date: string | null;
-  status: string;       // draft, sent, accepted, declined, expired, converted
-  subtotal: number;
-  tax_total: number;
-  total: number;
-  currency: string;
-  notes?: string | null;
-  terms?: string | null;
-  converted_at?: string | null;
-  converted_to_invoice_id?: string | null;
-}
-
-/* ────────────────────────────────────────────────────────────
-   Banking (acct_bank_transactions, acct_bank_rules, acct_reconciliations)
-   ──────────────────────────────────────────────────────────── */
-
-export interface BankTransaction {
-  id: string;
-  bank_account_id: string | null;
-  posted_at: string | null;
-  description: string | null;
-  payee?: string | null;
-  amount: number;
-  currency: string;
-  status: string;       // review, matched, categorized, excluded
-  category?: string | null;
-  matched_document_id?: string | null;
-  matched_document_type?: string | null;
-  created_at?: string;
-}
-
-export interface BankRule {
-  id: string;
-  name: string;
-  condition_field: string;   // description, payee, amount
-  condition_op: string;      // contains, eq, gt, lt
-  condition_value: string;
-  action: string;            // categorize, set_payee, tag, mark_transfer, exclude
-  action_value?: string | null;
-  priority: number;
-  is_active: boolean;
-  created_at?: string;
-}
-
-export interface Reconciliation {
-  id: string;
-  bank_account_id: string;
-  statement_ending_balance: number;
-  statement_ending_date: string | null;
-  service_charge: number;
-  interest_earned: number;
-  status: string;       // in_progress, completed
-  started_at: string | null;
-  finished_at: string | null;
-  created_at?: string;
-}
-
-/* ────────────────────────────────────────────────────────────
-   Chart of Accounts + Journal (acct_chart_of_accounts, acct_journal_entries)
-   ──────────────────────────────────────────────────────────── */
-
-export interface Account {
-  id: string;
-  code: string;
-  name: string;
-  account_type: string;        // asset, liability, equity, revenue, expense
-  normal_balance: string;      // debit, credit
-  subtype: string | null;
-  description: string | null;
-  currency: string;
-  is_control_account: boolean;
-  is_reconcilable: boolean;
-  is_posting_allowed: boolean;
-  is_system: boolean;
-  is_active: boolean;
-  detail_type: string | null;
-  sort_order: number | null;
-  parent_account_id: string | null;
-  opening_balance: number | null;
-  created_at: string;
-}
-
-/** Tax summary (business tax cockpit). */
-export interface TaxSummary {
-  year: number;
-  revenue: number;
-  deductible_expenses: number;
-  taxable_income: number;
-  estimated_tax: number;
-  deduction_categories: Array<{ category: string; amount: number; count: number; percent_deductible: number }>;
-  depreciable_assets: Array<{ id: string; name: string; cost: number; accumulated_depreciation: number; net_book_value: number }>;
-  contractor_count: number;
-  alerts: { uncategorized: number; missing_w9: number; unreconciled: number };
-}
-
-/** Sales tax jurisdiction. */
-export interface TaxJurisdiction {
-  id: string;
-  code: string;
-  name: string;
-  country: string;
-  state: string | null;
-  locality: string | null;
-  registration_number: string | null;
-}
-
-/** Sales tax rate / code. */
-export interface TaxCode {
-  id: string;
-  code: string;
-  name: string;
-  rate: number;
-  jurisdiction_id: string | null;
-  recoverable_percent: number | null;
-  is_compound: boolean | null;
-}
-
-/** Sales tax filing. */
-export interface TaxFiling {
-  id: string;
-  period_start: string;
-  period_end: string;
-  status: string;        // draft, filed, paid
-  jurisdiction_id: string | null;
-  taxable_sales: number | null;
-  tax_collected: number | null;
-  tax_remitted: number | null;
-  confirmation_ref: string | null;
-  created_at: string;
-}
-
-/** E-file tax return (efile_filings — the IRS e-file table). */
-export interface EfileFiling {
-  id: string;
-  form_code: string;
-  tax_year: number;
-  channel: string;
-  status: string;           // draft, extension_filed, transmitted, filed, voided
-  period_start: string | null;
-  period_end: string | null;
-  due_date: string | null;
-  confirmation_number: string | null;
-  filed_at: string | null;
-  is_correction: boolean;
-  total_amount: number;
-  record_count: number;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface CrmStats {
@@ -506,6 +277,7 @@ export interface ProductVariantRow {
   color: string | null;
   price: number;
   compare_at_price: number | null;
+  standard_cost: number | null;
   is_active: boolean;
   status: string;
   in_stock: boolean | null;
@@ -551,6 +323,8 @@ export interface ProductDetail {
     owner_type: string;
     supplier_id: string | null;
     preferred_supplier_id: string | null;
+    income_account_id: string | null;
+    cogs_account_id: string | null;
   };
   variants: ProductVariantRow[];
   orders: ProductOrderRow[];
@@ -664,7 +438,7 @@ export function useList<T extends { id: string }>(
       p = (async () => {
         const res = await fetchJson<{ data: unknown }>(url);
         if (res.ok) {
-          const items = transform ? transform(res.data.data) : (res.data.data as T[]);
+          const items = transform ? transform(res.data) : (res.data.data as T[]);
           writeCache(key, items);
         }
         inflight.delete(url);
@@ -714,137 +488,111 @@ export function useCrmLeads(status?: string) {
   return useList<CrmLead>(`crmLeads:${status || ''}`, url);
 }
 
-/** Deals — optionally scoped to a customer, lead, or pipeline. */
-export function useDeals(filters?: { customerId?: string; leadId?: string; pipelineId?: string }) {
-  const params = new URLSearchParams();
-  if (filters?.customerId) params.set('customer_id', filters.customerId);
-  if (filters?.leadId) params.set('lead_id', filters.leadId);
-  if (filters?.pipelineId) params.set('pipeline_id', filters.pipelineId);
-  const url = `/api/crm/deals${params.toString() ? '?' + params.toString() : ''}`;
-  const key = `crmDeals:${filters?.customerId || ''}:${filters?.leadId || ''}:${filters?.pipelineId || ''}`;
-  return useList<Deal>(key, url);
-}
-
-/** All pipelines (with their stages if the API joins them). */
-export function usePipelines() {
-  return useList<Pipeline>('crmPipelines', '/api/crm/pipelines');
-}
-
-/** Stages for one pipeline. */
-export function usePipelineStages(pipelineId: string | null) {
-  const url = pipelineId ? `/api/crm/pipeline-stages?pipeline_id=${pipelineId}` : '/api/crm/pipeline-stages';
-  return useList<PipelineStage>(`crmStages:${pipelineId || 'all'}`, url, undefined, { enabled: !!pipelineId });
-}
-
-/** Lead scoring rules (crm_lead_scoring_rules). */
-export function useScoringRules() {
-  return useList<ScoringRule>('crmScoringRules', '/api/crm/lead-scoring-rules');
-}
-
-/** Score bands (crm_lead_score_bands) — hot/warm/cold thresholds. */
-export function useScoreBands() {
-  return useList<ScoreBand>('crmScoreBands', '/api/crm/lead-score-bands');
-}
-
-/** Invoices — from /api/v1/documents?type=Invoice (acct_ar_invoices). */
-export function useInvoices(filters?: { customerId?: string }) {
-  const params = new URLSearchParams();
-  if (filters?.customerId) params.set('customer_id', filters.customerId);
-  const url = `/api/v1/documents?type=Invoice${params.toString() ? '&' + params.toString() : ''}`;
-  return useList<InvoiceRow>(`invoices:${filters?.customerId || 'all'}`, url);
-}
-
-/** Estimates — from /api/estimates (acct_estimates). */
-export function useEstimates(filters?: { customerId?: string }) {
-  const params = new URLSearchParams();
-  if (filters?.customerId) params.set('customer_id', filters.customerId);
-  const url = `/api/estimates${params.toString() ? '?' + params.toString() : ''}`;
-  return useList<EstimateRow>(`estimates:${filters?.customerId || 'all'}`, url);
-}
-
-/** Bank transactions — from /api/bank-transactions (acct_bank_transactions). */
-export function useBankTransactions(filters?: { accountId?: string; status?: string }) {
-  const params = new URLSearchParams();
-  if (filters?.accountId) params.set('account_id', filters.accountId);
-  if (filters?.status && filters.status !== 'all') params.set('status', filters.status);
-  const url = `/api/bank-transactions${params.toString() ? '?' + params.toString() : ''}`;
-  const key = `bankTxns:${filters?.accountId || 'all'}:${filters?.status || 'all'}`;
-  return useList<BankTransaction>(key, url);
-}
-
-/** Bank rules — from /api/bank-rules (acct_bank_rules). */
-export function useBankRules() {
-  return useList<BankRule>('bankRules', '/api/bank-rules');
-}
-
-/** Reconciliations — from /api/reconciliations (acct_reconciliations). */
-export function useReconciliations(accountId?: string) {
-  const params = new URLSearchParams();
-  if (accountId) params.set('account_id', accountId);
-  const url = `/api/reconciliations${params.toString() ? '?' + params.toString() : ''}`;
-  return useList<Reconciliation>(`reconciliations:${accountId || 'all'}`, url);
-}
-
-/** Chart of Accounts — from /api/accounts (acct_chart_of_accounts). */
-export function useAccounts(filters?: { type?: string; active?: boolean; q?: string }) {
-  const params = new URLSearchParams();
-  if (filters?.type && filters.type !== 'all') params.set('type', filters.type);
-  if (filters?.active) params.set('active', 'true');
-  if (filters?.q) params.set('q', filters.q);
-  const url = `/api/accounts${params.toString() ? '?' + params.toString() : ''}`;
-  const key = `accounts:${filters?.type || 'all'}:${filters?.active ? 'active' : 'all'}:${filters?.q || ''}`;
-  return useList<Account>(key, url);
-}
-
-/** Tax summary — from /api/tax/summary. Not a list — fetches a single summary object. */
-export function useTaxSummary(year?: number) {
-  const [data, setData] = useState<TaxSummary | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
-
-  const refresh = useCallback(() => setTick((t) => t + 1), []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoaded(false);
-    const y = year || new Date().getFullYear();
-    fetch(`/api/tax/summary?year=${y}`)
-      .then((r) => r.json())
-      .then((json) => { if (!cancelled && json.data) { setData(json.data); setError(null); } else if (!cancelled && json.error) { setError(json.error.message); } })
-      .catch((e) => { if (!cancelled) setError(String(e)); })
-      .finally(() => { if (!cancelled) setLoaded(true); });
-    return () => { cancelled = true; };
-  }, [year, tick]);
-
-  return { data, loaded, error, refresh };
-}
-
-/** Sales tax jurisdictions — from /api/sales-tax/jurisdictions. */
-export function useTaxJurisdictions() {
-  return useList<TaxJurisdiction>('taxJurisdictions', '/api/sales-tax/jurisdictions');
-}
-
-/** Sales tax rates/codes — from /api/sales-tax/rates. */
-export function useTaxRates() {
-  return useList<TaxCode>('taxRates', '/api/sales-tax/rates');
-}
-
-/** Sales tax filings — from /api/sales-tax/filings. */
-export function useTaxFilings() {
-  return useList<TaxFiling>('taxFilings', '/api/sales-tax/filings');
-}
-
-/** E-file tax returns — from /api/tax/filings (efile_filings). */
-export function useEfileFilings(year?: number) {
-  const params = new URLSearchParams();
-  if (year) params.set('year', String(year));
-  const url = `/api/tax/filings${params.toString() ? '?' + params.toString() : ''}`;
-  return useList<EfileFiling>(`efileFilings:${year || 'all'}`, url);
-}
-
 export function useCrmSegments() {
   return useList<CrmSegment>('crmSegments', '/api/crm/segments');
+}
+
+/* ────────────────────────────────────────────────────────────
+   Deals + pipelines (doc 02) — same cache-first pattern
+   ──────────────────────────────────────────────────────────── */
+
+export function useCrmDeals(pipelineId?: string, customerId?: string) {
+  const params = new URLSearchParams();
+  if (pipelineId) params.set('pipeline_id', pipelineId);
+  if (customerId) params.set('customer_id', customerId);
+  const url = `/api/crm/deals${params.toString() ? '?' + params.toString() : ''}`;
+  return useList<CrmDealRow>(`crmDeals:${pipelineId || ''}:${customerId || ''}`, url);
+}
+
+export function useCrmPipelines() {
+  return useList<CrmPipelineRow>('crmPipelines', '/api/crm/pipelines');
+}
+
+export function useCrmPipelineStages(pipelineId?: string) {
+  const url = pipelineId
+    ? `/api/crm/pipeline-stages?pipeline_id=${encodeURIComponent(pipelineId)}`
+    : '/api/crm/pipeline-stages';
+  return useList<CrmPipelineStageRow>(`crmPipelineStages:${pipelineId || 'all'}`, url);
+}
+
+/** Stage-history timeline for one deal (the deal drawer). Gated like
+ *  useCrmNotes: no dealId → no request, empty list. */
+export function useDealStageHistory(dealId: string | null) {
+  const { data, loaded, refresh } = useList<CrmDealStageHistoryRow>(
+    `dealStageHistory:${dealId || 'none'}`,
+    dealId ? `/api/crm/deals/${dealId}/stage-history` : '/api/crm/deals/none/stage-history',
+    undefined,
+    { enabled: !!dealId },
+  );
+  return dealId
+    ? { data, loaded, refresh }
+    : { data: EMPTY_HISTORY, loaded: true, refresh };
+}
+const EMPTY_HISTORY: CrmDealStageHistoryRow[] = [];
+
+/** Pipeline summary report rows (crm_v_pipeline_summary via the API).
+ *  The view's rows have no id column, so this uses the direct
+ *  cache-first fetch pattern (like useCrmStats) instead of useList. */
+export function usePipelineSummary(pipelineId?: string): {
+  data: CrmPipelineSummaryRow[];
+  loaded: boolean;
+  refresh: () => void;
+} {
+  const key = `pipelineSummary:${pipelineId || 'all'}`;
+  const url = pipelineId
+    ? `/api/crm/pipelines/summary?pipeline_id=${encodeURIComponent(pipelineId)}`
+    : '/api/crm/pipelines/summary';
+  const [data, setData] = useState<CrmPipelineSummaryRow[]>(
+    () => readCache<CrmPipelineSummaryRow[]>(key) ?? [],
+  );
+  const [loaded, setLoaded] = useState<boolean>(() => cache.has(key));
+  const [tick, setTick] = useState(0);
+  const refresh = useCallback(() => setTick(t => t + 1), []);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchJson<{ data: CrmPipelineSummaryRow[] }>(url).then(res => {
+      if (res.ok && mounted) {
+        writeCache(key, res.data.data);
+        setData(res.data.data);
+        setLoaded(true);
+      }
+    });
+    return () => { mounted = false; };
+  }, [key, url, tick]);
+
+  return { data, loaded, refresh };
+}
+
+/* ────────────────────────────────────────────────────────────
+   Lead scoring (doc 03) — rules + the tenant's score bands
+   ──────────────────────────────────────────────────────────── */
+
+export function useLeadScoringRules() {
+  return useList<CrmLeadScoringRuleRow>('leadScoringRules', '/api/crm/lead-scoring-rules');
+}
+
+/** The tenant's score-band thresholds (one row per tenant).
+ *  Cache-first like useCrmStats; data is null until bands are set. */
+export function useLeadScoreBands(): { data: CrmLeadScoreBandRow | null; refresh: () => void } {
+  const [data, setData] = useState<CrmLeadScoreBandRow | null>(
+    () => readCache<CrmLeadScoreBandRow>('leadScoreBands') ?? null,
+  );
+  const [tick, setTick] = useState(0);
+  const refresh = useCallback(() => setTick(t => t + 1), []);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchJson<{ data: CrmLeadScoreBandRow | null }>('/api/crm/lead-score-bands').then(res => {
+      if (res.ok && mounted) {
+        writeCache('leadScoreBands', res.data.data);
+        setData(res.data.data);
+      }
+    });
+    return () => { mounted = false; };
+  }, [tick]);
+
+  return { data, refresh };
 }
 
 export function useProducts(q?: string, status?: string) {
@@ -1130,307 +878,147 @@ export function usePlatformMutations(onToast?: (m: string) => void) {
     return res;
   }, [toast]);
 
-  // ── Deals & Pipelines ──
-  const createDeal = useCallback(async (input: Partial<Deal> & { name: string; pipeline_id: string; stage_id: string; amount: number }) => {
-    const res = await fetchJson<{ data: Deal }>('/api/crm/deals', { method: 'POST', body: JSON.stringify(input) });
+  /* ── Deals + pipelines (doc 02) ── */
+
+  const createDeal = useCallback(async (input: Partial<CrmDealRow> & { name: string }) => {
+    const res = await fetchJson<{ data: CrmDealRow }>('/api/crm/deals', { method: 'POST', body: JSON.stringify(input) });
     if (res.ok) toast('Deal created');
     else toast(`Save failed: ${res.error}`);
     return res;
   }, [toast]);
 
-  const updateDeal = useCallback(async (id: string, updates: Partial<Deal>) => {
-    const res = await fetchJson<{ data: Deal }>(`/api/crm/deals/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+  const updateDeal = useCallback(async (id: string, updates: Partial<CrmDealRow>) => {
+    const res = await fetchJson<{ data: CrmDealRow }>(`/api/crm/deals/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
     if (res.ok) toast('Deal saved');
     else toast(`Save failed: ${res.error}`);
     return res;
   }, [toast]);
 
   const deleteDeal = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/crm/deals/${id}`, { method: 'DELETE' });
+    const res = await fetchJson<{ data: any }>(`/api/crm/deals/${id}`, { method: 'DELETE' });
     if (res.ok) { evictFromAllCaches(i => i.id === id); toast('Deal deleted'); }
     else toast(`Delete failed: ${res.error}`);
     return res;
   }, [toast]);
 
-  const createPipeline = useCallback(async (input: Partial<Pipeline> & { name: string }) => {
-    const res = await fetchJson<{ data: Pipeline }>('/api/crm/pipelines', { method: 'POST', body: JSON.stringify(input) });
+  /** Kanban drag: moves the deal through crm_move_deal so the stage
+   *  history row is written too (a plain PATCH would skip it). */
+  const moveDeal = useCallback(async (id: string, stageId: string, lostReason?: string) => {
+    const res = await fetchJson<{ data: CrmDealRow }>(`/api/crm/deals/${id}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ stage_id: stageId, ...(lostReason ? { lost_reason: lostReason } : {}) }),
+    });
+    if (res.ok) toast('Deal moved');
+    else toast(`Move failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const createPipeline = useCallback(async (input: Partial<CrmPipelineRow> & { name: string }) => {
+    const res = await fetchJson<{ data: CrmPipelineRow }>('/api/crm/pipelines', { method: 'POST', body: JSON.stringify(input) });
     if (res.ok) toast('Pipeline created');
     else toast(`Save failed: ${res.error}`);
     return res;
   }, [toast]);
 
-  const updatePipeline = useCallback(async (id: string, updates: Partial<Pipeline>) => {
-    const res = await fetchJson<{ data: Pipeline }>(`/api/crm/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+  const updatePipeline = useCallback(async (id: string, updates: Partial<CrmPipelineRow>) => {
+    const res = await fetchJson<{ data: CrmPipelineRow }>(`/api/crm/pipelines/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
     if (res.ok) toast('Pipeline saved');
     else toast(`Save failed: ${res.error}`);
     return res;
   }, [toast]);
 
-  const createPipelineStage = useCallback(async (input: Partial<PipelineStage> & { pipeline_id: string; name: string; sort_order: number }) => {
-    const res = await fetchJson<{ data: PipelineStage }>('/api/crm/pipeline-stages', { method: 'POST', body: JSON.stringify(input) });
+  const deletePipeline = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: any }>(`/api/crm/pipelines/${id}`, { method: 'DELETE' });
+    if (res.ok) { evictFromAllCaches(i => i.id === id); toast('Pipeline deleted'); }
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const createPipelineStage = useCallback(async (input: Partial<CrmPipelineStageRow> & { pipeline_id: string; name: string }) => {
+    const res = await fetchJson<{ data: CrmPipelineStageRow }>('/api/crm/pipeline-stages', { method: 'POST', body: JSON.stringify(input) });
     if (res.ok) toast('Stage created');
     else toast(`Save failed: ${res.error}`);
     return res;
   }, [toast]);
 
-  // ── Lead scoring rules ──
-  const createScoringRule = useCallback(async (input: Partial<ScoringRule> & { field: string; operator: string; points: number }) => {
-    const res = await fetchJson<{ data: ScoringRule }>('/api/crm/lead-scoring-rules', { method: 'POST', body: JSON.stringify(input) });
+  const updatePipelineStage = useCallback(async (id: string, updates: Partial<CrmPipelineStageRow>) => {
+    const res = await fetchJson<{ data: CrmPipelineStageRow }>(`/api/crm/pipeline-stages/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Stage saved');
+    else toast(`Save failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const deletePipelineStage = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: any }>(`/api/crm/pipeline-stages/${id}`, { method: 'DELETE' });
+    if (res.ok) { evictFromAllCaches(i => i.id === id); toast('Stage deleted'); }
+    else toast(`Delete failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  /* ── Lead scoring + conversion (doc 03) ── */
+
+  /** Recalculate a lead's score (crm_score_lead applies the rules). */
+  const rescoreLead = useCallback(async (id: string) => {
+    const res = await fetchJson<{ data: { lead_id: string; score: number } }>(`/api/crm/leads/${id}/rescore`, { method: 'POST' });
+    if (res.ok) toast(`Lead rescored: ${res.data.data.score}`);
+    else toast(`Rescore failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  /** Convert a lead (crm_convert_lead: role added, deal opened). */
+  const convertLead = useCallback(async (id: string, opts?: { deal_name?: string; amount?: number; pipeline_id?: string }) => {
+    const res = await fetchJson<{ data: { lead_id: string; deal_id: string } }>(`/api/crm/leads/${id}/convert`, {
+      method: 'POST',
+      body: JSON.stringify(opts || {}),
+    });
+    if (res.ok) toast('Lead converted — deal created');
+    else toast(`Convert failed: ${res.error}`);
+    return res;
+  }, [toast]);
+
+  const createScoringRule = useCallback(async (input: Partial<CrmLeadScoringRuleRow> & { name: string; field: string; operator: string; points: number }) => {
+    const res = await fetchJson<{ data: CrmLeadScoringRuleRow }>('/api/crm/lead-scoring-rules', { method: 'POST', body: JSON.stringify(input) });
     if (res.ok) toast('Scoring rule created');
     else toast(`Save failed: ${res.error}`);
     return res;
   }, [toast]);
 
-  const updateScoringRule = useCallback(async (id: string, updates: Partial<ScoringRule>) => {
-    const res = await fetchJson<{ data: ScoringRule }>(`/api/crm/lead-scoring-rules/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
-    if (res.ok) toast('Rule updated');
+  const updateScoringRule = useCallback(async (id: string, updates: Partial<CrmLeadScoringRuleRow>) => {
+    const res = await fetchJson<{ data: CrmLeadScoringRuleRow }>(`/api/crm/lead-scoring-rules/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
+    if (res.ok) toast('Scoring rule saved');
     else toast(`Save failed: ${res.error}`);
     return res;
   }, [toast]);
 
   const deleteScoringRule = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/crm/lead-scoring-rules/${id}`, { method: 'DELETE' });
-    if (res.ok) toast('Rule deleted');
+    const res = await fetchJson<{ data: any }>(`/api/crm/lead-scoring-rules/${id}`, { method: 'DELETE' });
+    if (res.ok) { evictFromAllCaches(i => i.id === id); toast('Scoring rule deleted'); }
     else toast(`Delete failed: ${res.error}`);
     return res;
   }, [toast]);
 
-  const createScoreBand = useCallback(async (input: Partial<ScoreBand> & { label: string; min_score: number }) => {
-    const res = await fetchJson<{ data: ScoreBand }>('/api/crm/lead-score-bands', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast('Score band created');
+  const updateScoreBands = useCallback(async (input: { hot_min: number; warm_min: number }) => {
+    const res = await fetchJson<{ data: CrmLeadScoreBandRow }>('/api/crm/lead-score-bands', { method: 'PATCH', body: JSON.stringify(input) });
+    if (res.ok) { writeCache('leadScoreBands', res.data.data); toast('Score bands saved'); }
     else toast(`Save failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Invoice actions (wrap acct_send_invoice / acct_void_invoice / etc.) ──
-  const sendInvoice = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/send`, { method: 'POST', body: JSON.stringify({}) });
-    if (res.ok) toast('Invoice sent');
-    else toast(`Send failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const voidInvoice = useCallback(async (id: string, reason?: string) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/void`, { method: 'POST', body: JSON.stringify({ reason: reason || 'Voided by user' }) });
-    if (res.ok) toast('Invoice voided');
-    else toast(`Void failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const markInvoicePaid = useCallback(async (id: string, opts?: { amount?: number; method?: string; reference?: string }) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/mark-paid`, { method: 'POST', body: JSON.stringify(opts || {}) });
-    if (res.ok) toast('Invoice marked paid');
-    else toast(`Mark paid failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const postInvoice = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/invoices/${id}/post`, { method: 'POST', body: JSON.stringify({}) });
-    if (res.ok) toast('Invoice posted');
-    else toast(`Post failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Estimate convert (wraps acct_convert_estimate) ──
-  const convertEstimate = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: unknown; invoice_id?: string; invoice_number?: string }>(`/api/estimates/${id}/convert`, { method: 'POST', body: JSON.stringify({}) });
-    if (res.ok) {
-      const inv = (res.data as { invoice_number?: string } | undefined)?.invoice_number;
-      toast(inv ? `Estimate converted → invoice ${inv}` : 'Estimate converted → invoice');
-    } else toast(`Convert failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Bank transactions (categorize / match / exclude) ──
-  const categorizeBankTxn = useCallback(async (id: string, category: string) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/bank-transactions/${id}`, { method: 'PATCH', body: JSON.stringify({ category, status: 'categorized' }) });
-    if (res.ok) toast('Transaction categorized');
-    else toast(`Categorize failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const excludeBankTxn = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/bank-transactions/${id}`, { method: 'PATCH', body: JSON.stringify({ excluded: true }) });
-    if (res.ok) toast('Transaction excluded');
-    else toast(`Exclude failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const matchBankTxn = useCallback(async (id: string, documentId: string, documentType?: string) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/bank-transactions/${id}/match`, { method: 'POST', body: JSON.stringify({ document_id: documentId, document_type: documentType }) });
-    if (res.ok) toast('Transaction matched');
-    else toast(`Match failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Bank rules ──
-  const createBankRule = useCallback(async (input: Partial<BankRule> & { name: string; condition_field: string; action: string }) => {
-    const res = await fetchJson<{ data: BankRule }>('/api/bank-rules', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast('Bank rule created');
-    else toast(`Save failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const updateBankRule = useCallback(async (id: string, updates: Partial<BankRule>) => {
-    const res = await fetchJson<{ data: BankRule }>(`/api/bank-rules/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
-    if (res.ok) toast('Rule updated');
-    else toast(`Save failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const deleteBankRule = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: { id: string; deleted: boolean } }>(`/api/bank-rules/${id}`, { method: 'DELETE' });
-    if (res.ok) toast('Rule deleted');
-    else toast(`Delete failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Reconciliations ──
-  const startReconciliation = useCallback(async (input: { bank_account_id: string; statement_ending_balance: number; statement_ending_date?: string; service_charge?: number; interest_earned?: number }) => {
-    const res = await fetchJson<{ data: unknown }>('/api/reconciliations', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast('Reconciliation started');
-    else toast(`Start failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const finishReconciliation = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: unknown }>(`/api/reconciliations/${id}/finish`, { method: 'POST', body: JSON.stringify({}) });
-    if (res.ok) toast('Reconciliation finished');
-    else toast(`Finish failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Bills (approve — wraps acct_decide_bill) ──
-  const approveBill = useCallback(async (id: string, decision?: 'approve' | 'reject') => {
-    const res = await fetchJson<{ data: unknown }>(`/api/v1/documents/${id}/approve`, { method: 'POST', body: JSON.stringify({ decision: decision || 'approve' }) });
-    if (res.ok) toast(decision === 'reject' ? 'Bill rejected' : 'Bill approved → Unpaid');
-    else toast(`Approve failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Contractor invite (wraps acct_invite_contractor) ──
-  const inviteContractor = useCallback(async (input: { email: string; name?: string; party_id?: string }) => {
-    const res = await fetchJson<{ data: unknown }>('/api/contractors/invite', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast(`W-9 invite sent to ${input.email}`);
-    else toast(`Invite failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Chart of Accounts ──
-  const createAccount = useCallback(async (input: Partial<Account> & { code: string; name: string; account_type: string }) => {
-    const res = await fetchJson<{ data: Account }>('/api/accounts', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast(`Account ${input.code} created`);
-    else toast(`Save failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const updateAccount = useCallback(async (id: string, updates: Partial<Account>) => {
-    const res = await fetchJson<{ data: Account }>(`/api/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
-    if (res.ok) toast('Account saved');
-    else toast(`Save failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const deleteAccount = useCallback(async (id: string, hard?: boolean) => {
-    const url = `/api/accounts/${id}${hard ? '?hard=true' : ''}`;
-    const res = await fetchJson<{ data: unknown }>(url, { method: 'DELETE' });
-    if (res.ok) toast(hard ? 'Account deleted' : 'Account deactivated');
-    else toast(`Delete failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const seedAccounts = useCallback(async () => {
-    const res = await fetchJson<{ data: { seeded: number; total: number; message?: string } }>('/api/accounts/seed', { method: 'POST', body: JSON.stringify({}) });
-    if (res.ok) toast(res.data?.message || `Seeded ${res.data?.seeded || 0} accounts`);
-    else toast(`Seed failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Business Tax ──
-  const generate1099s = useCallback(async (year?: number) => {
-    const res = await fetchJson<{ data: unknown }>('/api/tax/1099s/generate', { method: 'POST', body: JSON.stringify({ year }) });
-    if (res.ok) toast('1099s generated');
-    else toast(`Generate failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const createTaxReturn = useCallback(async (input: { form_code: string; tax_year: number; period_start?: string; period_end?: string; due_date?: string }) => {
-    const res = await fetchJson<{ data: EfileFiling }>('/api/tax/filings', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast(`Tax return ${input.form_code} for ${input.tax_year} created`);
-    else toast(`Create failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const updateTaxReturn = useCallback(async (id: string, updates: Partial<EfileFiling>) => {
-    const res = await fetchJson<{ data: EfileFiling }>(`/api/tax/filings/${id}`, { method: 'PATCH', body: JSON.stringify(updates) });
-    if (res.ok) toast('Tax return updated');
-    else toast(`Update failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Sales Tax ──
-  const createTaxJurisdiction = useCallback(async (input: { code: string; name: string; country?: string; state?: string }) => {
-    const res = await fetchJson<{ data: unknown }>('/api/sales-tax/jurisdictions', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast(`Jurisdiction ${input.name} created`);
-    else toast(`Save failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const createTaxRate = useCallback(async (input: { code: string; name: string; rate: number }) => {
-    const res = await fetchJson<{ data: unknown }>('/api/sales-tax/rates', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast(`Tax code ${input.code} created`);
-    else toast(`Save failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const prepareTaxFiling = useCallback(async (input: { period_start: string; period_end: string; jurisdiction_id?: string }) => {
-    const res = await fetchJson<{ data: unknown }>('/api/sales-tax/filings', { method: 'POST', body: JSON.stringify(input) });
-    if (res.ok) toast('Sales tax filing prepared');
-    else toast(`Prepare failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const calculateTax = useCallback(async (input: { amount: number; jurisdiction_id?: string; tax_code?: string }) => {
-    const res = await fetchJson<{ data: { tax: number; rate: number; total: number } }>('/api/sales-tax/calculate', { method: 'POST', body: JSON.stringify(input) });
-    if (!res.ok) toast(`Calculate failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  // ── Lead convert/rescore (dedicated RPC routes) ──
-  const convertLead = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: unknown; customer_id?: string }>(`/api/crm/leads/${id}/convert`, { method: 'POST', body: JSON.stringify({}) });
-    if (res.ok) toast('Lead converted → customer created');
-    else toast(`Convert failed: ${res.error}`);
-    return res;
-  }, [toast]);
-
-  const rescoreLead = useCallback(async (id: string) => {
-    const res = await fetchJson<{ data: unknown; score?: number }>(`/api/crm/leads/${id}/rescore`, { method: 'POST', body: JSON.stringify({}) });
-    if (res.ok) toast('Lead rescored');
-    else toast(`Rescore failed: ${res.error}`);
     return res;
   }, [toast]);
 
   return {
     createParty, createCustomer, updateCustomer, archiveCustomer,
-    createLead, updateLead, deleteLead, convertLead, rescoreLead,
+    createLead, updateLead, deleteLead,
     createNote, updateNote, deleteNote,
     createTask, updateTask, deleteTask,
-    createDeal, updateDeal, deleteDeal,
-    createPipeline, updatePipeline, createPipelineStage,
-    createScoringRule, updateScoringRule, deleteScoringRule, createScoreBand,
-    sendInvoice, voidInvoice, markInvoicePaid, postInvoice,
-    convertEstimate,
-    categorizeBankTxn, excludeBankTxn, matchBankTxn,
-    createBankRule, updateBankRule, deleteBankRule,
-    startReconciliation, finishReconciliation,
-    approveBill,
-    inviteContractor,
-    createAccount, updateAccount, deleteAccount, seedAccounts,
-    generate1099s, createTaxReturn, updateTaxReturn,
-    createTaxJurisdiction, createTaxRate, prepareTaxFiling, calculateTax,
+    createDeal, updateDeal, deleteDeal, moveDeal,
+    createPipeline, updatePipeline, deletePipeline,
+    createPipelineStage, updatePipelineStage, deletePipelineStage,
+    rescoreLead, convertLead,
+    createScoringRule, updateScoringRule, deleteScoringRule, updateScoreBands,
   };
 }
 
 /** Back-compat alias for screens importing the old name. */
 export const useCrmMutations = usePlatformMutations;
+
+// Re-export hooks that moved to useCrmDomain (agents A+B refactored)
+export { useDeals, usePipelines, usePipelineStages } from './useCrmDomain';

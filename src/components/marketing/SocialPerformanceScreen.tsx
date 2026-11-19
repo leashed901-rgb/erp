@@ -1,51 +1,84 @@
 'use client';
 
 /**
- * Social Performance — analytics for published content.
- * Minimalist rebuild: compact stats + channel bars + top content list (click → peek).
+ * Social Performance — delivery analytics for published content, wired
+ * to the real /api/social/performance aggregates (doc 23).
+ *
+ * The platform records delivery (published / failed / scheduled / draft
+ * per network), not reach, engagement, or clicks — those numbers are not
+ * stored anywhere, so this screen shows delivery counts and recent posts
+ * instead of inventing them.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import styles from './SocialPerformance.module.css';
 import { exportToCsv } from '@/lib/csvExport';
+import { useSocialPerformance, useSocialPosts } from '@/hooks/useSocialApi';
+import type { SocialPost } from '@/lib/socialTypes';
 
 interface SocialPerformanceScreenProps {
   onToast: (msg: string) => void;
-  onNavigate?: (domain: string, screenId: string) => void;
+  onNavigate?: (domain: import('@/data/shellData').DomainKey, screenId: string) => void;
 }
 
-const STATS = [
-  { label: 'Total reach', value: '128.4K', delta: '+8.4% vs previous', tone: 'pos' },
-  { label: 'Engagement', value: '6.8%', delta: 'Across channels', tone: '' },
-  { label: 'Link clicks', value: '2,416', delta: 'Tracked post clicks', tone: '' },
-  { label: 'Published', value: '48', delta: 'In selected period', tone: '' },
-];
+const NETWORK_COLOR: Record<string, string> = {
+  instagram: '#c13584',
+  tiktok: '#010101',
+  linkedin: '#0a66c2',
+  facebook: '#1877f2',
+  pinterest: '#bd081c',
+  youtube: '#ff0000',
+  threads: '#000000',
+  x: '#000000',
+};
 
-const CHANNELS = [
-  { name: 'Instagram', reach: '62.4K', engagement: '8.2%', clicks: '1,240', posts: '24', color: '#c13584', pct: 49 },
-  { name: 'TikTok', reach: '38.2K', engagement: '7.9%', clicks: '680', posts: '12', color: '#010101', pct: 30 },
-  { name: 'LinkedIn', reach: '18.6K', engagement: '4.1%', clicks: '320', posts: '8', color: '#0a66c2', pct: 14 },
-  { name: 'Facebook', reach: '9.2K', engagement: '3.2%', clicks: '176', posts: '4', color: '#1877f2', pct: 7 },
-];
+function cap(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
 
-const TOP_CONTENT = [
-  { rank: 1, title: 'Product launch announcement', channel: 'Instagram', engagement: '8.2%', reach: '24.1K', clicks: '680', date: 'Oct 28' },
-  { rank: 2, title: 'Behind the scenes video', channel: 'TikTok', engagement: '7.9%', reach: '18.4K', clicks: '420', date: 'Oct 25' },
-  { rank: 3, title: 'Team spotlight', channel: 'LinkedIn', engagement: '6.4%', reach: '9.2K', clicks: '210', date: 'Oct 22' },
-  { rank: 4, title: 'Holiday gift guide carousel', channel: 'Instagram', engagement: '5.8%', reach: '14.6K', clicks: '320', date: 'Oct 18' },
-  { rank: 5, title: 'Customer spotlight: Lakeside', channel: 'Instagram', engagement: '5.2%', reach: '11.2K', clicks: '180', date: 'Oct 12' },
-];
+function titleOf(p: SocialPost): string {
+  if (p.title) return p.title;
+  const first = (p.caption || '').split('\n')[0].trim();
+  return first ? (first.length > 60 ? `${first.slice(0, 60)}…` : first) : 'Untitled post';
+}
+
+function channelOf(p: SocialPost): string {
+  const n = p.channels?.[0] || p.networks?.[0]?.network || '';
+  return n ? cap(n) : '—';
+}
 
 export default function SocialPerformanceScreen({ onToast, onNavigate }: SocialPerformanceScreenProps) {
   const [range, setRange] = useState('Last 30 days');
-  const [peekItem, setPeekItem] = useState<typeof TOP_CONTENT[number] | null>(null);
+  const [peekPost, setPeekPost] = useState<SocialPost | null>(null);
+  const { performance, loading, error } = useSocialPerformance();
+  const { posts } = useSocialPosts();
+
+  const byNetwork = performance?.byNetwork ?? [];
+  const postCounts = performance?.posts ?? {};
+  const total = Object.values(postCounts).reduce((a, b) => a + b, 0);
+  const published = postCounts.published ?? 0;
+  const scheduled = postCounts.scheduled ?? 0;
+  const failed = postCounts.failed ?? 0;
+  const maxPublished = Math.max(1, ...byNetwork.map((n) => n.published));
+
+  const recent = useMemo(
+    () => [...posts].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, 5),
+    [posts],
+  );
+
+  const STATS = [
+    { label: 'Total posts', value: String(total), delta: 'All statuses' },
+    { label: 'Published', value: String(published), delta: 'Delivered to networks' },
+    { label: 'Scheduled', value: String(scheduled), delta: 'Waiting to publish' },
+    { label: 'Failed', value: String(failed), delta: 'Needs a retry' },
+  ];
 
   const handleExport = () => {
-    exportToCsv(CHANNELS as unknown as Record<string, unknown>[], [
+    exportToCsv(byNetwork.map((n) => ({ name: cap(n.network), published: n.published, failed: n.failed, scheduled: n.scheduled, draft: n.draft })), [
       { key: 'name', label: 'Channel' },
-      { key: 'reach', label: 'Reach' },
-      { key: 'engagement', label: 'Engagement' },
-      { key: 'clicks', label: 'Link clicks' },
-      { key: 'posts', label: 'Published posts' },
+      { key: 'published', label: 'Published' },
+      { key: 'failed', label: 'Failed' },
+      { key: 'scheduled', label: 'Scheduled' },
+      { key: 'draft', label: 'Draft' },
     ], 'social-performance');
     onToast('Exported performance data to CSV.');
   };
@@ -70,95 +103,108 @@ export default function SocialPerformanceScreen({ onToast, onNavigate }: SocialP
       </div>
 
       <div className={styles.content}>
-        <div className={styles.stats}>
-          {STATS.map((s) => (
-            <div key={s.label} className={styles.stat}>
-              <span className={styles.statLabel}>{s.label}</span>
-              <span className={styles.statValue}>{s.value}</span>
-              <span className={`${styles.statDelta} ${s.tone === 'pos' ? styles.statDeltaPos : ''}`}>{s.delta}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className={styles.split}>
+        {error ? (
           <div className={styles.card}>
-            <div className={styles.cardHead}>
-              <div className={styles.cardHeadLeft}>
-                <h2 className={styles.cardTitle}>Channel performance</h2>
-                <p className={styles.cardSub}>Reach, engagement, and clicks by platform</p>
-              </div>
-            </div>
-            <div className={styles.cardBody}>
-              {CHANNELS.map((ch) => (
-                <div key={ch.name} className={styles.chBar}>
-                  <div className={styles.chBarHead}>
-                    <span className={styles.chBarName}><span className={styles.chBarDot} style={{ background: ch.color }} />{ch.name}</span>
-                    <span className={styles.chBarVal}>{ch.reach}</span>
-                  </div>
-                  <div className={styles.chBarTrack}>
-                    <div className={styles.chBarFill} style={{ width: `${ch.pct}%`, background: ch.color }} />
-                  </div>
-                  <div className={styles.chBarMeta}>
-                    <span>Engagement: {ch.engagement}</span>
-                    <span>Clicks: {ch.clicks}</span>
-                    <span>Posts: {ch.posts}</span>
-                  </div>
+            <p style={{ margin: 0, padding: 16, fontSize: 13, color: '#b3261e' }}>Could not load performance: {error}</p>
+          </div>
+        ) : (
+          <>
+            <div className={styles.stats}>
+              {STATS.map((s) => (
+                <div key={s.label} className={styles.stat}>
+                  <span className={styles.statLabel}>{s.label}</span>
+                  <span className={styles.statValue}>{loading ? '…' : s.value}</span>
+                  <span className={styles.statDelta}>{s.delta}</span>
                 </div>
               ))}
             </div>
-          </div>
 
-          <div className={styles.card}>
-            <div className={styles.cardHead}>
-              <div className={styles.cardHeadLeft}>
-                <h2 className={styles.cardTitle}>Top content</h2>
-                <p className={styles.cardSub}>Highest engagement this month · click to view</p>
-              </div>
-            </div>
-            <div className={styles.cardBody} style={{ padding: '4px 16px' }}>
-              <div className={styles.topList}>
-                {TOP_CONTENT.map((c) => (
-                  <div key={c.rank} className={styles.topRow} onClick={() => setPeekItem(c)}>
-                    <span className={styles.topRank}>{String(c.rank).padStart(2, '0')}</span>
-                    <div className={styles.topMain}>
-                      <div className={styles.topTitle}>{c.title}</div>
-                      <div className={styles.topMeta}>{c.channel} · {c.date}</div>
-                    </div>
-                    <span className={styles.topEng}>{c.engagement}</span>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--mut)' }}>chevron_right</span>
+            <div className={styles.split}>
+              <div className={styles.card}>
+                <div className={styles.cardHead}>
+                  <div className={styles.cardHeadLeft}>
+                    <h2 className={styles.cardTitle}>Channel performance</h2>
+                    <p className={styles.cardSub}>Delivery counts by platform — reach and engagement are not recorded by the platform</p>
                   </div>
-                ))}
+                </div>
+                <div className={styles.cardBody}>
+                  {byNetwork.length === 0 ? (
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--mut)' }}>{loading ? 'Loading…' : 'No posts yet — delivery counts appear once posts exist.'}</p>
+                  ) : (
+                    byNetwork.map((ch) => (
+                      <div key={ch.network} className={styles.chBar}>
+                        <div className={styles.chBarHead}>
+                          <span className={styles.chBarName}><span className={styles.chBarDot} style={{ background: NETWORK_COLOR[ch.network.toLowerCase()] || '#666' }} />{cap(ch.network)}</span>
+                          <span className={styles.chBarVal}>{ch.published} published</span>
+                        </div>
+                        <div className={styles.chBarTrack}>
+                          <div className={styles.chBarFill} style={{ width: `${Math.round((ch.published / maxPublished) * 100)}%`, background: NETWORK_COLOR[ch.network.toLowerCase()] || '#666' }} />
+                        </div>
+                        <div className={styles.chBarMeta}>
+                          <span>Failed: {ch.failed}</span>
+                          <span>Scheduled: {ch.scheduled}</span>
+                          <span>Draft: {ch.draft}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.card}>
+                <div className={styles.cardHead}>
+                  <div className={styles.cardHeadLeft}>
+                    <h2 className={styles.cardTitle}>Recent posts</h2>
+                    <p className={styles.cardSub}>Newest first · click to view</p>
+                  </div>
+                </div>
+                <div className={styles.cardBody} style={{ padding: '4px 16px' }}>
+                  {recent.length === 0 ? (
+                    <p style={{ margin: 0, padding: '12px 0', fontSize: 13, color: 'var(--mut)' }}>{loading ? 'Loading…' : 'No posts yet.'}</p>
+                  ) : (
+                    <div className={styles.topList}>
+                      {recent.map((p, i) => (
+                        <div key={p.id} className={styles.topRow} onClick={() => setPeekPost(p)}>
+                          <span className={styles.topRank}>{String(i + 1).padStart(2, '0')}</span>
+                          <div className={styles.topMain}>
+                            <div className={styles.topTitle}>{titleOf(p)}</div>
+                            <div className={styles.topMeta}>{channelOf(p)} · {new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {p.status}</div>
+                          </div>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--mut)' }}>chevron_right</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
-      {/* Peek */}
-      {peekItem && (
+      {peekPost && (
         <>
-          <div className={`${styles.scrim} ${styles.scrimOpen}`} onClick={() => setPeekItem(null)} />
+          <div className={`${styles.scrim} ${styles.scrimOpen}`} onClick={() => setPeekPost(null)} />
           <div className={`${styles.peek} ${styles.peekOpen}`}>
             <div className={styles.peekHead}>
               <div>
-                <h3 className={styles.peekHeadTitle}>{peekItem.title}</h3>
-                <p className={styles.peekHeadSub}>{peekItem.channel} · {peekItem.date}</p>
+                <h3 className={styles.peekHeadTitle}>{titleOf(peekPost)}</h3>
+                <p className={styles.peekHeadSub}>{channelOf(peekPost)} · {new Date(peekPost.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
               </div>
-              <button type="button" className={styles.btnIcon} onClick={() => setPeekItem(null)}><span className="material-symbols-outlined">close</span></button>
+              <button type="button" className={styles.btnIcon} onClick={() => setPeekPost(null)}><span className="material-symbols-outlined">close</span></button>
             </div>
             <div className={styles.peekBody}>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Rank</span><span className={styles.peekValue}>#{peekItem.rank}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Engagement rate</span><span className={styles.peekValue} style={{ color: 'var(--ok)' }}>{peekItem.engagement}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Reach</span><span className={styles.peekValue}>{peekItem.reach}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Link clicks</span><span className={styles.peekValue}>{peekItem.clicks}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Channel</span><span className={styles.peekValue}>{peekItem.channel}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Published</span><span className={styles.peekValue}>{peekItem.date}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Status</span><span className={styles.peekValue}>{peekPost.status}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Channel</span><span className={styles.peekValue}>{channelOf(peekPost)}</span></div>
+              {peekPost.scheduledAt && <div className={styles.peekField}><span className={styles.peekLabel}>Scheduled</span><span className={styles.peekValue}>{new Date(peekPost.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>}
+              {peekPost.error && <div className={styles.peekField}><span className={styles.peekLabel}>Error</span><span className={styles.peekValue}>{peekPost.error}</span></div>}
+              <div className={styles.peekField}><span className={styles.peekLabel}>Source</span><span className={styles.peekValue}>{peekPost.sourceType}</span></div>
             </div>
             <div className={styles.peekFooter}>
-              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} onClick={() => { setPeekItem(null); onNavigate?.('marketing', 'mkt-queue'); }}>
+              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} onClick={() => { setPeekPost(null); onNavigate?.('marketing', 'mkt-queue'); }}>
                 <span className="material-symbols-outlined">outbox</span> View in queue
               </button>
-              <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => { setPeekItem(null); onNavigate?.('marketing', 'mkt-create-content'); }}>
+              <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => { setPeekPost(null); onNavigate?.('marketing', 'mkt-create-content'); }}>
                 <span className="material-symbols-outlined">content_copy</span> Replicate
               </button>
             </div>

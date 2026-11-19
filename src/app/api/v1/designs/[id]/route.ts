@@ -71,7 +71,11 @@ export async function PATCH(
     const patch: Record<string, unknown> = { canvas_state: canvasState, updated_at: new Date().toISOString() };
     if (typeof body.name === 'string') patch.name = body.name;
     if (typeof body.status === 'string') patch.status = body.status;
-    if (typeof body.isTemplate === 'boolean') patch.is_template = body.isTemplate;
+    if (typeof body.isTemplate === 'boolean') {
+      patch.is_template = body.isTemplate;
+      // Keep the canvas_state copy in sync (POST writes both the same way).
+      canvasState.is_template = body.isTemplate;
+    }
     // Save to Collection (create action in the Studio drawers).
     if (typeof body.collectionId === 'string' || body.collectionId === null) {
       patch.collection_id = body.collectionId;

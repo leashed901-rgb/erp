@@ -1,24 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getEquityApiResponse } from '@/lib/equityStore';
+import { loadCapState } from '@/lib/capState';
 
 export async function GET(req: NextRequest) {
   try {
     const sp = req.nextUrl.searchParams;
-    const asOfDate = sp.get('as_of') || undefined;
-    const snapshotId = sp.get('snapshot_id') || undefined;
-    const denominatorMethod =
-      sp.get('denominator') === 'allocated_only'
-        ? 'allocated_only'
-        : 'allocated_plus_pool';
-
-    const data = getEquityApiResponse({
-      asOfDate,
-      snapshotId,
-      denominatorMethod,
-    });
-    return NextResponse.json(data);
+    const asOf = sp.get('as_of') || undefined;
+    const state = await loadCapState(asOf);
+    return NextResponse.json({ data: state });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load equity state.';
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: { code: 'EQUITY_STATE_FAILED', message } }, { status: 400 });
   }
 }

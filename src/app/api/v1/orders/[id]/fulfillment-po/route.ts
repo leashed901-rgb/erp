@@ -21,7 +21,7 @@ export async function POST(
   const { id: orderId } = await params;
   try {
     const { data: order, error } = await supabaseAdmin()
-      .from('orders')
+      .from('erp_orders')
       .select('id,status')
       .eq('tenant_id', DEFAULT_TENANT_ID)
       .eq('id', orderId)
@@ -69,7 +69,7 @@ export async function POST(
           order_id: orderId,
           supplier_id: line.supplierId,
           route_id: line.routeId,
-          status: 'pending',
+          status: 'submitted',
           cost: line.costSnapshot,
         })
         .select('id,order_id,supplier_id,route_id,status,cost,created_at')
@@ -81,7 +81,7 @@ export async function POST(
       // Reference the print file on the fulfillment line when ready.
       if (line.printStatus === 'ready' && line.printStoragePath) {
         await supabaseAdmin()
-          .from('order_items')
+          .from('erp_order_lines')
           .update({ design_file_snapshot_url: line.printStoragePath })
           .eq('id', line.orderItemId);
       }

@@ -108,7 +108,15 @@ export async function POST(req: NextRequest) {
       name,
       status: 'draft',
       source: 'konva',
-      canvas_state: {},
+      // A saved template is a design whose canvas_state carries the flag
+      // (designs.is_template is the column the list filter reads — kept in
+      // sync here so a template created in one call lists as one).
+      canvas_state: {
+        ...(body.canvasState && typeof body.canvasState === 'object'
+          ? (body.canvasState as Record<string, unknown>)
+          : {}),
+        ...(body.isTemplate === true ? { is_template: true } : {}),
+      },
       supplier_catalog_product_id: body.supplierCatalogProductId ?? null,
       garment_color: body.garmentColor ?? null,
       product_type: body.productType ?? name,
@@ -118,6 +126,7 @@ export async function POST(req: NextRequest) {
       category_id: body.categoryId ?? null,
       collection_id: body.collectionId ?? null,
     };
+    if (body.isTemplate === true) insert.is_template = true;
     const { data, error } = await supabaseAdmin()
       .from('designs')
       .insert(insert)

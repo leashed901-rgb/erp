@@ -1,0 +1,16 @@
+<svg width="65" height="65" viewBox="0 0 65 65" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- Original logo centered with 10.5px padding on top and bottom -->
+<g transform="translate(0, 10.5)">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M36.2329 0H64.7147C64.7147 8.63251 57.7138 15.6305 49.0779 15.6305H36.2329V0Z" fill="#5DCFFA"/>
+<mask id="mask0_1072_28790" style="mask-type:luminance" maskUnits="userSpaceOnUse" x="36" y="15" width="16" height="29">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M36.2329 43.9996H51.8697V15.6304H36.2329V43.9996H36.2329Z" fill="white"/>
+</mask>
+<g mask="url(#mask0_1072_28790)">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M36.2329 38.9486L51.8697 43.9997V20.8404L36.2329 15.6304V38.9486Z" fill="#0054FF"/>
+</g>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M28.4818 15.6305H15.6368C7.00085 15.6305 0 8.63217 0 0H28.4818V15.6305Z" fill="#5DCFFA"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M12.845 43.9997L28.4818 38.9486V15.6304L12.845 20.8408V43.9997Z" fill="#0054FF"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M15.6368 15.6305H28.4818L12.845 20.8405V15.6305C12.845 15.5459 12.8501 15.4627 12.8511 15.3784C13.7557 15.5408 14.6855 15.6305 15.6368 15.6305" fill="#1A31AE"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M49.0779 15.6305H36.2329L51.8697 20.8405V15.6305C51.8697 15.5459 51.8646 15.4627 51.8636 15.3784C50.959 15.5408 50.0292 15.6305 49.0779 15.6305" fill="#1A31AE"/>
+</g>
+</svg>

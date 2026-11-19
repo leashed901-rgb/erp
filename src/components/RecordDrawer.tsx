@@ -9,8 +9,14 @@
    Non-modal over the list; sticky footer; stack depth max 2. */
 
 import { useState, useEffect } from 'react';
-import { usePlatformStore, type Party, type PartyRole, type Item } from '@/lib/platformStore';
-import { PartyPicker, ItemPicker, AccountPicker } from './UniversalPickers';
+import type { PartyRole } from '@/lib/platformStore';
+import { fetchJson } from '@/hooks/useCrmApi';
+import { useChartOfAccounts, useBankAccounts } from '@/hooks/useAccountingApi';
+
+/* Picker data shapes (real APIs, loaded once per drawer mount) */
+interface PartyOption { id: string; name: string; roles: string[] }
+interface AccountOption { id: string; name: string; code: string; type: string; detail: string }
+interface ItemOption { id: string; name: string }
 
 /* ─── Field types (§2.1: MoneyField, DateField, SelectField, TagInput) ─── */
 
@@ -188,8 +194,8 @@ export const EXPENSE_DRAWER: DrawerDef = {
       fields: [
         { id: 'payeeId', label: 'Payee', type: 'party', partyRole: 'Vendor' },
         { id: 'date', label: 'Date', type: 'date' },
-        { id: 'paidFrom', label: 'Paid from', type: 'account' },
-        { id: 'category', label: 'Category', type: 'text', placeholder: 'e.g. Software' },
+        { id: 'paidFrom', label: 'Paid from', type: 'account', accountType: 'Bank' },
+        { id: 'category', label: 'Category', type: 'account', accountType: 'Expense' },
         { id: 'amount', label: 'Amount', type: 'money', required: true },
         { id: 'memo', label: 'Memo', type: 'textarea' },
       ],
@@ -248,7 +254,7 @@ interface RecordDrawerProps {
   initialRoles?: PartyRole[];
   onToast: (msg: string) => void;
   onClose: () => void;
-  onSave: (values: Record<string, unknown>) => void;
+  onSave: (values: Record<string, unknown>) => Promise<boolean> | boolean;
   onMakeFullPage?: () => void;
 }
 
@@ -268,9 +274,63 @@ export default function RecordDrawer(props: RecordDrawerProps & { open?: boolean
   return <RecordDrawerInner key={props.sessionKey} {...props} def={resolvedDef} />;
 }
 
+function PartySelect({ value, onChange, role }: { value: string | null; onChange: (id: string | null) => void; role?: PartyRole }) {
+  const [options, setOptions] = useState<PartyOption[]>([]);
+  useEffect(() => {
+    fetchJson<{ data: { id: string; displayName?: string; name?: string; roles?: string[] }[] }>('/api/parties')
+      .then(res => {
+        if (!res.ok) return;
+        const all = (res.data.data || []).map(p => ({ id: p.id, name: p.displayName || p.name || 'Party', roles: (p.roles || []).map(r => r.toLowerCase()) }));
+        setOptions(role ? all.filter(p => p.roles.includes(role.toLowerCase())) : all);
+      })
+      .catch(() => {});
+  }, [role]);
+  return (
+    <select className="field-input" value={value || ''} onChange={e => onChange(e.target.value || null)}>
+      <option value="">Select…</option>
+      {options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+    </select>
+  );
+}
+
+function AccountSelect({ value, onChange, accountType }: { value: string | null; onChange: (id: string | null) => void; accountType?: string }) {
+  const { accounts } = useChartOfAccounts();
+  const { bankAccounts } = useBankAccounts();
+  if (accountType === 'Bank') {
+    return (
+      <select className="field-input" value={value || ''} onChange={e => onChange(e.target.value || null)}>
+        <option value="">Select…</option>
+        {bankAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+      </select>
+    );
+  }
+  const opts = (accounts as unknown as AccountOption[]).filter(a =>
+    !accountType || a.type === accountType || (accountType === 'COGS' && /cost of goods/i.test(a.detail || '')) || (accountType === 'Income' && a.type === 'Income'));
+  return (
+    <select className="field-input" value={value || ''} onChange={e => onChange(e.target.value || null)}>
+      <option value="">Select…</option>
+      {opts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+    </select>
+  );
+}
+
+function ItemSelect({ value, onChange }: { value: string | null; onChange: (id: string | null) => void }) {
+  const [options, setOptions] = useState<ItemOption[]>([]);
+  useEffect(() => {
+    fetchJson<{ items: { id: string; name: string }[] }>('/api/v1/items')
+      .then(res => { if (res.ok) setOptions((res.data.items || []).slice(0, 500).map(i => ({ id: i.id, name: i.name }))); })
+      .catch(() => {});
+  }, []);
+  return (
+    <select className="field-input" value={value || ''} onChange={e => onChange(e.target.value || null)}>
+      <option value="">Select…</option>
+      {options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+    </select>
+  );
+}
+
 function RecordDrawerInner({ def, record, initialRoles, onToast, onClose, onSave, onMakeFullPage }: RecordDrawerProps) {
   const drawerDef = def!;
-  const store = usePlatformStore();
   const [values, setValues] = useState<Record<string, unknown>>(record || {});
   const [roles, setRoles] = useState<Set<PartyRole>>(new Set(initialRoles || ((record?.roles as PartyRole[]) || [])));
   const [dirty, setDirty] = useState(false);
@@ -285,23 +345,24 @@ function RecordDrawerInner({ def, record, initialRoles, onToast, onClose, onSave
     setDirty(true);
   }
 
-  function save() {
+  async function save(): Promise<boolean> {
     // Validate required fields
     for (const section of drawerDef.sections) {
       if (section.showForRole && !roles.has(section.showForRole)) continue;
       for (const field of section.fields) {
         if (field.required && !String(values[field.id] || '').trim()) {
           onToast(`${field.label} is required`);
-          return;
+          return false;
         }
       }
     }
     if (drawerDef.entity === 'party' && roles.size === 0) {
       onToast('Select at least one role');
-      return;
+      return false;
     }
-    onSave({ ...values, ...(drawerDef.entity === 'party' ? { roles: [...roles] } : {}) });
-    setDirty(false);
+    const ok = await onSave({ ...values, ...(drawerDef.entity === 'party' ? { roles: [...roles] } : {}) });
+    if (ok) setDirty(false);
+    return ok;
   }
 
   const allRoles: PartyRole[] = ['Customer', 'Vendor', 'Supplier', 'Contractor', 'Seller', 'Lead'];
@@ -373,13 +434,11 @@ function RecordDrawerInner({ def, record, initialRoles, onToast, onClose, onSave
                                 {field.options?.map(o => <option key={o} value={o}>{o}</option>)}
                               </select>
                             ) : field.type === 'party' ? (
-                              <PartyPicker value={(val as string) || null} onChange={id => setValue(field.id, id)} role={field.partyRole} label="" />
+                              <PartySelect value={(val as string) || null} onChange={id => setValue(field.id, id)} role={field.partyRole} />
                             ) : field.type === 'account' ? (
-                              <AccountPicker value={(val as string) || null} onChange={id => setValue(field.id, id)} label="" />
+                              <AccountSelect value={(val as string) || null} onChange={id => setValue(field.id, id)} accountType={field.accountType} />
                             ) : field.type === 'item' ? (
-                              <ItemPicker value={(val as string) || null} onChange={id => setValue(field.id, id)} label="" />
-                            ) : field.masked && !store.accounts ? (
-                              <input className="field-input" type="password" value="••••••••" readOnly />
+                              <ItemSelect value={(val as string) || null} onChange={id => setValue(field.id, id)} />
                             ) : (
                               <input
                                 className="field-input"
@@ -406,8 +465,8 @@ function RecordDrawerInner({ def, record, initialRoles, onToast, onClose, onSave
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0 bg-white">
           <button type="button" className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={() => { if (!dirty) onClose(); else onToast('Unsaved changes'); }}>Cancel</button>
           <div className="flex items-center gap-2">
-            <button type="button" className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low" onClick={() => { save(); onToast('Saved — form ready for next'); }}>Save and new</button>
-            <button type="button" className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={() => { save(); onClose(); }}>Save and close</button>
+            <button type="button" className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low" onClick={async () => { if (await save()) { setValues({}); setRoles(new Set()); onToast('Saved — form ready for next'); } }}>Save and new</button>
+            <button type="button" className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container" onClick={async () => { if (await save()) onClose(); }}>Save and close</button>
           </div>
         </div>
       </div>

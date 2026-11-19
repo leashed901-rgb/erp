@@ -3,7 +3,32 @@ import './sales.css';
 import { useState, useEffect } from 'react';
 import { SalesScreenProps, SALES_NAV } from './types';
 import { exportToCsv } from '@/lib/csvExport';
-import type { Invoice } from '@/lib/accountingTypes';
+
+/* Live invoices live in acct_ar_invoices (Document Engine), NOT the
+ * legacy `invoices` table — /api/invoices returns 0 rows for this
+ * tenant. Receipts likewise come from acct_ar_receipts via
+ * /api/v1/documents?type=SalesReceipt. */
+interface LiveInvoice {
+  id: string;
+  number: string;
+  customer: string;
+  total: number;
+  amountPaid: number;
+  balanceDue: number;
+  status: 'Paid' | 'Overdue' | 'Open' | 'Draft';
+  dueDate: string;
+  createdAt: string;
+  invoiceDate: string;
+}
+
+interface LiveReceipt {
+  id: string;
+  number: string;
+  customer: string;
+  date: string;
+  amount: number;
+  deposited: boolean;
+}
 
 const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const moneyK = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
@@ -14,38 +39,84 @@ export default function SalesOverview({
   onCreate,
   onOpenCreateFlyout,
 }: SalesScreenProps) {
-  // REAL data from Supabase — /api/invoices reads the invoices table
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  // REAL data — acct_ar_invoices + acct_ar_receipts via the Document
+  // Engine API, with customer names resolved from /api/parties.
+  const [invoices, setInvoices] = useState<LiveInvoice[]>([]);
+  const [receipts, setReceipts] = useState<LiveReceipt[]>([]);
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/invoices')
-      .then(r => r.json())
-      .then(j => { if (!cancelled) setInvoices(j.data || []); })
-      .catch(() => {});
+    (async () => {
+      try {
+        const [inv, rec, par] = await Promise.all([
+          fetch('/api/v1/documents?type=Invoice').then(r => r.json()),
+          fetch('/api/v1/documents?type=SalesReceipt').then(r => r.json()),
+          fetch('/api/parties').then(r => r.json()),
+        ]);
+        if (cancelled) return;
+        const names: Record<string, string> = {};
+        for (const p of ((par.data || []) as Record<string, unknown>[])) {
+          names[String(p.id || '')] = String(p.displayName || p.name || '—');
+        }
+        const today = new Date().toISOString().slice(0, 10);
+        setInvoices(((inv.data || []) as Record<string, unknown>[]).map(d => {
+          const bal = Number(d.open_balance ?? Number(d.total || 0) - Number(d.amount_paid || 0));
+          const due = String(d.due_date || '');
+          const status: LiveInvoice['status'] =
+            bal <= 0 ? 'Paid'
+            : due && due < today ? 'Overdue'
+            : String(d.status || '') === 'draft' ? 'Draft'
+            : 'Open';
+          return {
+            id: String(d.id || ''),
+            number: String(d.invoice_number || ''),
+            customer: names[String(d.customer_id || '')] || '—',
+            total: Number(d.total || 0),
+            amountPaid: Number(d.amount_paid || 0),
+            balanceDue: bal,
+            status,
+            dueDate: due,
+            createdAt: String(d.created_at || '').slice(0, 10),
+            invoiceDate: String(d.invoice_date || ''),
+          };
+        }));
+        setReceipts(((rec.data || []) as Record<string, unknown>[]).map(d => ({
+          id: String(d.id || ''),
+          number: String(d.receipt_number || ''),
+          customer: names[String(d.customer_id || '')] || '—',
+          date: String(d.receipt_date || ''),
+          amount: Number(d.amount || 0),
+          deposited: d.deposit_id != null,
+        })).sort((a, b) => b.date.localeCompare(a.date)));
+      } catch { /* leave empty */ }
+    })();
     return () => { cancelled = true; };
   }, []);
 
+  const monthInvoices = invoices.filter(d => d.invoiceDate.startsWith(month));
+
   /* Real KPIs computed from the real database invoices */
-  const notPaid = invoices.filter(d => Number(d.balanceDue) > 0).reduce((s, d) => s + Number(d.balanceDue), 0);
-  const paid = invoices.reduce((s, d) => s + Number(d.amount_paid || 0), 0);
-  const overdue = invoices.filter(d => d.status === 'OVERDUE' || d.status === 'Overdue');
+  const notPaid = monthInvoices.filter(d => Number(d.balanceDue) > 0).reduce((s, d) => s + Number(d.balanceDue), 0);
+  const paid = monthInvoices.reduce((s, d) => s + Number(d.amountPaid || 0), 0);
+  const overdue = monthInvoices.filter(d => d.status === 'Overdue');
   const overdueAmount = overdue.reduce((s, d) => s + Number(d.balanceDue || 0), 0);
-  const unsentDrafts = invoices.filter(d => d.status === 'DRAFT' || d.status === 'Draft');
-  const openInvoices = invoices
+  const unsentDrafts = monthInvoices.filter(d => d.status === 'Draft');
+  const openInvoices = monthInvoices
     .filter(d => Number(d.balanceDue) > 0)
     .sort((a, b) => (a.dueDate || a.createdAt || '').localeCompare(b.dueDate || b.createdAt || ''));
   const totalOutstanding = openInvoices.reduce((s, d) => s + Number(d.balanceDue), 0);
-  const totalSent = invoices.reduce((s, d) => s + Number(d.total), 0);
+  const totalSent = monthInvoices.reduce((s, d) => s + Number(d.total), 0);
   const conversionToPaid = totalSent > 0 ? (paid / totalSent * 100) : 0;
-  const deposited = 0; // deposits tracked separately in payment_transactions
+  // Deposited = receipts already placed into a bank deposit (deposit_id set).
+  const deposited = receipts.reduce((s, r) => s + (r.deposited ? r.amount : 0), 0);
   const paidToDeposited = paid > 0 ? (deposited / paid * 100) : 0;
 
   /* Top customers by revenue — from real invoice data */
   const customerRevenue: { name: string; invoices: number; revenue: number; avatar: string; color: string }[] = [];
   const AVATAR_COLORS = ['bg-qb-blue', 'bg-qb-green', 'bg-qb-teal', 'bg-qb-maroon', 'bg-qb-navy'];
-  invoices.forEach(d => {
-    const name = d.customerId || 'Unknown';
+  monthInvoices.forEach(d => {
+    const name = d.customer || 'Unknown';
     const existing = customerRevenue.find(c => c.name === name);
     if (existing) { existing.invoices++; existing.revenue += Number(d.total); }
     else customerRevenue.push({
@@ -60,23 +131,24 @@ export default function SalesOverview({
   customerRevenue.sort((a, b) => b.revenue - a.revenue);
   const topCustomers = customerRevenue.slice(0, 5);
 
-  /* Avg days to pay: average days between invoice date and payment date */
-  const paidInvoices = invoices.filter(d => Number(d.amount_paid) > 0);
-  const avgDays = 0; // TODO: compute from payment_transactions when joined
+  /* Avg days to pay: acct_ar_receipts carry no invoice_id, so no receipt
+   * can be tied to the invoice it paid — the average cannot be computed
+   * from the data. The KPI renders a dash instead of a fabricated 0.0. */
 
   const attentionCount = overdue.length + unsentDrafts.length;
+  const paidInvoices = monthInvoices.filter(d => Number(d.amountPaid) > 0);
 
-  /* Recent payments — from payment_transactions in the DB (TODO: fetch) */
-  const recentPayments: { id: string; date: string; amount: number; customer: string }[] = [];
-  const recentPaymentsTotal = 0;
+  /* Recent payments — live acct_ar_receipts, latest first */
+  const recentPayments = receipts.slice(0, 5);
+  const recentPaymentsTotal = receipts.reduce((s, r) => s + r.amount, 0);
 
   /* Recent activity — from real invoices */
-  const recentActivity = invoices.slice(0, 5).map(d => ({
+  const recentActivity = monthInvoices.slice(0, 5).map(d => ({
     id: d.id,
     date: d.createdAt?.slice(0, 10) || '',
     text: `${d.number} — $${Number(d.total).toFixed(2)} (${d.status})`,
     type: 'invoice',
-    partyId: d.customerId,
+    partyId: d.customer,
   }));
 
   /* CSV export uses real open invoices */
@@ -90,7 +162,7 @@ export default function SalesOverview({
     ];
     const rows = openInvoices.map(d => ({
       number: d.number,
-      customer: d.customerId || '—',
+      customer: d.customer || '—',
       dueDate: d.dueDate || d.createdAt?.slice(0, 10) || '',
       amount: money(Number(d.total)),
       status: d.status,
@@ -118,13 +190,26 @@ export default function SalesOverview({
           <div>
             <h1 className="text-headline-lg">Sales &amp; Get Paid — Overview</h1>
             <p className="text-body-sm text-on-surface-variant mt-0.5">
-              Payment-request funnel: Not paid / Paid / Deposited · {invoices.length} invoices · {money(totalSent)} total
+              Payment-request funnel: Not paid / Paid / Deposited · {monthInvoices.length} invoices · {money(totalSent)} total
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => onToast('Date range picker')} className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
-              <span className="material-symbols-outlined text-[16px]">calendar_today</span>Nov 2026 ▾
-            </button>
+            <label className="h-8 px-2 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
+              <span className="material-symbols-outlined text-[16px]">calendar_today</span>
+              <select
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="bg-transparent border-none text-body-md focus:outline-none"
+                aria-label="Month"
+              >
+                {Array.from({ length: 12 }, (_, i) => {
+                  const d = new Date();
+                  d.setMonth(d.getMonth() - i);
+                  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                  return <option key={ym} value={ym}>{d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</option>;
+                })}
+              </select>
+            </label>
             <button onClick={exportOpenInvoices} className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1">
               <span className="material-symbols-outlined text-[16px]">download</span>Export
             </button>
@@ -147,18 +232,18 @@ export default function SalesOverview({
               <span className="material-symbols-outlined text-[13px]">trending_up</span>{invoices.filter(d => d.status === 'Paid').length} invoices
             </div>
           </div>
-          <div className="kpi-card" onClick={() => onToast('Drill down → deposited')}>
+          <div className="kpi-card" onClick={() => onNavigate(...SALES_NAV.invoices())}>
             <div className="kpi-label"><span className="w-2 h-2 rounded-full bg-qb-green"></span>Deposited</div>
             <div className="kpi-val">{money(deposited)}</div>
             <div className="kpi-delta up">
-              <span className="material-symbols-outlined text-[13px]">trending_up</span>{paidInvoices.length} paid invoices
+              <span className="material-symbols-outlined text-[13px]">trending_up</span>{receipts.filter(r => r.deposited).length} deposited receipts
             </div>
           </div>
-          <div className="kpi-card" onClick={() => onToast('Drill down → days')}>
+          <div className="kpi-card" onClick={() => onNavigate(...SALES_NAV.invoices())}>
             <div className="kpi-label"><span className="w-2 h-2 rounded-full bg-qb-teal"></span>Avg. days to pay</div>
-            <div className="kpi-val">{avgDays.toFixed(1)}</div>
+            <div className="kpi-val">—</div>
             <div className="kpi-delta up">
-              <span className="material-symbols-outlined text-[13px]">trending_down</span>{paidInvoices.length} payments
+              <span className="material-symbols-outlined text-[13px]">trending_down</span>{paidInvoices.length} payments · receipts aren&apos;t linked to invoices
             </div>
           </div>
         </div>
@@ -278,7 +363,7 @@ export default function SalesOverview({
             </div>
             <div className="divide-y divide-surface-dim">
               {openInvoices.length === 0 && (
-                <div className="py-6 px-5 text-center text-body-sm text-on-surface-variant">No open invoices — all paid.</div>
+                <div className="py-6 px-5 text-center text-body-sm text-on-surface-variant">No open invoices.</div>
               )}
               {openInvoices.slice(0, 5).map(d => {
                 const due = d.dueDate || d.createdAt?.slice(0, 10) || '';
@@ -288,7 +373,7 @@ export default function SalesOverview({
                 return (
                   <div key={d.id} className="flex items-center gap-3 px-5 py-3 hover:bg-surface-container-low cursor-pointer" onClick={() => onNavigate(...SALES_NAV.invoices())}>
                     <div className="min-w-0 flex-1">
-                      <div className="text-body-sm font-medium">{d.number} · {d.customerId?.slice(0, 8) || '—'}</div>
+                      <div className="text-body-sm font-medium">{d.number} · {d.customer || '—'}</div>
                       <div className="text-[11px] text-on-surface-variant">Due {due} · {ageLabel}</div>
                     </div>
                     <span className={`age ${ageClass}`}>{daysToDue < 0 ? 'Overdue' : daysToDue <= 7 ? 'Due soon' : 'Current'}</span>
@@ -371,7 +456,7 @@ export default function SalesOverview({
                 );
               })}
             </div>
-            <button onClick={() => onToast('Full sales activity history')} className="w-full mt-3 h-8 border border-surface-dim rounded text-body-sm hover:bg-surface-container-low flex items-center justify-center gap-1">
+            <button onClick={() => onNavigate(...SALES_NAV.invoices())} className="w-full mt-3 h-8 border border-surface-dim rounded text-body-sm hover:bg-surface-container-low flex items-center justify-center gap-1">
               <span className="material-symbols-outlined text-[14px]">history</span>View full history
             </button>
           </div>

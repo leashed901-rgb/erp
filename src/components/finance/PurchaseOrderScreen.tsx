@@ -1,52 +1,41 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import styles from './PurchaseOrderScreen.module.css';
 
-
+// A PO line as the screen edits it. erp_purchase_order_lines carries no
+// SKU and no expense account — description, quantity, cost and received
+// quantity are the whole line.
 interface LineItem {
   id: string;
   item: string;
-  sku: string;
   description: string;
   qtyOrd: number;
   qtyRcvd: number;
   unitCost: number;
 }
 
+interface Vendor {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+}
+
 type POViewMode = 'edit' | 'email' | 'vendor' | 'pdf';
-type POStatus = 'Open' | 'Sent to Vendor' | 'Partially Received' | 'Fully Received' | 'Cancelled';
+// Stored erp_purchase_orders statuses. Receiving is DERIVED from the
+// lines (Σ received vs Σ ordered), never stored or set from this screen.
+type StoredStatus = 'ordered' | 'approved' | 'cancelled';
+type POStatus = 'Open' | 'Sent to Vendor' | 'Cancelled';
 
-/* ═══ Store ↔ screen adapters ═══
-   The screen keeps its approved layout; the PO document, supplier and lines
-   now come from the shared platform store (§1.1 single source of truth). */
+const toDisplayStatus = (s: StoredStatus): POStatus =>
+  s === 'approved' ? 'Sent to Vendor' : s === 'cancelled' ? 'Cancelled' : 'Open';
+const toStoredStatus = (s: POStatus): StoredStatus =>
+  s === 'Sent to Vendor' ? 'approved' : s === 'Cancelled' ? 'cancelled' : 'ordered';
 
-/* Store status vocabulary → the screen's status pill labels */
-const toLocalStatus = (s: DocumentStatus): POStatus =>
-  s === 'Sent'
-    ? 'Sent to Vendor'
-    : s === 'PartiallyReceived'
-    ? 'Partially Received'
-    : s === 'Received'
-    ? 'Fully Received'
-    : s === 'Closed'
-    ? 'Cancelled'
-    : 'Open';
-
-const toStoreStatus = (s: POStatus): DocumentStatus =>
-  s === 'Sent to Vendor'
-    ? 'Sent'
-    : s === 'Partially Received'
-    ? 'PartiallyReceived'
-    : s === 'Fully Received'
-    ? 'Received'
-    : s === 'Cancelled'
-    ? 'Closed'
-    : 'Open';
-
-/* The approved screen shows MM/DD/YYYY; the store uses ISO dates */
+/* The approved screen shows MM/DD/YYYY; the API uses ISO dates */
 const toDisplayDate = (iso: string): string => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((iso || '').trim());
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((iso || '').trim());
   return m ? `${m[2]}/${m[3]}/${m[1]}` : iso || '—';
 };
 
@@ -55,9 +44,7 @@ const toIsoDate = (display: string): string => {
   return m ? `${m[3]}-${m[1]}-${m[2]}` : display;
 };
 
-/* Next PO number per the platform numbering scheme */
-const nextPoNumber = () =>
-  `PO-${Date.now()}`;
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 interface PurchaseOrderScreenProps {
   onClose?: () => void;
@@ -70,69 +57,99 @@ export default function PurchaseOrderScreen({
   onToast,
   documentId,
 }: PurchaseOrderScreenProps) {
-  // Shared platform store — single source of truth (§1.1)
-  
+  // ── Live data ──
+  const [poId, setPoId] = useState<string | null>(documentId || null);
+  const [poNumber, setPoNumber] = useState(() => `PO-${Date.now()}`);
+  const [storedStatus, setStoredStatus] = useState<StoredStatus>('ordered');
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [vendorId, setVendorId] = useState('');
+  const [productNames, setProductNames] = useState<string[]>([]);
+  const [expenseAccounts, setExpenseAccounts] = useState<{ id: string; label: string }[]>([]);
+  const [billAccountId, setBillAccountId] = useState('');
+  const [loading, setLoading] = useState(!!documentId);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
 
-  // Supplier picker options come from the Party store (role: Supplier)
-  const suppliers = useMemo(
-    () => [].filter((p) => p.roles.includes('Supplier')),
-    []
-  );
-
-  // The PO this screen edits: an explicit id, else the first PO in the store
-  const po =
-    (documentId ? null : undefined) ??
-    [].find((d) => d.type === 'PurchaseOrder') ??
-    null;
-
-  const poNumber = po?.number || nextPoNumber();
+  // Editor state — order date defaults to today, delivery blank.
+  const [orderDate, setOrderDate] = useState(() => toDisplayDate(todayIso()));
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState('Net 30');
+  const [shipVia, setShipVia] = useState('');
+  const [notes, setNotes] = useState('');
+  const [lines, setLines] = useState<LineItem[]>([]);
+  const [shipping, setShipping] = useState(0);
 
   const [viewMode, setViewMode] = useState<POViewMode>('edit');
-  const [status, setStatus] = useState<POStatus>(() =>
-    po ? toLocalStatus(po.status) : 'Open'
-  );
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Vendor selection
-  const [selectedVendorIndex, setSelectedVendorIndex] = useState(() => {
-    const wanted = po?.partyId || suppliers[0]?.id;
-    const idx = suppliers.findIndex((s) => s.id === wanted);
-    return idx >= 0 ? idx : 0;
-  });
-  const activeVendor = suppliers[selectedVendorIndex] || suppliers[0];
+  const activeVendor = vendors.find(v => v.id === vendorId) || vendors[0];
+  const status: POStatus = toDisplayStatus(storedStatus);
 
-  // Dates & terms
-  const [orderDate, setOrderDate] = useState(() =>
-    po ? toDisplayDate(po.date) : '11/03/2026'
-  );
-  const [deliveryDate, setDeliveryDate] = useState(() =>
-    po ? toDisplayDate(po.dueDate) : '11/15/2026'
-  );
-  const [paymentTerms, setPaymentTerms] = useState(
-    () => null?.terms || 'Net 30'
-  );
-  const [shipVia, setShipVia] = useState('FedEx Ground');
-  const [notes, setNotes] = useState(() => po?.memo || '');
+  const loadPo = useCallback(async (id: string) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/v1/documents/${id}?type=PurchaseOrder&include=lines`);
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error?.message || `PO failed to load (${res.status})`);
+      const d = json.data;
+      setPoId(d.id);
+      setPoNumber(d.po_number || `PO-${Date.now()}`);
+      setStoredStatus(d.status === 'approved' ? 'approved' : d.status === 'cancelled' ? 'cancelled' : 'ordered');
+      setVendorId(String(d.vendor_id || ''));
+      setOrderDate(toDisplayDate(String(d.order_date || '')));
+      setDeliveryDate(toDisplayDate(String(d.expected_date || '')));
+      setNotes(String(d.notes || ''));
+      setShipping(Number(d.shipping_total || 0));
+      setLines((json.lines || []).map((l: Record<string, unknown>) => ({
+        id: String(l.id),
+        item: String(l.description || ''),
+        description: String(l.description || ''),
+        qtyOrd: Number(l.quantity ?? l.quantity_ordered ?? 1),
+        qtyRcvd: Number(l.quantity_received ?? 0),
+        unitCost: Number(l.unit_cost || 0),
+      })));
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Purchase order failed to load.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  // Lines — initialized from the store document, edited locally, saved on Save
-  const [lines, setLines] = useState<LineItem[]>(() =>
-    po
-      ? po.lines.map((l) => {
-          const item = l.itemId ? null(l.itemId) : undefined;
-          return {
-            id: l.id,
-            item: item?.name || l.description,
-            sku: item?.sku || '',
-            description: l.description,
-            qtyOrd: l.qty,
-            qtyRcvd:
-              po.status === 'Received' || po.status === 'Closed' ? l.qty : 0,
-            unitCost: l.rate,
-          };
-        })
-      : []
-  );
+  useEffect(() => {
+    // Vendors, products (item picker only — never priced from here) and
+    // expense accounts (bill lines require one; the user picks it).
+    fetch('/api/parties?role=vendor')
+      .then(r => r.json())
+      .then(j => {
+        const rows = (j.data || []).map((p: Record<string, unknown>) => ({
+          id: String(p.id),
+          name: String(p.displayName || p.name || 'Unnamed'),
+          email: (p.email as string) || null,
+          phone: (p.phone as string) || null,
+        }));
+        setVendors(rows);
+        setVendorId(prev => prev || rows[0]?.id || '');
+      })
+      .catch(() => {});
+    fetch('/api/products')
+      .then(r => r.json())
+      .then(j => setProductNames((j.data || []).map((p: Record<string, unknown>) => String(p.name || '')).filter(Boolean)))
+      .catch(() => {});
+    fetch('/api/accounts')
+      .then(r => r.json())
+      .then(j => {
+        const rows = (j.data || [])
+          .filter((a: Record<string, unknown>) => a.account_type === 'expense')
+          .map((a: Record<string, unknown>) => ({ id: String(a.id), label: `${a.code} · ${a.name}` }));
+        setExpenseAccounts(rows);
+        setBillAccountId(prev => prev || rows[0]?.id || '');
+      })
+      .catch(() => {});
+    if (documentId) loadPo(documentId);
+  }, [documentId, loadPo]);
 
   // Accordions in sidebar
   const [expandedAccordions, setExpandedAccordions] = useState<Record<string, boolean>>({
@@ -142,11 +159,9 @@ export default function PurchaseOrderScreen({
     attachments: false,
   });
 
-  // Customization switches
-  const [showSku, setShowSku] = useState(true);
+  // Customization switches (column visibility — the toggles below are real)
   const [showUnitCost, setShowUnitCost] = useState(true);
   const [showReceivingStatus, setShowReceivingStatus] = useState(true);
-  const [showVendorPartNo, setShowVendorPartNo] = useState(false);
 
   // Table column toggles
   const [colNum, setColNum] = useState(true);
@@ -173,7 +188,6 @@ export default function PurchaseOrderScreen({
     return lines.reduce((acc, l) => acc + l.qtyOrd * l.unitCost, 0);
   }, [lines]);
 
-  const shipping = 45.0;
   const tax = 0.0;
   const grandTotal = subtotal + shipping + tax;
 
@@ -187,6 +201,15 @@ export default function PurchaseOrderScreen({
 
   const totalQtyRemaining = Math.max(0, totalQtyOrd - totalQtyRcvd);
 
+  // Receiving is derived from the lines — it is a fact about the PO, not
+  // a status the user sets. The dropdown offers only the stored states.
+  const receiving: 'None received' | 'Partially Received' | 'Fully Received' =
+    totalQtyOrd === 0 || totalQtyRcvd === 0
+      ? 'None received'
+      : totalQtyRcvd >= totalQtyOrd
+        ? 'Fully Received'
+        : 'Partially Received';
+
   const handleUpdateLine = (id: string, field: keyof LineItem, val: string | number) => {
     setLines((prev) =>
       prev.map((l) => (l.id === id ? { ...l, [field]: val } : l))
@@ -194,131 +217,190 @@ export default function PurchaseOrderScreen({
   };
 
   const handleAddLine = () => {
-    const nextIdx = lines.length + 1;
     const newLine: LineItem = {
       id: `line-${Date.now()}`,
-      item: `Product Item #${nextIdx}`,
-      sku: `SKU-${100 + nextIdx}`,
-      description: 'Standard Specification',
-      qtyOrd: 25,
+      item: '',
+      description: '',
+      qtyOrd: 1,
       qtyRcvd: 0,
-      unitCost: 10.0,
+      unitCost: 0,
     };
     setLines((prev) => [...prev, newLine]);
-    onToast?.('Added new line item');
   };
 
   const handleClearLines = () => {
     setLines([]);
-    onToast?.('Cleared all lines');
   };
 
-  // Map screen lines back to store DocumentLines (match the item by SKU)
-  const toStoreLines = (ls: LineItem[]): DocumentLine[] =>
-    ls.map((l) => {
-      const matched = l.sku
-        ? [].find((i) => i.sku === l.sku)
-        : undefined;
-      const orig = po?.lines.find((pl) => pl.id === l.id);
-      return {
-        id: l.id,
-        itemId: matched?.id || orig?.itemId || null,
-        description: l.description,
-        qty: l.qtyOrd,
-        rate: l.unitCost,
-        amount: l.qtyOrd * l.unitCost,
-        taxRate: 0,
-        account: orig?.account || '5000 COGS',
-        tags: orig?.tags || [],
-      };
-    });
+  // Screen lines → the documents API's line shape (erp_purchase_order_lines
+  // carries description / quantity / unit_cost / received quantity).
+  const toApiLines = (ls: LineItem[]) =>
+    ls.map((l) => ({
+      description: l.description || l.item,
+      quantity: l.qtyOrd,
+      unit_cost: l.unitCost,
+      received_quantity: l.qtyRcvd,
+    }));
 
-  // Persist the editor to the shared store (creates the PO when none exists)
-  const savePo = (linesOverride?: LineItem[], statusOverride?: DocumentStatus) => {
+  // Persist the editor to erp_purchase_orders (creates the PO when none
+  // exists). Returns the PO id, or null on failure — the caller reports
+  // the real outcome, never a success toast for a failed save.
+  const savePo = async (linesOverride?: LineItem[]): Promise<string | null> => {
     const linesToSave = linesOverride ?? lines;
+    if (!vendorId) {
+      onToast?.('Choose a vendor first');
+      return null;
+    }
     const sub = linesToSave.reduce((acc, l) => acc + l.qtyOrd * l.unitCost, 0);
-    const tot = sub + shipping + tax;
-    const partyId = activeVendor?.id || po?.partyId || '';
-    const payload = {
-      partyId,
-      status: statusOverride ?? toStoreStatus(status),
-      date: toIsoDate(orderDate),
-      dueDate: toIsoDate(deliveryDate),
-      lines: toStoreLines(linesToSave),
-      subtotal: sub,
-      tax,
-      shipping,
-      total: tot,
-      memo: notes,
-    };
-    if (po) {
-      null(po.id, payload);
-    } else {
-      fetch('/api/v1/documents', { method: 'POST' }).catch(() => {}); void ({
-        ...payload,
-        type: 'PurchaseOrder',
-        number: nextPoNumber(),
-        amountPaid: 0,
-        balance: tot,
-        notes: '',
-        tags: [],
-        attachments: [],
-        orderId: null,
-        poId: null,
-        channelId: null,
-        createdBy: 'Current user',
+    setSaving(true);
+    try {
+      if (poId) {
+        const res = await fetch(`/api/v1/documents/${poId}?type=PurchaseOrder`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            po_number: poNumber,
+            order_date: toIsoDate(orderDate),
+            expected_date: toIsoDate(deliveryDate) || null,
+            status: storedStatus,
+            subtotal: sub,
+            tax_total: 0,
+            total: sub + shipping,
+            shipping_total: shipping,
+            memo: notes,
+            lines: toApiLines(linesToSave),
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok || json.error) throw new Error(json.error?.message || `Save failed (${res.status})`);
+        return poId;
+      }
+      const res = await fetch('/api/v1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'PurchaseOrder',
+          partyId: vendorId,
+          number: poNumber,
+          date: toIsoDate(orderDate),
+          dueDate: toIsoDate(deliveryDate) || null,
+          status: storedStatus,
+          shipping,
+          memo: notes,
+          lines: toApiLines(linesToSave),
+        }),
       });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error?.message || `Save failed (${res.status})`);
+      setPoId(json.data.id);
+      return json.data.id as string;
+    } catch (e) {
+      onToast?.(e instanceof Error ? e.message : 'Save failed.');
+      return null;
+    } finally {
+      setSaving(false);
     }
   };
 
-  // Create bill from this PO (3-way match: PO ↔ receipt ↔ bill)
-  const handleCreateBill = () => {
-    if (!po) {
+  // Change the stored status (Open / Sent to Vendor / Cancelled). A saved
+  // PO patches immediately; a new one just records it for the first save.
+  const changeStatus = async (next: POStatus) => {
+    const stored = toStoredStatus(next);
+    setStoredStatus(stored);
+    setStatusMenuOpen(false);
+    if (!poId) return;
+    try {
+      const res = await fetch(`/api/v1/documents/${poId}?type=PurchaseOrder`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: stored }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error?.message || `Status update failed (${res.status})`);
+      onToast?.(`Status changed to ${next}`);
+    } catch (e) {
+      onToast?.(e instanceof Error ? e.message : 'Status update failed.');
+      loadPo(poId);
+    }
+  };
+
+  // Send the PO to the vendor by email (Resend). Saves first when the PO
+  // is new, then POSTs the send route — a 502 means the email did not go
+  // out (e.g. RESEND_API_KEY not set) and the status stays as it was.
+  const sendPo = async () => {
+    if (!activeVendor) {
+      onToast?.('Choose a vendor first');
+      return;
+    }
+    setSending(true);
+    try {
+      let id = poId;
+      if (!id) id = await savePo();
+      if (!id) return;
+      const sendRes = await fetch(`/api/v1/documents/${id}/send?type=PurchaseOrder`, { method: 'POST' });
+      const json = await sendRes.json();
+      if (!sendRes.ok || json.error) {
+        throw new Error(json.error?.message || `Send failed (${sendRes.status})`);
+      }
+      setStoredStatus('approved');
+      onToast?.(`${poNumber} sent to ${activeVendor.name} (${activeVendor.email})`);
+    } catch (e) {
+      onToast?.(e instanceof Error ? e.message : 'Send failed.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Create a bill from this PO. Bill lines REQUIRE an expense account, so
+  // the account picked in the Billing accordion rides on every line.
+  const handleCreateBill = async () => {
+    if (!poId) {
       onToast?.('Save the purchase order before creating a bill');
       return;
     }
-    const billLines = toStoreLines(lines);
-    const sub = billLines.reduce((acc, l) => acc + l.amount, 0);
-    const tot = sub + shipping + tax;
-    const billNumber = `BILL-${
-      0
-    }`;
-    fetch('/api/v1/documents', { method: 'POST' }).catch(() => {}); void ({
-      type: 'Bill',
-      number: billNumber,
-      partyId: activeVendor?.id || po.partyId,
-      status: 'ForReview',
-      date: new Date().toISOString().slice(0, 10),
-      dueDate: toIsoDate(deliveryDate),
-      lines: billLines,
-      subtotal: sub,
-      tax,
-      shipping,
-      total: tot,
-      amountPaid: 0,
-      balance: tot,
-      memo: `Created from purchase order ${po.number}`,
-      notes: '',
-      tags: [],
-      attachments: [],
-      orderId: null,
-      poId: po.id,
-      channelId: null,
-      createdBy: 'Current user',
-    });
-    onToast?.(`Bill ${billNumber} created from ${po.number} — added to 'For review'`);
+    if (!billAccountId) {
+      onToast?.('Choose an expense account for the bill lines first (Billing & Terms)');
+      setExpandedAccordions(prev => ({ ...prev, billing: true }));
+      return;
+    }
+    const due = toIsoDate(deliveryDate);
+    const billDate = todayIso();
+    try {
+      const res = await fetch('/api/v1/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'Bill',
+          partyId: vendorId,
+          date: billDate,
+          dueDate: due && due >= billDate ? due : billDate,
+          status: 'draft',
+          memo: `Created from purchase order ${poNumber}`,
+          lines: lines.map(l => ({
+            description: l.description || l.item,
+            quantity: l.qtyOrd,
+            unit_cost: l.unitCost,
+            expense_account_id: billAccountId,
+          })),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error?.message || `Bill failed (${res.status})`);
+      onToast?.(`Bill ${json.data.bill_number} created from ${poNumber}`);
+    } catch (e) {
+      onToast?.(e instanceof Error ? e.message : 'Bill failed.');
+    }
   };
 
-  const handleReceiveItems = () => {
-    // Mark items as received
+  const handleReceiveItems = async () => {
     const received = lines.map((l) => ({ ...l, qtyRcvd: l.qtyOrd }));
     setLines(received);
-    setStatus('Fully Received');
-    if (po) {
-      savePo(received, 'Received');
-      onToast('Status updated');
+    if (poId) {
+      const saved = await savePo(received);
+      if (saved) onToast?.('All items marked as received');
+    } else {
+      onToast?.('All items marked as received — save the PO to record it');
     }
-    onToast?.('All items marked as received');
   };
 
   const formatCurrency = (amount: number) => {
@@ -335,10 +417,6 @@ export default function PurchaseOrderScreen({
         return styles.statusOpen;
       case 'Sent to Vendor':
         return styles.statusSent;
-      case 'Partially Received':
-        return styles.statusPartial;
-      case 'Fully Received':
-        return styles.statusReceived;
       case 'Cancelled':
         return styles.statusCancelled;
       default:
@@ -346,51 +424,48 @@ export default function PurchaseOrderScreen({
     }
   };
 
+  if (loading) {
+    return (
+      <div className={styles.container} style={{ padding: 32, color: '#5a6355' }}>
+        Loading purchase order…
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className={styles.container} style={{ padding: 32 }}>
+        <p style={{ color: '#b3261e' }}>{loadError}</p>
+        <button type="button" className={styles.headerBtn} onClick={() => documentId && loadPo(documentId)}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.container}>
       {/* ═══════════ TOP HEADER ═══════════ */}
       <header className={styles.header}>
         <div className={styles.topRow}>
           <div className={styles.titleArea}>
-            <button
-              type="button"
-              className={styles.iconBtn}
-              title="Audit history"
-              onClick={() => onToast?.('Viewing PO audit history')}
-            >
-              <span className="material-symbols-outlined">history</span>
-            </button>
             <h1 className={styles.mainTitle}>Purchase Order {poNumber.replace(/^PO-/, '')}</h1>
             <span className={`${styles.statusPill} ${getStatusClass(status)}`}>
               {status}
             </span>
+            {receiving !== 'None received' && (
+              <span className={styles.statusPill} style={{ background: '#e8f5e9', color: '#0a6400' }}>
+                {receiving}
+              </span>
+            )}
           </div>
 
           <div className={styles.topRightActions}>
             <button
               type="button"
               className={styles.iconBtn}
-              title="Help & docs"
-              onClick={() => onToast?.('Help and documentation')}
-            >
-              <span className="material-symbols-outlined">help_outline</span>
-            </button>
-            <button
-              type="button"
-              className={styles.starCircleBtn}
-              title="Pin purchase order"
-              onClick={() => onToast?.('Purchase Order pinned to favorites')}
-            >
-              <span className="material-symbols-outlined">star</span>
-            </button>
-            <button
-              type="button"
-              className={styles.iconBtn}
               title="Close"
-              onClick={() => {
-                if (onClose) onClose();
-                else onToast?.('Closed Purchase Order');
-              }}
+              onClick={() => onClose?.()}
             >
               <span className="material-symbols-outlined">close</span>
             </button>
@@ -434,10 +509,7 @@ export default function PurchaseOrderScreen({
             <button
               type="button"
               className={styles.quickActionLink}
-              onClick={() => {
-                setSidebarOpen((prev) => !prev);
-                onToast?.(sidebarOpen ? 'Sidebar collapsed' : 'Sidebar expanded');
-              }}
+              onClick={() => setSidebarOpen((prev) => !prev)}
             >
               <span className="material-symbols-outlined">settings</span>
               Manage
@@ -457,14 +529,6 @@ export default function PurchaseOrderScreen({
             >
               <span className="material-symbols-outlined">receipt_long</span>
               Create bill
-            </button>
-            <button
-              type="button"
-              className={styles.quickActionLink}
-              onClick={() => onToast?.('Feedback dialog opened')}
-            >
-              <span className="material-symbols-outlined">chat_bubble_outline</span>
-              Feedback
             </button>
           </div>
         </div>
@@ -502,11 +566,12 @@ export default function PurchaseOrderScreen({
                     <div className={styles.selectWrapper}>
                       <select
                         className={styles.vendorSelect}
-                        value={selectedVendorIndex}
-                        onChange={(e) => setSelectedVendorIndex(Number(e.target.value))}
+                        value={vendorId}
+                        onChange={(e) => setVendorId(e.target.value)}
                       >
-                        {suppliers.map((v, i) => (
-                          <option key={v.id} value={i}>
+                        {vendors.length === 0 && <option value="">No vendors on file</option>}
+                        {vendors.map((v) => (
+                          <option key={v.id} value={v.id}>
                             {v.name}
                           </option>
                         ))}
@@ -582,7 +647,7 @@ export default function PurchaseOrderScreen({
                       <tr className={styles.linesHeaderRow}>
                         <th className={styles.thCell} style={{ width: 36 }}></th>
                         {colNum && <th className={styles.thCell} style={{ width: 36 }}>#</th>}
-                        {colItem && <th className={styles.thCell}>Item / SKU</th>}
+                        {colItem && <th className={styles.thCell}>Item</th>}
                         {colDesc && <th className={styles.thCell}>Description</th>}
                         {colQtyOrd && (
                           <th className={styles.thCellRight} style={{ width: 70 }}>
@@ -619,16 +684,12 @@ export default function PurchaseOrderScreen({
                             <td className={styles.inputCell}>
                               <input
                                 className={styles.cellInput}
+                                list="po-product-names"
                                 value={line.item}
                                 onChange={(e) =>
                                   handleUpdateLine(line.id, 'item', e.target.value)
                                 }
                               />
-                              {showSku && (
-                                <div className={styles.itemSku}>
-                                  SKU: {line.sku}
-                                </div>
-                              )}
                             </td>
                           )}
                           {colDesc && (
@@ -708,6 +769,14 @@ export default function PurchaseOrderScreen({
                     </tbody>
                   </table>
 
+                  {/* Product names for the item picker — names only; unit
+                      cost is always entered by hand, never a sell price. */}
+                  <datalist id="po-product-names">
+                    {productNames.map((n) => (
+                      <option key={n} value={n} />
+                    ))}
+                  </datalist>
+
                   <div className={styles.tableBtnGroup}>
                     <button
                       type="button"
@@ -732,25 +801,13 @@ export default function PurchaseOrderScreen({
                   <div className={styles.bottomSection}>
                     <div className={styles.notesArea}>
                       <div>
-                        <label className={styles.sectionLabel}>
-                          Vendor Instructions / Notes
-                        </label>
+                        <label className={styles.sectionLabel}>Vendor Instructions / Notes</label>
                         <textarea
                           className={styles.textarea}
                           placeholder="Include packing slip with PO number. Do not substitute items without approval."
                           value={notes}
                           onChange={(e) => setNotes(e.target.value)}
                         />
-                      </div>
-                      <div>
-                        <label className={styles.sectionLabel}>Attachments</label>
-                        <div
-                          className={styles.attachmentDropzone}
-                          onClick={() => onToast?.('Attachments upload dialog opened')}
-                        >
-                          <div className={styles.dropzoneTitle}>Add attachment</div>
-                          <div className={styles.dropzoneDesc}>Max file size: 20 MB</div>
-                        </div>
                       </div>
                     </div>
 
@@ -761,7 +818,15 @@ export default function PurchaseOrderScreen({
                       </div>
                       <div className={styles.totalsRow}>
                         <span className={styles.totalsRowMuted}>Shipping</span>
-                        <span style={{ fontWeight: 500 }}>{formatCurrency(shipping)}</span>
+                        <input
+                          className={styles.cellInput}
+                          style={{ textAlign: 'right', width: 110 }}
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          value={shipping}
+                          onChange={(e) => setShipping(Number(e.target.value) || 0)}
+                        />
                       </div>
                       <div className={styles.totalsRow}>
                         <span className={styles.totalsRowMuted}>Tax</span>
@@ -893,7 +958,7 @@ export default function PurchaseOrderScreen({
                     <tr key={l.id} className={styles.lineRow}>
                       <td style={{ fontWeight: 500 }}>{l.item}</td>
                       <td style={{ color: '#5a6355' }}>
-                        SKU: {l.sku} · {l.description}
+                        {l.description || l.item}
                       </td>
                       <td style={{ textAlign: 'right' }}>{l.qtyOrd}</td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(l.unitCost)}</td>
@@ -1035,7 +1100,7 @@ export default function PurchaseOrderScreen({
               <table className={styles.linesTable} style={{ marginBottom: 32, fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid #dad9dd', color: '#5a6355', fontWeight: 700 }}>
-                    <th style={{ padding: '12px 0' }}>Item / SKU</th>
+                    <th style={{ padding: '12px 0' }}>Item</th>
                     <th style={{ padding: '12px 0' }}>Description</th>
                     <th style={{ padding: '12px 0', textAlign: 'right' }}>Qty</th>
                     <th style={{ padding: '12px 0', textAlign: 'right' }}>Unit Cost</th>
@@ -1047,10 +1112,6 @@ export default function PurchaseOrderScreen({
                     <tr key={l.id} style={{ borderBottom: '1px solid #eeedf1' }}>
                       <td style={{ padding: '16px 0', fontWeight: 600 }}>
                         {l.item}
-                        <br />
-                        <span style={{ color: '#6f7a69', fontWeight: 400, fontSize: 11 }}>
-                          SKU: {l.sku}
-                        </span>
                       </td>
                       <td style={{ padding: '16px 0', color: '#5a6355' }}>{l.description}</td>
                       <td style={{ padding: '16px 0', textAlign: 'right' }}>{l.qtyOrd}</td>
@@ -1128,30 +1189,23 @@ export default function PurchaseOrderScreen({
 
                 {statusMenuOpen && (
                   <div className={styles.dropdownMenu}>
-                    {(
-                      [
-                        'Open',
-                        'Sent to Vendor',
-                        'Partially Received',
-                        'Fully Received',
-                        'Cancelled',
-                      ] as POStatus[]
-                    ).map((st) => (
+                    {(['Open', 'Sent to Vendor', 'Cancelled'] as POStatus[]).map((st) => (
                       <button
                         key={st}
                         type="button"
                         className={styles.dropdownMenuItem}
-                        onClick={() => {
-                          setStatus(st);
-                          setStatusMenuOpen(false);
-                          onToast?.(`Status changed to ${st}`);
-                        }}
+                        onClick={() => changeStatus(st)}
                       >
                         {st}
                       </button>
                     ))}
                   </div>
                 )}
+              </div>
+              {/* Receiving is derived from the lines — shown here, not set. */}
+              <div className={styles.kpiStatRow}>
+                <span className={styles.kpiStatLabel}>Receiving</span>
+                <span style={{ fontWeight: 500 }}>{receiving}</span>
               </div>
 
               {/* Accordions Stack */}
@@ -1170,17 +1224,6 @@ export default function PurchaseOrderScreen({
                   </button>
                   {expandedAccordions.customization && (
                     <div className={styles.accordionContent}>
-                      <div className={styles.switchRow}>
-                        <span>Show SKU</span>
-                        <label className={styles.switch}>
-                          <input
-                            type="checkbox"
-                            checked={showSku}
-                            onChange={(e) => setShowSku(e.target.checked)}
-                          />
-                          <span className={styles.slider}></span>
-                        </label>
-                      </div>
                       <div className={styles.switchRow}>
                         <span>Show Unit Cost</span>
                         <label className={styles.switch}>
@@ -1203,27 +1246,9 @@ export default function PurchaseOrderScreen({
                           <span className={styles.slider}></span>
                         </label>
                       </div>
-                      <div className={styles.switchRow}>
-                        <span>Show Vendor Part No.</span>
-                        <label className={styles.switch}>
-                          <input
-                            type="checkbox"
-                            checked={showVendorPartNo}
-                            onChange={(e) => setShowVendorPartNo(e.target.checked)}
-                          />
-                          <span className={styles.slider}></span>
-                        </label>
-                      </div>
 
                       <div className={styles.tableContentSubhead}>
                         <span className={styles.subheadTitle}>Table content</span>
-                        <button
-                          type="button"
-                          className={styles.subheadLink}
-                          onClick={() => onToast?.('Label editing enabled')}
-                        >
-                          Edit labels
-                        </button>
                       </div>
 
                       <div className={styles.switchRow}>
@@ -1238,7 +1263,7 @@ export default function PurchaseOrderScreen({
                         </label>
                       </div>
                       <div className={styles.switchRow}>
-                        <span>Item / SKU</span>
+                        <span>Item</span>
                         <label className={styles.switch}>
                           <input
                             type="checkbox"
@@ -1376,11 +1401,31 @@ export default function PurchaseOrderScreen({
                       </div>
                       <div className={styles.kpiStatRow}>
                         <span className={styles.kpiStatLabel}>Ship Via</span>
-                        <span style={{ fontWeight: 500 }}>{shipVia}</span>
+                        <span style={{ fontWeight: 500 }}>{shipVia || '—'}</span>
                       </div>
                       <div className={styles.kpiStatRow}>
                         <span className={styles.kpiStatLabel}>FOB</span>
                         <span style={{ fontWeight: 500 }}>Destination</span>
+                      </div>
+                      <div style={{ marginTop: 12 }}>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#5a6355', marginBottom: 6 }}>
+                          Expense account for bill lines
+                        </label>
+                        <select
+                          className={styles.vendorSelect}
+                          style={{ width: '100%' }}
+                          value={billAccountId}
+                          onChange={(e) => setBillAccountId(e.target.value)}
+                        >
+                          {expenseAccounts.length === 0 && <option value="">No expense accounts</option>}
+                          {expenseAccounts.map((a) => (
+                            <option key={a.id} value={a.id}>{a.label}</option>
+                          ))}
+                        </select>
+                        <div style={{ fontSize: 11, color: '#5a6355', marginTop: 6 }}>
+                          Bill lines require an expense account — this one rides
+                          on every line when you create a bill from this PO.
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1420,7 +1465,7 @@ export default function PurchaseOrderScreen({
           <button
             type="button"
             className={styles.printLink}
-            onClick={() => onToast?.(`Printing or downloading ${poNumber}...`)}
+            onClick={() => window.print()}
           >
             Print or download
           </button>
@@ -1432,13 +1477,16 @@ export default function PurchaseOrderScreen({
             <button
               type="button"
               className={styles.splitBtnMain}
-              onClick={() => {
-                savePo();
-                onToast?.(`Saved ${poNumber} successfully`);
-                onClose?.();
+              disabled={saving}
+              onClick={async () => {
+                const id = await savePo();
+                if (id) {
+                  onToast?.(`Saved ${poNumber} successfully`);
+                  onClose?.();
+                }
               }}
             >
-              Save
+              {saving ? 'Saving…' : 'Save'}
             </button>
             <button
               type="button"
@@ -1459,10 +1507,21 @@ export default function PurchaseOrderScreen({
                 <button
                   type="button"
                   className={styles.floatingMenuItem}
-                  onClick={() => {
+                  onClick={async () => {
                     setSaveMenuOpen(false);
-                    savePo();
-                    onToast?.('Saved and new PO started');
+                    const id = await savePo();
+                    if (id) {
+                      // Start a fresh PO editor.
+                      setPoId(null);
+                      setPoNumber(`PO-${Date.now()}`);
+                      setStoredStatus('ordered');
+                      setOrderDate(toDisplayDate(todayIso()));
+                      setDeliveryDate('');
+                      setNotes('');
+                      setLines([]);
+                      setShipping(0);
+                      onToast?.('Saved — new purchase order started');
+                    }
                   }}
                 >
                   Save and new
@@ -1470,11 +1529,13 @@ export default function PurchaseOrderScreen({
                 <button
                   type="button"
                   className={styles.floatingMenuItem}
-                  onClick={() => {
+                  onClick={async () => {
                     setSaveMenuOpen(false);
-                    savePo();
-                    onToast?.('Saved and closed');
-                    if (onClose) onClose();
+                    const id = await savePo();
+                    if (id) {
+                      onToast?.('Saved and closed');
+                      if (onClose) onClose();
+                    }
                   }}
                 >
                   Save and close
@@ -1488,17 +1549,10 @@ export default function PurchaseOrderScreen({
             <button
               type="button"
               className={styles.splitBtnPrimaryMain}
-              onClick={() => {
-                setStatus('Sent to Vendor');
-                if (po) {
-                  savePo(undefined, 'Sent');
-                  onToast('Status updated');
-                }
-                onToast?.(`${poNumber} sent to ${activeVendor?.name} (${activeVendor?.email})`);
-                onClose?.();
-              }}
+              disabled={sending}
+              onClick={sendPo}
             >
-              Send to Vendor
+              {sending ? 'Sending…' : 'Send to Vendor'}
             </button>
             <button
               type="button"
@@ -1521,9 +1575,7 @@ export default function PurchaseOrderScreen({
                   className={styles.floatingMenuItem}
                   onClick={() => {
                     setSendMenuOpen(false);
-                    setStatus('Sent to Vendor');
-                    if (po) onToast('Status updated');
-                    onToast?.(`Opening send flow to ${activeVendor?.email}...`);
+                    sendPo();
                   }}
                 >
                   Send to Vendor
@@ -1533,7 +1585,7 @@ export default function PurchaseOrderScreen({
                   className={styles.floatingMenuItem}
                   onClick={() => {
                     setSendMenuOpen(false);
-                    onToast?.(`Downloading PDF ${poNumber}...`);
+                    window.print();
                   }}
                 >
                   Download PDF

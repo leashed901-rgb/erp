@@ -22,14 +22,14 @@ export async function GET() {
 
   // Fetch jurisdictions separately
   const jurisdictionIds = [...new Set((codes || []).map((c) => c.jurisdiction_id).filter(Boolean))];
-  let jurisdictions: Record<string, { name: string; region: string }> = {};
+  let jurisdictions: Record<string, { name: string; state_code: string | null; level: string }> = {};
   if (jurisdictionIds.length > 0) {
     const { data: jur } = await supabaseAdmin()
       .from('acct_tax_jurisdictions')
-      .select('id,name,region')
+      .select('id,name,state_code,level')
       .in('id', jurisdictionIds);
     (jur || []).forEach((j) => {
-      jurisdictions[j.id] = { name: j.name, region: j.region };
+      jurisdictions[j.id] = { name: j.name, state_code: j.state_code, level: j.level };
     });
   }
 
@@ -49,16 +49,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid JSON', requestId: crypto.randomUUID() } }, { status: 400 });
   }
 
-  // Create or find jurisdiction
+  // Create or find jurisdiction (real acct_tax_jurisdictions columns:
+  // code, name, country_code, state_code, level — there is no region).
   let jurisdictionId = body.jurisdiction_id as string | undefined;
   if (!jurisdictionId && body.jurisdiction_name) {
+    const name = String(body.jurisdiction_name);
     const { data: jur } = await supabaseAdmin()
       .from('acct_tax_jurisdictions')
       .insert({
         tenant_id: DEFAULT_TENANT_ID,
-        name: String(body.jurisdiction_name),
-        region: String(body.jurisdiction_region || body.jurisdiction_name),
-        country: String(body.country || 'US'),
+        code: String(body.jurisdiction_code || name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 40)),
+        name,
+        country_code: String(body.country_code || body.country || 'US'),
+        state_code: body.state_code ? String(body.state_code) : null,
+        level: String(body.level || 'state'),
         is_active: true,
       })
       .select('id')

@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     const params = new URL(req.url).searchParams;
     const status = params.get('status');
     const q = params.get('q')?.trim() || undefined;
+    const id = params.get('id')?.trim() || undefined;
     const limit = Math.min(Math.max(parseInt(params.get('limit') ?? '50', 10) || 50, 1), 100);
     let query = supabaseAdmin()
       .from('products')
@@ -22,6 +23,7 @@ export async function GET(req: NextRequest) {
       .eq('tenant_id', DEFAULT_TENANT_ID)
       .order('created_at', { ascending: false })
       .limit(limit);
+    if (id) query = query.eq('id', id);
     if (status) query = query.eq('status', status);
     if (q) query = query.ilike('name', `%${q}%`);
     const { data: products, error } = await query;

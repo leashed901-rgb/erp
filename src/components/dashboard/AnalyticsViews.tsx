@@ -1,16 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  ANALYTICS_CONVERSION_FUNNEL,
-  ATTRIBUTION_CHANNELS,
-  COHORT_RETENTION_ROWS,
-  EXPLORER_DATASETS,
   ExplorerDatasetKey,
   ExplorerRow,
-  INITIAL_SAVED_EXPLORER_VIEWS,
   SavedExplorerView,
-  TOP_SKU_ANALYTICS,
 } from '@/data/dashboardData';
 import { DemoRow, DomainKey } from '@/data/shellData';
 import StatusPill from '@/components/StatusPill';
@@ -21,6 +15,23 @@ import {
   VisualFormatConfig,
   formatVisualNumber,
 } from './DashboardModals';
+import {
+  OrderRow,
+  ProductRow,
+  aov,
+  byChannel,
+  channelLabel,
+  fmtUsd2,
+  inRange,
+  isoDay,
+  isActiveOrder,
+  loadOrders,
+  loadPnl,
+  loadProducts,
+  loadReturns,
+  orderGmv,
+  yearStart,
+} from './dashboardAnalytics';
 import styles from './DashboardScreens.module.css';
 
 /* 1. Analytics Overview (/analytics) */
@@ -39,17 +50,51 @@ export function AnalyticsOverviewView({
     'all' | 'conversion' | 'cohorts' | 'skus' | 'attribution'
   >('all');
 
-  const rangeMult =
-    range === '7D' ? 0.24 : range === '30D' ? 1 : range === '90D' ? 2.85 : 9.25;
-  const chanMult =
-    channel === 'Storefront'
-      ? 0.64
-      : channel === 'Marketplace'
-        ? 0.22
-        : channel === 'B2B Invoices'
-          ? 0.14
-          : 1;
-  const mult = rangeMult * chanMult;
+  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [returnsCount, setReturnsCount] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const [os, ps, rs] = await Promise.all([loadOrders(), loadProducts(), loadReturns()]);
+      if (!live) return;
+      setOrders(os);
+      setProducts(ps);
+      setReturnsCount(rs.length);
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const now = new Date();
+  const rangeFrom =
+    range === '7D'
+      ? new Date(now.getTime() - 7 * 86400000)
+      : range === '30D'
+        ? new Date(now.getTime() - 30 * 86400000)
+        : range === '90D'
+          ? new Date(now.getTime() - 90 * 86400000)
+          : yearStart(now);
+
+  const channelMatch = (o: OrderRow) => {
+    const c = (o.channel || 'website').toLowerCase();
+    if (channel === 'Storefront') return c === 'website';
+    if (channel === 'Marketplace') return c !== 'website' && c !== 'manual';
+    if (channel === 'B2B Invoices') return c === 'b2b' || c === 'invoice';
+    return true;
+  };
+  const filtered = orders.filter((o) => inRange(o.orderDate, rangeFrom, now) && channelMatch(o));
+  const active = filtered.filter(isActiveOrder);
+  const gmv = orderGmv(filtered);
+  const a = aov(filtered);
+
+  const buyerKey = (o: OrderRow) => o.customerId || o.customerEmail || 'guest';
+  const buyers = new Map<string, number>();
+  for (const o of active) buyers.set(buyerKey(o), (buyers.get(buyerKey(o)) ?? 0) + 1);
+  const repeatBuyers = [...buyers.values()].filter((n) => n >= 2).length;
+  const repeatShare = buyers.size > 0 ? (repeatBuyers / buyers.size) * 100 : 0;
 
   const getHeatCellClass = (val: number) => {
     if (val === 0) return styles.heatEmpty;
@@ -64,6 +109,78 @@ export function AnalyticsOverviewView({
   const showCohorts = focusTab === 'all' || focusTab === 'cohorts';
   const showSkus = focusTab === 'all' || focusTab === 'skus';
 
+  const placed = filtered.length;
+  const paid = filtered.filter((o) => o.paymentStatus === 'paid').length;
+  const shipped = filtered.filter((o) => {
+    const s = (o.displayStatus || '').toLowerCase();
+    return s.includes('ship') || s.includes('deliver');
+  }).length;
+  const delivered = filtered.filter((o) => (o.displayStatus || '').toLowerCase().includes('deliver')).length;
+  const funnel = [
+    { step: 'Orders placed', count: placed, dropoff: `${filtered.length - active.length} cancelled` },
+    { step: 'Paid', count: paid, dropoff: `${placed - paid} not yet paid` },
+    { step: 'Shipped / In transit', count: shipped, dropoff: `${paid - shipped} paid, not shipped` },
+    { step: 'Delivered & settled', count: delivered, dropoff: `${shipped - delivered} in transit` },
+  ].map((s) => ({ ...s, pct: placed > 0 ? (s.count / placed) * 100 : 0 }));
+
+  // Cohorts by first-order month, retention computed from the full order history.
+  const cohorts = useMemo(() => {
+    const byBuyer = new Map<string, OrderRow[]>();
+    for (const o of orders) {
+      if (!isActiveOrder(o)) continue;
+      const k = o.customerId || o.customerEmail || 'guest';
+      const arr = byBuyer.get(k) ?? [];
+      arr.push(o);
+      byBuyer.set(k, arr);
+    }
+    const byMonth = new Map<string, { buyers: Set<string>; gmv: number; months: Date[] }>();
+    for (const [buyer, os] of byBuyer) {
+      const sorted = [...os].sort((x, y) => x.orderDate.localeCompare(y.orderDate));
+      const first = new Date(sorted[0].orderDate);
+      const key = `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}`;
+      const cur = byMonth.get(key) ?? { buyers: new Set<string>(), gmv: 0, months: [] };
+      cur.buyers.add(buyer);
+      cur.gmv += os.reduce((s, o) => s + (Number(o.total) || 0), 0);
+      cur.months = os.map((o) => new Date(o.orderDate));
+      byMonth.set(key, cur);
+    }
+    return [...byMonth.entries()]
+      .sort((x, y) => y[0].localeCompare(x[0]))
+      .slice(0, 6)
+      .map(([key, v]) => {
+        const [y, m] = key.split('-').map(Number);
+        const retention: number[] = [];
+        for (let k = 0; k <= 5; k++) {
+          if (k === 0) {
+            retention.push(100);
+            continue;
+          }
+          const target = new Date(y, m - 1 + k, 1);
+          if (target.getTime() > now.getTime()) {
+            retention.push(0);
+            continue;
+          }
+          // Share of this cohort's buyers with any order in month +k —
+          // approximated from the cohort's pooled order months.
+          const inMonth = v.months.filter(
+            (d) => d.getFullYear() === target.getFullYear() && d.getMonth() === target.getMonth()
+          ).length;
+          retention.push(v.buyers.size > 0 ? Math.round((Math.min(inMonth, v.buyers.size) / v.buyers.size) * 100) : 0);
+        }
+        return {
+          cohort: new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          customers: v.buyers.size,
+          ltv: v.buyers.size > 0 ? fmtUsd2(v.gmv / v.buyers.size) : '$0.00',
+          retention,
+        };
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders]);
+
+  const topSkus = [...products]
+    .sort((x, y) => (Number(y.revenue) || 0) - (Number(x.revenue) || 0) || (Number(y.units_sold) || 0) - (Number(x.units_sold) || 0))
+    .slice(0, 8);
+
   return (
     <div className={styles.container}>
       <div className={styles.headerBlock}>
@@ -76,7 +193,7 @@ export function AnalyticsOverviewView({
           <div>
             <h1 className={styles.title}>Analytics</h1>
             <p className={styles.subtitle}>
-              Storefront conversion funnel, cohort retention, SKU velocity &amp; Ad Center attribution
+              Order pipeline, customer cohorts, SKU velocity &amp; channel attribution from live data — traffic sessions are not connected
             </p>
           </div>
           <div className={styles.toolbarRight}>
@@ -111,19 +228,16 @@ export function AnalyticsOverviewView({
               className={styles.btnSecondary}
               onClick={() => {
                 const cols = [
-                  { key: 'sku', label: 'SKU' },
+                  { key: 'slug', label: 'SKU' },
                   { key: 'name', label: 'Name' },
                   { key: 'category', label: 'Category' },
-                  { key: 'supplier', label: 'Supplier' },
-                  { key: 'units', label: 'Units' },
-                  { key: 'gmv', label: 'GMV' },
-                  { key: 'marginPct', label: 'Margin %' },
-                  { key: 'cvrPct', label: 'CVR %' },
-                  { key: 'rmaPct', label: 'RMA %' },
+                  { key: 'brand', label: 'Supplier' },
+                  { key: 'units_sold', label: 'Units' },
+                  { key: 'revenue', label: 'GMV' },
                   { key: 'status', label: 'Status' },
                 ];
-                exportToCsv(TOP_SKU_ANALYTICS as unknown as Record<string, unknown>[], cols, 'analytics-overview');
-                onToast(`Exported ${TOP_SKU_ANALYTICS.length} records to CSV`);
+                exportToCsv(topSkus as unknown as Record<string, unknown>[], cols, 'analytics-overview');
+                onToast(`Exported ${topSkus.length} records to CSV`);
               }}
             >
               <span className={`material-symbols-outlined ${styles.icon16}`}>
@@ -174,42 +288,38 @@ export function AnalyticsOverviewView({
         </div>
       </div>
 
-      {/* 4 Analytics KPI Cards */}
+      {/* 4 Analytics KPI Cards — all computed from live orders */}
       <div className={styles.kpiGrid4}>
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Storefront &amp; Channel Sessions</span>
-          <div className={styles.kpiValue}>
-            {Math.round(148200 * mult).toLocaleString()}
-          </div>
-          <div className={styles.kpiDeltaPos}>+14.8% vs prior {range}</div>
-          <div className={styles.kpiSubtext}>68.4K product &amp; design mockup views</div>
+          <span className={styles.kpiLabel}>Orders in Range</span>
+          <div className={styles.kpiValue}>{active.length.toLocaleString()}</div>
+          <div className={styles.kpiDeltaPos}>{placed} placed incl. cancelled</div>
+          <div className={styles.kpiSubtext}>{channel} · {range}</div>
         </div>
 
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Checkout Conversion Rate</span>
-          <div className={styles.kpiValue}>3.81%</div>
-          <div className={styles.kpiDeltaPos}>+0.42 pts vs benchmark</div>
-          <div className={styles.kpiSubtext}>
-            {Math.round(5640 * mult).toLocaleString()} completed paid orders
-          </div>
+          <span className={styles.kpiLabel}>GMV in Range</span>
+          <div className={styles.kpiValue}>{fmtUsd2(gmv)}</div>
+          <div className={styles.kpiDeltaPos}>Live ERP orders</div>
+          <div className={styles.kpiSubtext}>Cancelled orders excluded</div>
         </div>
 
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>Customer LTV : CAC Ratio</span>
-          <div className={styles.kpiValue}>10.8×</div>
-          <div className={styles.kpiDeltaPos}>$184 LTV · $17.04 blended CAC</div>
-          <div className={styles.kpiSubtext}>Payback on first order (62% gross margin)</div>
+          <span className={styles.kpiLabel}>Average Order Value</span>
+          <div className={styles.kpiValue}>{a != null ? fmtUsd2(a) : '—'}</div>
+          <div className={styles.kpiDeltaPos}>Orders with value only</div>
+          <div className={styles.kpiSubtext}>GMV ÷ valued orders</div>
         </div>
 
         <div className={styles.kpiCard}>
-          <span className={styles.kpiLabel}>90-Day Repeat Buyer Share</span>
-          <div className={styles.kpiValue}>39.4%</div>
-          <div className={styles.kpiDeltaPos}>+3.1 pts YoY</div>
-          <div className={styles.kpiSubtext}>1.2% net RMA / defect rate</div>
+          <span className={styles.kpiLabel}>Repeat Buyer Share</span>
+          <div className={styles.kpiValue}>{buyers.size > 0 ? `${repeatShare.toFixed(1)}%` : '—'}</div>
+          <div className={styles.kpiDeltaPos}>{repeatBuyers} of {buyers.size} buyers ordered twice+</div>
+          <div className={styles.kpiSubtext}>{returnsCount} returns recorded all time</div>
         </div>
       </div>
 
-      {/* Conversion Funnel + Marketing Attribution */}
+      {/* Order Funnel + Channel Attribution */}
       {(showConversion || showAttribution) && (
         <div className={styles.grid12}>
           {showConversion && (
@@ -220,22 +330,22 @@ export function AnalyticsOverviewView({
             >
               <div className={styles.panelHeader}>
                 <div>
-                  <h2 className={styles.panelTitle}>Storefront Conversion Funnel</h2>
+                  <h2 className={styles.panelTitle}>Order Conversion Funnel</h2>
                   <p className={styles.panelSubtitle}>
-                    Session → Mockup View → Cart → Checkout → Paid Order
+                    Placed → Paid → Shipped → Delivered (session steps are not measured — no traffic source)
                   </p>
                 </div>
                 <span className={styles.badgeNeutral}>{channel}</span>
               </div>
 
               <div className={styles.funnelList}>
-                {ANALYTICS_CONVERSION_FUNNEL.map((st) => (
+                {funnel.map((st) => (
                   <div key={st.step} className={styles.funnelRowBtn}>
                     <div className={styles.funnelTopLine}>
                       <span className={styles.funnelStageName}>{st.step}</span>
                       <div className={styles.funnelRightStats}>
                         <span className={styles.funnelCountStrong}>
-                          {Math.round(st.count * mult).toLocaleString()}
+                          {st.count.toLocaleString()}
                         </span>
                         <span className={styles.funnelMuted}>
                           {st.pct.toFixed(1)}%
@@ -248,7 +358,7 @@ export function AnalyticsOverviewView({
                           className={styles.fillTeal}
                           x="0"
                           y="0"
-                          width={`${Math.max(4, st.pct)}%`}
+                          width={`${Math.max(0, st.pct)}%`}
                           height="10"
                           rx="3"
                         />
@@ -270,10 +380,10 @@ export function AnalyticsOverviewView({
               <div className={styles.panelHeader}>
                 <div>
                   <h2 className={styles.panelTitle}>
-                    Ad Center Multi-Channel Attribution &amp; ROAS
+                    Sales-Channel Attribution
                   </h2>
                   <p className={styles.panelSubtitle}>
-                    Meta, Google Shopping, TikTok Spark Ads &amp; CRM Newsletter
+                    Orders and GMV by sales channel — ad spend lives in the Ad Center, not per-channel here
                   </p>
                 </div>
                 <button
@@ -298,19 +408,18 @@ export function AnalyticsOverviewView({
                     </tr>
                   </thead>
                   <tbody>
-                    {ATTRIBUTION_CHANNELS.map((ch) => (
+                    {byChannel(filtered).map((ch) => (
                       <tr
-                        key={ch.channel}
+                        key={ch.name}
                         className={styles.tr}
                         onClick={() =>
                           onOpenPeek(
                             {
-                              name: ch.channel,
-                              campaigns: ch.campaignCount,
-                              spend: `$${Math.round(ch.spend * rangeMult).toLocaleString()}`,
-                              orders: Math.round(ch.orders * mult),
-                              attributedGmv: `$${Math.round(ch.attributedGmv * mult).toLocaleString()}`,
-                              roas: ch.roas > 0 ? `${ch.roas.toFixed(2)}x` : 'Organic',
+                              name: ch.name,
+                              orders: ch.count,
+                              attributedGmv: fmtUsd2(ch.value),
+                              spend: 'Not tracked per channel',
+                              roas: '—',
                               status: 'Active',
                             },
                             'attribution'
@@ -318,32 +427,23 @@ export function AnalyticsOverviewView({
                         }
                       >
                         <td className={styles.td}>
-                          <div>{ch.channel}</div>
-                          <div className={styles.tdMuted}>
-                            {ch.campaignCount > 0
-                              ? `${ch.campaignCount} active campaigns`
-                              : 'Zero paid media spend'}
-                          </div>
+                          <div>{ch.name}</div>
+                          <div className={styles.tdMuted}>Sales channel on the order</div>
                         </td>
+                        <td className={`${styles.td} ${styles.tdRight}`}>—</td>
                         <td className={`${styles.td} ${styles.tdRight}`}>
-                          ${Math.round(ch.spend * rangeMult).toLocaleString()}
+                          {ch.count.toLocaleString()}
                         </td>
-                        <td className={`${styles.td} ${styles.tdRight}`}>
-                          {Math.round(ch.orders * mult).toLocaleString()}
+                        <td className={`${styles.td} ${styles.tdRight} ${styles.tdPos}`}>
+                          {fmtUsd2(ch.value)}
                         </td>
-                        <td
-                          className={`${styles.td} ${styles.tdRight} ${styles.tdPos}`}
-                        >
-                          ${Math.round(ch.attributedGmv * mult).toLocaleString()}
-                        </td>
-                        <td className={`${styles.td} ${styles.tdRight}`}>
-                          {ch.roas > 0 ? `${ch.roas.toFixed(2)}×` : '—'}
-                        </td>
-                        <td className={`${styles.td} ${styles.tdRight}`}>
-                          {ch.cac > 0 ? `$${ch.cac.toFixed(2)}` : '$0.00'}
-                        </td>
+                        <td className={`${styles.td} ${styles.tdRight}`}>—</td>
+                        <td className={`${styles.td} ${styles.tdRight}`}>—</td>
                       </tr>
                     ))}
+                    {byChannel(filtered).length === 0 && (
+                      <tr><td className={styles.td} colSpan={6}>No orders in this range and channel.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -367,10 +467,10 @@ export function AnalyticsOverviewView({
                     Monthly Customer Retention Cohorts
                   </h2>
                   <p className={styles.panelSubtitle}>
-                    Repeat purchase rate from acquisition month (M0) through M5
+                    Buyers by first-order month; M0 is the acquisition month
                   </p>
                 </div>
-                <span className={styles.badgeNeutral}>6-Month Matrix</span>
+                <span className={styles.badgeNeutral}>Live orders</span>
               </div>
 
               <div className={styles.tableScroll}>
@@ -389,29 +489,28 @@ export function AnalyticsOverviewView({
                     </tr>
                   </thead>
                   <tbody>
-                    {COHORT_RETENTION_ROWS.map((row) => (
+                    {cohorts.map((row) => (
                       <tr key={row.cohort} className={styles.tr}>
                         <td className={styles.td}>{row.cohort}</td>
                         <td className={`${styles.td} ${styles.tdRight}`}>
                           {row.customers.toLocaleString()}
                         </td>
-                        <td
-                          className={`${styles.td} ${styles.tdRight} ${styles.tdPos}`}
-                        >
+                        <td className={`${styles.td} ${styles.tdRight} ${styles.tdPos}`}>
                           {row.ltv}
                         </td>
-                        {[row.m0, row.m1, row.m2, row.m3, row.m4, row.m5].map(
-                          (val, i) => (
-                            <td
-                              key={i}
-                              className={`${styles.heatCellBase} ${getHeatCellClass(val)}`}
-                            >
-                              {val > 0 ? `${val}%` : '—'}
-                            </td>
-                          )
-                        )}
+                        {row.retention.map((val, i) => (
+                          <td
+                            key={i}
+                            className={`${styles.heatCellBase} ${getHeatCellClass(val)}`}
+                          >
+                            {val > 0 ? `${val}%` : '—'}
+                          </td>
+                        ))}
                       </tr>
                     ))}
+                    {cohorts.length === 0 && (
+                      <tr><td className={styles.td} colSpan={9}>No buyers yet — cohorts form from the first orders.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -430,7 +529,7 @@ export function AnalyticsOverviewView({
                     Top Performing SKUs &amp; Designs
                   </h2>
                   <p className={styles.panelSubtitle}>
-                    Click any SKU row to inspect unit economics &amp; RMA rate
+                    Click any SKU row to inspect catalog economics
                   </p>
                 </div>
                 <button
@@ -455,21 +554,19 @@ export function AnalyticsOverviewView({
                     </tr>
                   </thead>
                   <tbody>
-                    {TOP_SKU_ANALYTICS.map((sku) => (
+                    {topSkus.map((sku) => (
                       <tr
-                        key={sku.sku}
+                        key={sku.id}
                         className={styles.tr}
                         onClick={() =>
                           onOpenPeek(
                             {
-                              name: `${sku.sku} · ${sku.name}`,
-                              category: sku.category,
-                              supplier: sku.supplier,
-                              units: Math.round(sku.units * mult),
-                              gmv: `$${Math.round(sku.gmv * mult).toLocaleString()}`,
-                              margin: `${sku.marginPct}%`,
-                              conversionRate: `${sku.cvrPct}%`,
-                              rmaRate: `${sku.rmaPct}%`,
+                              name: sku.name,
+                              category: sku.category || '—',
+                              supplier: sku.brand || '—',
+                              units: Number(sku.units_sold) || 0,
+                              gmv: fmtUsd2(Number(sku.revenue) || 0),
+                              margin: '— (no cost source)',
                               status: sku.status,
                             },
                             'catalog'
@@ -479,26 +576,25 @@ export function AnalyticsOverviewView({
                         <td className={styles.td}>
                           <div>{sku.name}</div>
                           <div className={styles.tdMuted}>
-                            {sku.sku} · {sku.category} · RMA {sku.rmaPct}%
+                            {sku.slug} · {sku.category || 'Uncategorized'}
                           </div>
                         </td>
-                        <td className={styles.td}>{sku.supplier}</td>
+                        <td className={styles.td}>{sku.brand || '—'}</td>
                         <td className={`${styles.td} ${styles.tdRight}`}>
-                          {Math.round(sku.units * mult).toLocaleString()}
+                          {(Number(sku.units_sold) || 0).toLocaleString()}
                         </td>
-                        <td
-                          className={`${styles.td} ${styles.tdRight} ${styles.tdPos}`}
-                        >
-                          ${Math.round(sku.gmv * mult).toLocaleString()}
+                        <td className={`${styles.td} ${styles.tdRight} ${styles.tdPos}`}>
+                          {fmtUsd2(Number(sku.revenue) || 0)}
                         </td>
-                        <td className={`${styles.td} ${styles.tdRight}`}>
-                          {sku.marginPct.toFixed(1)}%
-                        </td>
+                        <td className={`${styles.td} ${styles.tdRight}`}>—</td>
                         <td className={styles.td}>
-                          <StatusPill status={sku.status} />
+                          <StatusPill status={sku.status === 'published' ? 'Published' : sku.status} />
                         </td>
                       </tr>
                     ))}
+                    {topSkus.length === 0 && (
+                      <tr><td className={styles.td} colSpan={6}>No products in the catalog yet.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -530,6 +626,14 @@ const DEFAULT_EXPLORER_COLUMNS: CustomColumnItem[] = [
   { key: 'modifiedOn', label: 'Modified on', visible: false },
 ];
 
+interface SellerRow {
+  seller_id: string;
+  display_name: string;
+  applicant_type: string | null;
+  recorded_earnings: number | null;
+  tax_form_status: string | null;
+}
+
 export function AnalyticsExplorerView({
   onNavigate,
   onOpenPeek,
@@ -545,10 +649,11 @@ export function AnalyticsExplorerView({
   const [dateRange, setDateRange] = useState<string>('Last 30 days');
   const [showVisualChart, setShowVisualChart] = useState<boolean>(true);
 
-  const [savedViews, setSavedViews] = useState<SavedExplorerView[]>(
-    INITIAL_SAVED_EXPLORER_VIEWS
-  );
-  const [activeSavedId, setActiveSavedId] = useState<string>('sv-1');
+  // Saved views start empty: there is no saved-view store for the
+  // Explorer yet, so nothing is invented. Views saved here live for the
+  // session.
+  const [savedViews, setSavedViews] = useState<SavedExplorerView[]>([]);
+  const [activeSavedId, setActiveSavedId] = useState<string>('');
   const [addingView, setAddingView] = useState<boolean>(false);
   const [newViewName, setNewViewName] = useState<string>('');
 
@@ -570,12 +675,147 @@ export function AnalyticsExplorerView({
     divideBy1000: false,
   });
 
-  const rawRows = EXPLORER_DATASETS[dataset];
+  const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [sellers, setSellers] = useState<SellerRow[]>([]);
+  const [cogsRate, setCogsRate] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const nowD = new Date();
+      const [os, ps, pnl] = await Promise.all([
+        loadOrders(),
+        loadProducts(),
+        loadPnl(isoDay(yearStart(nowD)), isoDay(nowD)),
+      ]);
+      if (!live) return;
+      setOrders(os);
+      setProducts(ps);
+      if (pnl && pnl.income > 0) setCogsRate(pnl.cogs / pnl.income);
+      try {
+        const res = await fetch('/api/sellers');
+        if (res.ok) {
+          const j = (await res.json()) as { data?: SellerRow[] } | SellerRow[];
+          if (live) setSellers(Array.isArray(j) ? j : (j.data ?? []));
+        }
+      } catch {
+        /* seller dataset stays empty */
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const datasets = useMemo<Record<ExplorerDatasetKey, ExplorerRow[]>>(() => {
+    const nowD = new Date();
+    const from =
+      dateRange === 'Last 7 days'
+        ? new Date(nowD.getTime() - 7 * 86400000)
+        : dateRange === 'Q4 2026 QTD'
+          ? new Date(nowD.getFullYear(), Math.floor(nowD.getMonth() / 3) * 3, 1)
+          : dateRange === 'YTD 2026'
+            ? yearStart(nowD)
+            : new Date(nowD.getTime() - 30 * 86400000);
+    const ranged = orders.filter((o) => inRange(o.orderDate, from, nowD));
+    const mk = (
+      base: Omit<ExplorerRow, 'cogs' | 'grossProfit' | 'marginPct' | 'varianceAmount'> & { allocateCogs?: boolean }
+    ): ExplorerRow => {
+      const cogs = base.allocateCogs === false ? 0 : base.netRevenue * cogsRate;
+      const grossProfit = base.netRevenue - cogs;
+      return {
+        ...base,
+        cogs: Math.round(cogs * 100) / 100,
+        grossProfit: Math.round(grossProfit * 100) / 100,
+        marginPct: base.netRevenue > 0 ? Math.round((grossProfit / base.netRevenue) * 1000) / 10 : 0,
+        varianceAmount: 0,
+      };
+    };
+
+    // Orders & GMV — grouped by channel × fulfillment method.
+    const ogMap = new Map<string, ExplorerRow>();
+    for (const o of ranged) {
+      if (!isActiveOrder(o)) continue;
+      const dim = channelLabel(o.channel);
+      const key = `${dim}|${o.fulfillmentMethod || 'stock'}`;
+      const cur = ogMap.get(key) ?? mk({
+        id: `og-${key}`, dimension: dim,
+        secondaryDim: o.fulfillmentMethod || 'stock',
+        segment: 'Orders', orders: 0, gmv: 0, discountsAndRefunds: 0, netRevenue: 0,
+        status: 'Live', createdBy: 'Platform', createdOn: o.orderDate.slice(0, 10),
+        modifiedBy: 'Platform', modifiedOn: o.orderDate.slice(0, 10),
+      });
+      cur.orders += 1;
+      cur.gmv += Number(o.total) || 0;
+      cur.discountsAndRefunds += (Number(o.discountTotal) || 0) + (Number(o.amountRefunded) || 0);
+      cur.netRevenue = cur.gmv - cur.discountsAndRefunds;
+      cur.cogs = Math.round(cur.netRevenue * cogsRate * 100) / 100;
+      cur.grossProfit = Math.round((cur.netRevenue - cur.cogs) * 100) / 100;
+      cur.marginPct = cur.netRevenue > 0 ? Math.round((cur.grossProfit / cur.netRevenue) * 1000) / 10 : 0;
+      ogMap.set(key, cur);
+    }
+
+    // Products & SKUs — catalog rows with recorded revenue.
+    const skuRows = [...products]
+      .sort((x, y) => (Number(y.revenue) || 0) - (Number(x.revenue) || 0))
+      .slice(0, 20)
+      .map((p) => mk({
+        id: `sku-${p.id}`, dimension: p.name, secondaryDim: p.brand || '—',
+        segment: p.category || 'Catalog', orders: Number(p.order_count) || 0,
+        gmv: Number(p.revenue) || 0, discountsAndRefunds: 0, netRevenue: Number(p.revenue) || 0,
+        status: p.status.charAt(0).toUpperCase() + p.status.slice(1),
+        createdBy: 'Catalog', createdOn: '—', modifiedBy: 'Catalog', modifiedOn: '—',
+      }));
+
+    // Customer cohorts — one row per buyer.
+    const cMap = new Map<string, ExplorerRow>();
+    for (const o of orders) {
+      if (!isActiveOrder(o)) continue;
+      const key = o.customerId || o.customerEmail || 'guest';
+      const cur = cMap.get(key) ?? mk({
+        id: `cu-${key}`, dimension: o.customerName || o.customerEmail || 'Guest buyer',
+        secondaryDim: o.customerEmail || '—', segment: 'Customer',
+        orders: 0, gmv: 0, discountsAndRefunds: 0, netRevenue: 0,
+        status: 'Active', createdBy: 'Orders', createdOn: o.orderDate.slice(0, 10),
+        modifiedBy: 'Orders', modifiedOn: o.orderDate.slice(0, 10),
+      });
+      cur.orders += 1;
+      cur.gmv += Number(o.total) || 0;
+      cur.discountsAndRefunds += Number(o.amountRefunded) || 0;
+      cur.netRevenue = cur.gmv - cur.discountsAndRefunds;
+      cur.cogs = Math.round(cur.netRevenue * cogsRate * 100) / 100;
+      cur.grossProfit = Math.round((cur.netRevenue - cur.cogs) * 100) / 100;
+      cur.marginPct = cur.netRevenue > 0 ? Math.round((cur.grossProfit / cur.netRevenue) * 1000) / 10 : 0;
+      if (o.orderDate.slice(0, 10) < cur.createdOn) cur.createdOn = o.orderDate.slice(0, 10);
+      if (o.orderDate.slice(0, 10) > cur.modifiedOn) cur.modifiedOn = o.orderDate.slice(0, 10);
+      cMap.set(key, cur);
+    }
+
+    // Seller ledger — recorded earnings are payouts, so profit is 0.
+    const sellerRows = sellers.map((s) => ({
+      id: `se-${s.seller_id}`, dimension: s.display_name, secondaryDim: s.applicant_type || 'Seller',
+      segment: 'Marketplace', orders: 0, gmv: Number(s.recorded_earnings) || 0,
+      discountsAndRefunds: 0, netRevenue: Number(s.recorded_earnings) || 0,
+      cogs: Number(s.recorded_earnings) || 0, grossProfit: 0, marginPct: 0, varianceAmount: 0,
+      status: s.tax_form_status || '—', createdBy: 'Marketplace', createdOn: '—',
+      modifiedBy: 'Marketplace', modifiedOn: '—',
+    }));
+
+    return {
+      orders_gmv: [...ogMap.values()],
+      sku_velocity: skuRows,
+      customer_cohorts: [...cMap.values()],
+      seller_ledger: sellerRows,
+    };
+  }, [orders, products, sellers, cogsRate, dateRange]);
+
+  const rawRows = datasets[dataset];
 
   const filtered = rawRows
     .filter((r) => {
       if (activeTab === 'Positive margin (>55%)') return r.marginPct >= 55;
-      if (activeTab === 'High volume') return r.orders >= 800;
+      if (activeTab === 'High volume') return r.orders >= 5;
       if (activeTab === 'Flagged variance') return r.varianceAmount < 0;
       return true;
     })
@@ -635,7 +875,7 @@ export function AnalyticsExplorerView({
     setActiveSavedId(nv.id);
     setNewViewName('');
     setAddingView(false);
-    onToast(`Saved Explorer view "${clean}"`);
+    onToast(`Saved Explorer view "${clean}" for this session`);
   };
 
   const toggleSelectAll = () => {
@@ -650,6 +890,14 @@ export function AnalyticsExplorerView({
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  };
+
+  const exportRows = (rowsToExport: ExplorerRow[], name: string) => {
+    const cols = columns
+      .filter((c) => c.visible)
+      .map((c) => ({ key: c.key, label: c.label }));
+    exportToCsv(rowsToExport as unknown as Record<string, unknown>[], cols, name);
+    onToast(`Exported ${rowsToExport.length} records to CSV`);
   };
 
   const renderExplorerCell = (row: ExplorerRow, colKey: string) => {
@@ -688,7 +936,7 @@ export function AnalyticsExplorerView({
           <div>
             <h1 className={styles.title}>Explorer</h1>
             <p className={styles.subtitle}>
-              Multi-dimensional pivot &amp; P1 list-system across GMV, SKUs, cohorts, and marketplace sellers
+              Multi-dimensional pivot across live orders, SKUs, customers, and marketplace sellers · COGS allocated at the blended P&amp;L rate
             </p>
           </div>
           <div className={styles.toolbarRight}>
@@ -728,13 +976,7 @@ export function AnalyticsExplorerView({
               <button
                 type="button"
                 className={styles.splitMain}
-                onClick={() => {
-                  const cols = columns
-                    .filter((c) => c.visible)
-                    .map((c) => ({ key: c.key, label: c.label }));
-                  exportToCsv(filtered as unknown as Record<string, unknown>[], cols, 'analytics-explorer');
-                  onToast(`Exported ${filtered.length} records to CSV`);
-                }}
+                onClick={() => exportRows(filtered, 'analytics-explorer')}
               >
                 <span className={`material-symbols-outlined ${styles.icon16}`}>
                   download
@@ -770,7 +1012,7 @@ export function AnalyticsExplorerView({
                     type="button"
                     className={styles.dropdownItem}
                     onClick={() => {
-                      onToast('Scheduled Monday 8:00 AM email digest');
+                      onToast('Digest scheduling is not connected yet');
                       setSplitMenuOpen(false);
                     }}
                   >
@@ -1024,7 +1266,7 @@ export function AnalyticsExplorerView({
                 type="button"
                 className={styles.btnGhostSm}
                 onClick={() =>
-                  onToast(`Exported ${selectedIds.length} selected Explorer rows`)
+                  exportRows(filtered.filter((r) => selectedIds.includes(r.id)), 'analytics-explorer-selected')
                 }
               >
                 Export selected
@@ -1032,20 +1274,14 @@ export function AnalyticsExplorerView({
               <button
                 type="button"
                 className={styles.btnGhostSm}
-                onClick={() => {
-                  onToast(`Pinned ${selectedIds.length} slices to Executive GMV`);
-                  setSelectedIds([]);
-                }}
+                onClick={() => onToast('Pinning slices to the Executive view is not connected')}
               >
                 Pin to Executive Overview
               </button>
               <button
                 type="button"
                 className={styles.btnGhostSm}
-                onClick={() => {
-                  onToast(`Sent ${selectedIds.length} slices to Attention Queue`);
-                  setSelectedIds([]);
-                }}
+                onClick={() => onToast('Variance flagging is not connected')}
               >
                 Flag variance
               </button>
@@ -1195,7 +1431,7 @@ export function AnalyticsExplorerView({
                             className={styles.dropdownItem}
                             onClick={() => {
                               setOpenRowMenuId(null);
-                              onToast(`Exported slice ${row.dimension}`);
+                              exportRows([row], 'analytics-explorer-slice');
                             }}
                           >
                             Export slice CSV
@@ -1219,13 +1455,13 @@ export function AnalyticsExplorerView({
             <div className={styles.emptyStepsRow}>
               <span className={styles.emptyStepPill}>1. Adjust tab or search</span>
               <span className={styles.emptyStepPill}>2. Switch fact dataset</span>
-              <span className={styles.emptyStepPill}>3. Import external CSV</span>
+              <span className={styles.emptyStepPill}>3. Widen the date range</span>
             </div>
             <div className={styles.emptyBtnRow}>
               <button
                 type="button"
                 className={styles.btnSecondary}
-                onClick={() => onToast('Opened CSV Dataset Importer')}
+                onClick={() => onToast('CSV dataset import is not connected')}
               >
                 Import
               </button>

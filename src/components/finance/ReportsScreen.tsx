@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
+import { fetchReport, useSavedReportViews, reportViewMutations } from '@/hooks/useAccountingApi';
+import type { ReportDto, SavedViewDto } from '@/lib/acctTypes';
 import styles from './ReportsScreen.module.css';
 
 interface ReportRow {
@@ -11,7 +13,7 @@ interface ReportRow {
   cells: string[];
 }
 
-interface ReportData {
+interface ReportCard {
   id: string;
   title: string;
   category: 'financial' | 'sales' | 'expenses' | 'accounting' | 'tax';
@@ -19,200 +21,44 @@ interface ReportData {
   description: string;
   icon: string;
   iconClass: string;
-  rows: ReportRow[];
 }
 
-const REPORTS: Record<string, ReportData> = {
-  pnl: {
-    id: 'pnl',
-    title: 'Profit and Loss',
-    category: 'financial',
-    range: 'November 1 – 30, 2026',
-    description: 'Revenue minus costs, broken down by account.',
-    icon: 'trending_up',
-    iconClass: styles.iconWrapBlue,
-    rows: [
-      { kind: 'section', cells: ['Income', '', ''] },
-      { kind: 'sub', cells: ['Sales — Apparel', '$8,420.00', '$62,180.00'] },
-      { kind: 'sub', cells: ['Shipping income', '$1,204.00', '$8,204.00'] },
-      { kind: 'sub', cells: ['Sales — Wall Art', '$2,110.00', '$18,940.00'] },
-      { kind: 'total', label: 'Total income', cells: ['$11,734.00', '$89,324.00'] },
-      { kind: 'section', cells: ['Cost of goods sold', '', ''] },
-      { kind: 'sub', cells: ['COGS — Apparel', '$3,120.00', '$18,140.00'] },
-      { kind: 'sub', cells: ['COGS — Wall Art', '$870.00', '$7,240.00'] },
-      { kind: 'total', label: 'Total COGS', cells: ['$3,990.00', '$25,380.00'] },
-      { kind: 'total', label: 'Gross profit', cells: ['$7,744.00', '$63,944.00'] },
-      { kind: 'section', cells: ['Expenses', '', ''] },
-      { kind: 'sub', cells: ['Office supplies', '$142.50', '$1,418.00'] },
-      { kind: 'sub', cells: ['Software & subscriptions', '$59.99', '$719.88'] },
-      { kind: 'sub', cells: ['Shipping & delivery', '$84.20', '$1,410.00'] },
-      { kind: 'sub', cells: ['Advertising', '$1,240.00', '$9,240.00'] },
-      { kind: 'sub', cells: ['Bank fees', '$12.00', '$124.00'] },
-      { kind: 'total', label: 'Total expenses', cells: ['$1,538.69', '$12,911.88'] },
-      { kind: 'final', label: 'Net operating income', cells: ['$6,205.31', '$51,032.12'] },
-    ],
-  },
-  bs: {
-    id: 'bs',
-    title: 'Balance Sheet',
-    category: 'financial',
-    range: 'As of November 30, 2026',
-    description: 'Snapshot of what you own, owe, and are worth.',
-    icon: 'balance',
-    iconClass: styles.iconWrapTeal,
-    rows: [
-      { kind: 'section', cells: ['Assets', ''] },
-      { kind: 'sub', cells: ['Business checking', '$84,210.40'] },
-      { kind: 'sub', cells: ['Accounts receivable', '$8,420.00'] },
-      { kind: 'sub', cells: ['Stripe clearing', '$1,842.60'] },
-      { kind: 'total', label: 'Total assets', cells: ['$94,473.00'] },
-      { kind: 'section', cells: ['Liabilities', ''] },
-      { kind: 'sub', cells: ['Accounts payable', '$4,080.00'] },
-      { kind: 'sub', cells: ['Sales tax payable', '$1,880.00'] },
-      { kind: 'total', label: 'Total liabilities', cells: ['$5,960.00'] },
-      { kind: 'section', cells: ['Equity', ''] },
-      { kind: 'sub', cells: ["Owner's equity", '$66,010.00'] },
-      { kind: 'sub', cells: ['Retained earnings', '$22,503.00'] },
-      { kind: 'total', label: 'Total equity', cells: ['$88,513.00'] },
-      { kind: 'final', label: 'Total liabilities + equity', cells: ['$94,473.00'] },
-    ],
-  },
-  cashflow: {
-    id: 'cashflow',
-    title: 'Statement of Cash Flows',
-    category: 'financial',
-    range: 'November 1 – 30, 2026',
-    description: 'Where cash came from and where it went.',
-    icon: 'waterfall_chart',
-    iconClass: styles.iconWrapGreen,
-    rows: [
-      { kind: 'section', cells: ['Operating activities', ''] },
-      { kind: 'sub', cells: ['Net income', '$6,205.31'] },
-      { kind: 'sub', cells: ['Increase in A/R', '−$8,420.00'] },
-      { kind: 'sub', cells: ['Increase in A/P', '$4,080.00'] },
-      { kind: 'total', label: 'Net from operating', cells: ['$1,865.31'] },
-      { kind: 'section', cells: ['Investing activities', ''] },
-      { kind: 'sub', cells: ['Purchase of equipment', '−$2,400.00'] },
-      { kind: 'total', label: 'Net from investing', cells: ['−$2,400.00'] },
-      { kind: 'section', cells: ['Financing activities', ''] },
-      { kind: 'sub', cells: ['Owner contribution', '$5,000.00'] },
-      { kind: 'total', label: 'Net from financing', cells: ['$5,000.00'] },
-      { kind: 'final', label: 'Net change in cash', cells: ['$4,465.31'] },
-    ],
-  },
-  araging: {
-    id: 'araging',
-    title: 'A/R Aging Summary',
-    category: 'sales',
-    range: 'As of November 30, 2026',
-    description: 'Outstanding invoices by aging bucket.',
-    icon: 'hourglass_top',
-    iconClass: styles.iconWrapMaroon,
-    rows: [
-      { kind: 'section', cells: ['Customer', 'Current', '1–30', '31–60', '61+', 'Total'] },
-      { kind: 'sub', cells: ['Acme Corp', '$1,240.00', '—', '—', '—', '$1,240.00'] },
-      { kind: 'sub', cells: ['Maple Supply', '—', '$890.00', '—', '—', '$890.00'] },
-      { kind: 'sub', cells: ['Northwind Labs', '—', '—', '$2,100.00', '—', '$2,100.00'] },
-      { kind: 'sub', cells: ['Lakeside Design', '—', '—', '—', '$1,850.00', '$1,850.00'] },
-      {
-        kind: 'final',
-        label: 'Total',
-        cells: ['$1,240.00', '$890.00', '$2,100.00', '$1,850.00', '$6,080.00'],
-      },
-    ],
-  },
-  salesbycustomer: {
-    id: 'salesbycustomer',
-    title: 'Sales by Customer',
-    category: 'sales',
-    range: 'November 1 – 30, 2026',
-    description: 'Revenue per customer for the period.',
-    icon: 'groups',
-    iconClass: styles.iconWrapNavy,
-    rows: [
-      { kind: 'section', cells: ['Customer', 'Revenue', '% of total'] },
-      { kind: 'sub', cells: ['Acme Corp', '$8,640.00', '34%'] },
-      { kind: 'sub', cells: ['Blue Ridge Co.', '$7,410.00', '29%'] },
-      { kind: 'sub', cells: ['Northwind Labs', '$4,240.00', '17%'] },
-      { kind: 'sub', cells: ['Orion Apparel', '$3,890.00', '15%'] },
-      { kind: 'sub', cells: ['Maple Supply', '$1,180.00', '5%'] },
-      { kind: 'final', label: 'Total', cells: ['$25,360.00', '100%'] },
-    ],
-  },
-  expensesbyvendor: {
-    id: 'expensesbyvendor',
-    title: 'Expenses by Vendor',
-    category: 'expenses',
-    range: 'November 1 – 30, 2026',
-    description: 'Spend per vendor for the period.',
-    icon: 'receipt_long',
-    iconClass: styles.iconWrapMaroon,
-    rows: [
-      { kind: 'section', cells: ['Vendor', 'Expenses', 'Bills'] },
-      { kind: 'sub', cells: ['Printful', '$12,410.00', '8'] },
-      { kind: 'sub', cells: ['Gelato', '$6,240.00', '4'] },
-      { kind: 'sub', cells: ['Printify', '$4,180.00', '3'] },
-      { kind: 'sub', cells: ['Adobe', '$719.88', '12'] },
-      { kind: 'sub', cells: ['Staples', '$1,418.00', '9'] },
-      { kind: 'final', label: 'Total', cells: ['$24,967.88', '36'] },
-    ],
-  },
-  gl: {
-    id: 'gl',
-    title: 'General Ledger',
-    category: 'accounting',
-    range: 'November 1 – 30, 2026 · All accounts',
-    description: 'All account activity for the period.',
-    icon: 'menu_book',
-    iconClass: styles.iconWrapBlue,
-    rows: [
-      { kind: 'section', cells: ['Date', 'Description', 'Account', 'Debit', 'Credit'] },
-      { kind: 'sub', cells: ['11/01/2026', 'Invoice 1002', 'Sales — Apparel', '—', '$1,240.00'] },
-      { kind: 'sub', cells: ['11/01/2026', 'Invoice 1002', 'A/R', '$1,240.00', '—'] },
-      { kind: 'sub', cells: ['11/03/2026', 'Staples receipt', 'Office supplies', '$142.50', '—'] },
-      { kind: 'sub', cells: ['11/03/2026', 'Staples receipt', 'Business checking', '—', '$142.50'] },
-      { kind: 'sub', cells: ['11/10/2026', 'Stripe payout', 'Business checking', '$1,842.60', '—'] },
-      { kind: 'sub', cells: ['11/10/2026', 'Stripe payout', 'Stripe clearing', '—', '$1,842.60'] },
-      { kind: 'final', label: 'Total for period', cells: ['', '', '$3,225.10', '$3,225.10'] },
-    ],
-  },
-  tb: {
-    id: 'tb',
-    title: 'Trial Balance',
-    category: 'accounting',
-    range: 'As of November 30, 2026',
-    description: 'Account balances at a point in time.',
-    icon: 'rule',
-    iconClass: styles.iconWrapTeal,
-    rows: [
-      { kind: 'section', cells: ['Account', 'Debit', 'Credit'] },
-      { kind: 'sub', cells: ['1000 · Business checking', '$84,210.40', '—'] },
-      { kind: 'sub', cells: ['1100 · Accounts receivable', '$8,420.00', '—'] },
-      { kind: 'sub', cells: ['2000 · Accounts payable', '—', '$4,080.00'] },
-      { kind: 'sub', cells: ['2200 · Sales tax payable', '—', '$1,880.00'] },
-      { kind: 'sub', cells: ["3000 · Owner's equity", '—', '$66,010.00'] },
-      { kind: 'sub', cells: ['4000 · Sales — Apparel', '—', '$42,180.00'] },
-      { kind: 'sub', cells: ['5000 · COGS — Apparel', '$8,140.00', '—'] },
-      { kind: 'final', label: 'Total', cells: ['$100,770.40', '$114,150.00'] },
-    ],
-  },
-  salestax: {
-    id: 'salestax',
-    title: 'Sales Tax Liability',
-    category: 'tax',
-    range: 'November 1 – 30, 2026',
-    description: 'Sales tax collected minus paid.',
-    icon: 'gavel',
-    iconClass: styles.iconWrapGreen,
-    rows: [
-      { kind: 'section', cells: ['Jurisdiction', 'Collected', 'Paid', 'Owed'] },
-      { kind: 'sub', cells: ['Tennessee', '$1,410.00', '$920.00', '$490.00'] },
-      { kind: 'sub', cells: ['California', '$840.00', '$0.00', '$840.00'] },
-      { kind: 'sub', cells: ['New York', '$550.00', '$0.00', '$550.00'] },
-      { kind: 'final', label: 'Total', cells: ['$2,800.00', '$920.00', '$1,880.00'] },
-    ],
-  },
-};
+/* The library cards are chrome; every number in the viewer is computed
+   live by /api/accounting/reports/[id] from the posted GL */
+const REPORT_CARDS: ReportCard[] = [
+  { id: 'pnl', title: 'Profit and Loss', category: 'financial', range: 'Period + year to date', description: 'Revenue minus costs, broken down by account.', icon: 'trending_up', iconClass: styles.iconWrapBlue },
+  { id: 'bs', title: 'Balance Sheet', category: 'financial', range: 'As of date', description: 'Snapshot of what you own, owe, and are worth.', icon: 'balance', iconClass: styles.iconWrapTeal },
+  { id: 'cashflow', title: 'Statement of Cash Flows', category: 'financial', range: 'Period', description: 'Where cash came from and where it went.', icon: 'waterfall_chart', iconClass: styles.iconWrapGreen },
+  { id: 'araging', title: 'A/R Aging Summary', category: 'sales', range: 'As of date', description: 'Outstanding invoices by aging bucket. Posted invoices only — drafts excluded.', icon: 'hourglass_top', iconClass: styles.iconWrapMaroon },
+  { id: 'apaging', title: 'A/P Aging Summary', category: 'expenses', range: 'As of date', description: 'Outstanding bills by aging bucket. Posted bills only — drafts excluded.', icon: 'hourglass_bottom', iconClass: styles.iconWrapMaroon },
+  { id: 'monthly-pnl', title: 'Monthly P&L', category: 'financial', range: 'All months', description: 'Income, spend, and net by month, with prior-year net.', icon: 'calendar_month', iconClass: styles.iconWrapBlue },
+  { id: 'sales-funnel', title: 'Sales Funnel', category: 'sales', range: 'All invoices', description: 'Invoices by stage: draft, unpaid, overdue, deposited, paid.', icon: 'filter_list', iconClass: styles.iconWrapNavy },
+  { id: 'bill-funnel', title: 'Bill Funnel', category: 'expenses', range: 'All bills', description: 'Bills by stage: review, approval, unpaid, overdue, paid.', icon: 'filter_list', iconClass: styles.iconWrapMaroon },
+  { id: 'spend-by-category', title: 'Spend by Category', category: 'expenses', range: 'Period', description: 'Posted expense by account for the period.', icon: 'pie_chart', iconClass: styles.iconWrapMaroon },
+  { id: 'salesbycustomer', title: 'Sales by Customer', category: 'sales', range: 'Period', description: 'Revenue per customer for the period.', icon: 'groups', iconClass: styles.iconWrapNavy },
+  { id: 'expensesbyvendor', title: 'Expenses by Vendor', category: 'expenses', range: 'Period', description: 'Spend per vendor for the period.', icon: 'receipt_long', iconClass: styles.iconWrapMaroon },
+  { id: 'gl', title: 'General Ledger', category: 'accounting', range: 'Period · All accounts', description: 'All account activity for the period.', icon: 'menu_book', iconClass: styles.iconWrapBlue },
+  { id: 'tb', title: 'Trial Balance', category: 'accounting', range: 'As of date', description: 'Account balances at a point in time.', icon: 'rule', iconClass: styles.iconWrapTeal },
+  { id: 'salestax', title: 'Sales Tax Liability', category: 'tax', range: 'Period', description: 'Sales tax collected minus paid.', icon: 'gavel', iconClass: styles.iconWrapGreen },
+  { id: 'bank-feed-review', title: 'Bank Feed Review', category: 'accounting', range: 'Latest 100', description: 'Bank transactions with review status, suggested rule, and category.', icon: 'account_balance', iconClass: styles.iconWrapTeal },
+  { id: 'bank-feed-stages', title: 'Bank Feed Stages', category: 'accounting', range: 'Current', description: 'Feed items by review stage, per bank account.', icon: 'layers', iconClass: styles.iconWrapTeal },
+  { id: 'tasks-due', title: 'Close Tasks Due', category: 'accounting', range: 'Current', description: 'Open close tasks with due dates and overdue flags.', icon: 'task_alt', iconClass: styles.iconWrapBlue },
+  { id: 'undeposited', title: 'Undeposited Payments', category: 'accounting', range: 'Current', description: 'Posted receipts not yet deposited to a bank account.', icon: 'payments', iconClass: styles.iconWrapGreen },
+  { id: 'account-list', title: 'Account List', category: 'accounting', range: 'As of date', description: 'Every chart account with its live balance and last activity.', icon: 'list_alt', iconClass: styles.iconWrapBlue },
+];
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const monthBounds = (d: Date) => ({
+  from: iso(new Date(d.getFullYear(), d.getMonth(), 1)),
+  to: iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)),
+});
+const THIS_MONTH = monthBounds(new Date());
+
+interface ColItem {
+  col: string;
+  label: string;
+  checked: boolean;
+}
 
 export interface ReportsScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
@@ -226,15 +72,26 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
   const [searchQuery, setSearchQuery] = useState('');
 
   // Date range
-  const [dateFrom, setDateFrom] = useState('2026-11-01');
-  const [dateTo, setDateTo] = useState('2026-11-30');
+  const [dateFrom, setDateFrom] = useState(THIS_MONTH.from);
+  const [dateTo, setDateTo] = useState(THIS_MONTH.to);
   const [rangePreset, setRangePreset] = useState('This month');
+
+  // Live report data + saved views
+  const [reportData, setReportData] = useState<ReportDto | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const { views: savedViews, refresh: refreshViews } = useSavedReportViews();
 
   // Customize Drawer
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
   const [custTab, setCustTab] = useState<'data' | 'visual' | 'saved'>('data');
   const [negFormat, setNegFormat] = useState<'red' | 'paren' | 'minus'>('red');
+  const [highlightNeg, setHighlightNeg] = useState(true);
   const [savedViewName, setSavedViewName] = useState('');
+  const [cols, setCols] = useState<ColItem[]>([]);
+  const [rowsSel, setRowsSel] = useState('All rows');
+  const [excludeZero, setExcludeZero] = useState(false);
+  const [comparePrior, setComparePrior] = useState(false);
+  const [showPct, setShowPct] = useState(false);
 
   // Toast
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -253,11 +110,13 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
     };
   }, []);
 
-  const currentReport = REPORTS[selectedReportId] || REPORTS.pnl;
+  const currentReport: ReportDto | null = reportData && reportData.id === selectedReportId ? reportData : null;
+  const activeCard = REPORT_CARDS.find((c) => c.id === selectedReportId);
+  const activeTitle = currentReport?.title || activeCard?.title || 'Report';
 
   // Filtered reports in Library
   const filteredReports = useMemo(() => {
-    return Object.values(REPORTS).filter((r) => {
+    return REPORT_CARDS.filter((r) => {
       if (activeCategoryTab !== 'all' && r.category !== activeCategoryTab) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -273,35 +132,137 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  /* Fetch (and refetch on range / compare / pct change) */
+  useEffect(() => {
+    if (activeView !== 'viewer') return;
+    let alive = true;
+    setReportLoading(true);
+    (async () => {
+      const res = await fetchReport(selectedReportId, { from: dateFrom, to: dateTo, compare: comparePrior, pct: showPct });
+      if (!alive) return;
+      setReportLoading(false);
+      if (res.ok && res.data) {
+        setReportData(res.data);
+        setCols((prev) => {
+          const prevChecked = new Map(prev.map((c) => [c.col, c.checked]));
+          return res.data!.columns.map((label, i) => ({
+            col: `c${i}`,
+            label: label || 'Account',
+            checked: prevChecked.get(`c${i}`) ?? true,
+          }));
+        });
+      } else showToast(res.error || 'Report failed to load');
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, selectedReportId, dateFrom, dateTo, comparePrior, showPct]);
+
   const handlePresetChange = (preset: string) => {
     setRangePreset(preset);
+    const now = new Date();
     if (preset === 'This month') {
-      setDateFrom('2026-11-01');
-      setDateTo('2026-11-30');
+      const b = monthBounds(now);
+      setDateFrom(b.from);
+      setDateTo(b.to);
     } else if (preset === 'Last month') {
-      setDateFrom('2026-10-01');
-      setDateTo('2026-10-31');
+      const b = monthBounds(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      setDateFrom(b.from);
+      setDateTo(b.to);
     } else if (preset === 'This quarter') {
-      setDateFrom('2026-10-01');
-      setDateTo('2026-12-31');
+      const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      setDateFrom(iso(qStart));
+      setDateTo(iso(new Date(qStart.getFullYear(), qStart.getMonth() + 3, 0)));
     } else if (preset === 'This year') {
-      setDateFrom('2026-01-01');
-      setDateTo('2026-12-31');
+      setDateFrom(`${now.getFullYear()}-01-01`);
+      setDateTo(`${now.getFullYear()}-12-31`);
     } else if (preset === 'Last year') {
-      setDateFrom('2025-01-01');
-      setDateTo('2025-12-31');
+      setDateFrom(`${now.getFullYear() - 1}-01-01`);
+      setDateTo(`${now.getFullYear() - 1}-12-31`);
     }
   };
 
   const formatNegative = (val: string) => {
     if (!val || !val.startsWith('−')) return val;
     if (negFormat === 'red') {
-      return <span className={styles.numNeg}>{val}</span>;
+      return highlightNeg ? <span className={styles.numNeg}>{val}</span> : val;
     }
     if (negFormat === 'paren') {
       return <span className={styles.numNeg}>({val.slice(1)})</span>;
     }
     return val;
+  };
+
+  /* Row/column shaping from the customize state */
+  const hideZero = rowsSel === 'Non-zero only' || excludeZero;
+  const visibleRows: ReportRow[] = (currentReport?.rows ?? []).filter((row) => {
+    if (!hideZero || row.kind !== 'sub') return true;
+    return row.cells.slice(1).some((c) => c !== '—' && c !== '' && c !== '$0.00');
+  });
+  const colIdx = (c: ColItem) => parseInt(c.col.slice(1), 10);
+  const orderedCells = (row: ReportRow): string[] => {
+    if (!currentReport || cols.length === 0) return row.cells;
+    const shown = cols.filter((c) => c.checked);
+    if (row.kind === 'total' || row.kind === 'final') {
+      return shown.filter((c) => colIdx(c) > 0).map((c) => row.cells[colIdx(c) - 1] ?? '');
+    }
+    return shown.map((c) => row.cells[colIdx(c)] ?? '');
+  };
+
+  const handleCompareToggle = () => {
+    if (!comparePrior && selectedReportId !== 'pnl') {
+      showToast('Compare to prior period is available on Profit and Loss');
+      return;
+    }
+    setComparePrior((v) => !v);
+  };
+  const handlePctToggle = () => {
+    if (!showPct && selectedReportId !== 'pnl') {
+      showToast('Percentages are available on Profit and Loss');
+      return;
+    }
+    setShowPct((v) => !v);
+  };
+
+  const handleSaveView = async () => {
+    const name = savedViewName.trim();
+    if (!name) {
+      showToast('Name is required');
+      return;
+    }
+    const res = await reportViewMutations.save({
+      name,
+      from: dateFrom,
+      to: dateTo,
+      config: { reportId: selectedReportId, cols, rowsSel, excludeZero, comparePrior, showPct, negFormat, highlightNeg },
+    });
+    if (res.ok) {
+      showToast(`Saved view "${name}"`);
+      setSavedViewName('');
+      await refreshViews();
+    } else showToast(res.error || 'View could not be saved');
+  };
+
+  const applySavedView = (v: SavedViewDto) => {
+    const cfg = v.config || {};
+    const reportId = typeof cfg.reportId === 'string' ? cfg.reportId : null;
+    if (!reportId) {
+      showToast('This view has no report');
+      return;
+    }
+    if (Array.isArray(cfg.cols)) setCols(cfg.cols as ColItem[]);
+    if (typeof cfg.rowsSel === 'string') setRowsSel(cfg.rowsSel);
+    if (typeof cfg.excludeZero === 'boolean') setExcludeZero(cfg.excludeZero);
+    if (typeof cfg.comparePrior === 'boolean') setComparePrior(cfg.comparePrior);
+    if (typeof cfg.showPct === 'boolean') setShowPct(cfg.showPct);
+    if (cfg.negFormat === 'red' || cfg.negFormat === 'paren' || cfg.negFormat === 'minus') setNegFormat(cfg.negFormat);
+    if (typeof cfg.highlightNeg === 'boolean') setHighlightNeg(cfg.highlightNeg);
+    setDateFrom(v.from || dateFrom);
+    setDateTo(v.to || dateTo);
+    setIsCustomizeOpen(false);
+    openReportViewer(reportId);
+    showToast(`View "${v.name}" applied`);
   };
 
   return (
@@ -317,7 +278,7 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
           <span className={styles.breadcrumbSection}>Accounting</span>
           <span className={styles.breadcrumbSep}>/</span>
           <span className={styles.breadcrumbActive}>
-            {activeView === 'viewer' ? currentReport.title : 'Quick view'}
+            {activeView === 'viewer' ? activeTitle : 'Quick view'}
           </span>
         </div>
       </div>
@@ -338,7 +299,7 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
               <button
                 type="button"
                 className={styles.headerBtn}
-                onClick={() => showToast('Custom report builder')}
+                onClick={() => showToast('Start from a standard report, then Customize → Save as view')}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                   add
@@ -348,7 +309,7 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
               <button
                 type="button"
                 className={styles.headerBtn}
-                onClick={() => showToast('Saved views panel')}
+                onClick={() => { setCustTab('saved'); setIsCustomizeOpen(true); }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                   bookmark
@@ -441,9 +402,9 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                 </span>
               </button>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 600 }}>{currentReport.title}</div>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>{activeTitle}</div>
                 <div style={{ fontSize: 11, color: '#5a6355' }}>
-                  {dateFrom} – {dateTo}
+                  {currentReport?.range || `${dateFrom} – ${dateTo}`}
                 </div>
               </div>
             </div>
@@ -498,21 +459,22 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                 type="button"
                 className={styles.headerBtn}
                 onClick={() => {
-                  const cols = [
-                    { key: 'kind', label: 'Row type' },
-                    { key: 'line', label: 'Line item' },
-                    { key: 'value1', label: 'Value 1' },
-                    { key: 'value2', label: 'Value 2' },
-                    { key: 'value3', label: 'Value 3' },
-                  ];
-                  const rows: Record<string, unknown>[] = currentReport.rows.map((r) => ({
-                    kind: r.kind,
-                    line: r.label ?? r.cells[0] ?? '',
-                    value1: r.cells[1] ?? '',
-                    value2: r.cells[2] ?? '',
-                    value3: r.cells[3] ?? '',
-                  }));
-                  exportToCsv(rows, cols, `report-${currentReport.id}`);
+                  if (!currentReport) {
+                    showToast('Nothing to export');
+                    return;
+                  }
+                  const labels = currentReport.columns.map((c, i) => c || `Column ${i + 1}`);
+                  const rows: Record<string, unknown>[] = visibleRows.map((r) => {
+                    const obj: Record<string, unknown> = {};
+                    if (r.kind === 'total' || r.kind === 'final') {
+                      obj[labels[0]] = r.label || '';
+                      r.cells.forEach((c, i) => { obj[labels[i + 1]] = c; });
+                    } else {
+                      r.cells.forEach((c, i) => { obj[labels[i]] = c; });
+                    }
+                    return obj;
+                  });
+                  exportToCsv(rows, labels.map((l) => ({ key: l, label: l })), `report-${currentReport.id}`);
                   showToast(`Exported ${rows.length} records to CSV`);
                 }}
               >
@@ -542,9 +504,9 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
             <div className={styles.paperCard}>
               <div className={styles.paperHeader}>
                 <div className={styles.paperCompany}>Unsaid</div>
-                <div className={styles.paperTitle}>{currentReport.title}</div>
+                <div className={styles.paperTitle}>{activeTitle}</div>
                 <div className={styles.paperMeta}>
-                  {dateFrom} – {dateTo}
+                  {currentReport?.range || `${dateFrom} – ${dateTo}`}
                 </div>
                 <div style={{ fontSize: 11, color: '#5a6355', marginTop: 2 }}>
                   Accrual basis · USD ($)
@@ -553,11 +515,15 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
 
               <table className={styles.rptTable}>
                 <tbody>
-                  {currentReport.rows.map((row, idx) => {
+                  {reportLoading && (
+                    <tr className={styles.subRow}><td>Computing from the general ledger…</td></tr>
+                  )}
+                  {!reportLoading && visibleRows.map((row, idx) => {
+                    const cells = orderedCells(row);
                     if (row.kind === 'section') {
                       return (
                         <tr key={idx} className={styles.sectionRow}>
-                          {row.cells.map((c, i) => (
+                          {cells.map((c, i) => (
                             <td key={i} className={i === 0 ? '' : styles.alignRight}>
                               {c}
                             </td>
@@ -568,46 +534,34 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                     if (row.kind === 'sub') {
                       return (
                         <tr key={idx} className={styles.subRow}>
-                          {row.cells.map((c, i) => (
+                          {cells.map((c, i) => (
                             <td key={i} className={i === 0 ? '' : styles.alignRight}>
-                              {formatNegative(c)}
+                              {i === 0 ? c : formatNegative(c)}
                             </td>
                           ))}
                         </tr>
                       );
                     }
-                    if (row.kind === 'total') {
-                      return (
-                        <tr key={idx} className={styles.totalRow}>
-                          <td>{row.label}</td>
-                          {row.cells.map((c, i) => (
-                            <td key={i} className={styles.alignRight}>
-                              {formatNegative(c)}
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    }
-                    if (row.kind === 'final') {
-                      return (
-                        <tr key={idx} className={styles.finalRow}>
-                          <td>{row.label}</td>
-                          {row.cells.map((c, i) => (
-                            <td key={i} className={styles.alignRight}>
-                              {formatNegative(c)}
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    }
-                    return null;
+                    return (
+                      <tr key={idx} className={row.kind === 'final' ? styles.finalRow : styles.totalRow}>
+                        <td>{row.label}</td>
+                        {cells.map((c, i) => (
+                          <td key={i} className={styles.alignRight}>
+                            {formatNegative(c)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
                   })}
+                  {!reportLoading && currentReport && visibleRows.length === 0 && (
+                    <tr className={styles.subRow}><td>No rows for this period.</td></tr>
+                  )}
                 </tbody>
               </table>
 
               <div className={styles.paperFooter}>
-                <span>Last updated 2 minutes ago</span>
-                <span>Categorized 94% · 6 accounts pending review</span>
+                <span>Computed live from posted journal entries</span>
+                <span>{currentReport ? `${currentReport.rows.length} rows · Accrual basis` : ''}</span>
               </div>
             </div>
           </div>
@@ -667,10 +621,8 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#5a6355', marginBottom: 6 }}>
                   Rows
                 </label>
-                <select className={styles.dateInput} style={{ width: '100%', height: 36 }}>
-                  <option>All accounts</option>
-                  <option>Income accounts only</option>
-                  <option>Expense accounts only</option>
+                <select className={styles.dateInput} style={{ width: '100%', height: 36 }} value={rowsSel} onChange={(e) => setRowsSel(e.target.value)}>
+                  <option>All rows</option>
                   <option>Non-zero only</option>
                 </select>
               </div>
@@ -680,30 +632,30 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                   Columns
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {['Account', 'Nov 2026', 'Jan – Nov 2026 (YTD)', '% of income', 'Budget', 'Variance'].map(
-                    (col, i) => (
-                      <label
-                        key={col}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          fontSize: 13,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#becab6' }}>
-                          drag_indicator
-                        </span>
-                        <input
-                          type="checkbox"
-                          defaultChecked={i < 3}
-                          style={{ accentColor: '#0077c5' }}
-                        />
-                        <span>{col}</span>
-                      </label>
-                    )
-                  )}
+                  {cols.map((c) => (
+                    <label
+                      key={c.col}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#becab6' }}>
+                        drag_indicator
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={c.checked}
+                        onChange={() => setCols((prev) => prev.map((x) => (x.col === c.col ? { ...x, checked: !x.checked } : x)))}
+                        style={{ accentColor: '#0077c5' }}
+                      />
+                      <span>{c.label}</span>
+                    </label>
+                  ))}
+                  {cols.length === 0 && <span style={{ fontSize: 12, color: '#5a6355' }}>Open a report to see its columns.</span>}
                 </div>
               </div>
 
@@ -713,15 +665,15 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="checkbox" style={{ accentColor: '#0077c5' }} />
+                    <input type="checkbox" style={{ accentColor: '#0077c5' }} checked={excludeZero} onChange={() => setExcludeZero((v) => !v)} />
                     Exclude zero rows
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="checkbox" style={{ accentColor: '#0077c5' }} />
+                    <input type="checkbox" style={{ accentColor: '#0077c5' }} checked={comparePrior} onChange={handleCompareToggle} />
                     Compare to prior period
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="checkbox" style={{ accentColor: '#0077c5' }} />
+                    <input type="checkbox" style={{ accentColor: '#0077c5' }} checked={showPct} onChange={handlePctToggle} />
                     Show percentages
                   </label>
                 </div>
@@ -754,7 +706,7 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                   Highlighting
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                  <input type="checkbox" defaultChecked style={{ accentColor: '#0077c5' }} />
+                  <input type="checkbox" checked={highlightNeg} onChange={() => setHighlightNeg((v) => !v)} style={{ accentColor: '#0077c5' }} />
                   Highlight negative values in red
                 </label>
               </div>
@@ -778,18 +730,34 @@ export default function ReportsScreen({ onNavigate, onToast }: ReportsScreenProp
                   type="button"
                   className={styles.headerBtnPrimary}
                   style={{ width: '100%', height: 36, borderRadius: 6, cursor: 'pointer' }}
-                  onClick={() => {
-                    if (!savedViewName.trim()) {
-                      showToast('Name is required');
-                      return;
-                    }
-                    showToast(`Saved view "${savedViewName}"`);
-                    setSavedViewName('');
-                    setIsCustomizeOpen(false);
-                  }}
+                  onClick={() => void handleSaveView()}
                 >
                   Save as view
                 </button>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#5a6355', marginBottom: 6 }}>
+                  Existing views
+                </label>
+                {savedViews.map((v) => (
+                  <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #eeedf1' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{v.name}</div>
+                      <div style={{ fontSize: 11, color: '#5a6355' }}>{v.from} – {v.to}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.headerBtn}
+                      onClick={() => applySavedView(v)}
+                    >
+                      Apply
+                    </button>
+                  </div>
+                ))}
+                {savedViews.length === 0 && (
+                  <div style={{ fontSize: 12, color: '#5a6355', textAlign: 'center', padding: '12px 0' }}>No saved views yet.</div>
+                )}
               </div>
             </div>
           )}

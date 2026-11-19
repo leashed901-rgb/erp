@@ -1,9 +1,17 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-
 import { DomainKey } from '@/data/shellData';
-import DocumentEngine from '../DocumentEngine';
+import {
+  useReceipts,
+  useBankAccounts,
+  useChartOfAccounts,
+  receiptMutations,
+  fetchReceiptMatchCandidates,
+  fetchOpenBills,
+  type OpenBillDto,
+} from '@/hooks/useAccountingApi';
+import type { ReceiptDto, ReceiptMatchCandidate } from '@/lib/acctTypes';
 import styles from './ReceiptsScreen.module.css';
 
 export interface ReceiptItem {
@@ -19,12 +27,13 @@ export interface ReceiptItem {
   actionLabel?: string;
   isProcessing?: boolean;
   notes?: string;
+  dto: ReceiptDto | null;
 }
 
-/* ── Store ↔ screen adapters ────────────────────────────────────────
-   The shared store owns the data (§1.1). Receipts are SalesReceipt
-   documents: Draft = for review, Paid = reviewed,
-   Deposited = matched to a bank transaction. */
+/* ── API ↔ screen adapters ──────────────────────────────────────────
+   Receipts are acct_document_inbox rows (+ acct_receipt_extractions).
+   Extraction runs on the platform — until it lands, a row honestly
+   shows "Awaiting extraction" instead of an invented vendor. */
 
 /* ISO (YYYY-MM-DD) → MM/DD/YYYY for display; blank → em dash */
 const fmtDate = (iso: string) => {
@@ -33,9 +42,47 @@ const fmtDate = (iso: string) => {
   return m ? `${m[2]}/${m[3]}/${m[1]}` : iso;
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
-
 const parseMoney = (val: string) => parseFloat(String(val).replace(/[$,\s]/g, '')) || 0;
+
+const money = (n: number | null) => (n == null ? '—' : `$${n.toFixed(2)}`);
+
+function toReceiptItem(dto: ReceiptDto): ReceiptItem {
+  return {
+    id: dto.id,
+    no: dto.ref,
+    vendor: dto.vendorName || 'Awaiting extraction',
+    amount: money(dto.amount),
+    tax: money(dto.taxAmount),
+    date: fmtDate(dto.date),
+    account: dto.paymentAccountLabel || dto.fileName || '',
+    category: dto.categoryLabel || '',
+    status: dto.status,
+    actionLabel: dto.createdSpendId
+      ? 'Expense created'
+      : dto.createdBillId
+        ? 'Bill created'
+        : dto.matchedBankTransactionId
+          ? 'Matched'
+          : undefined,
+    notes: dto.notes || undefined,
+    dto,
+  };
+}
+
+/* sha256 of the picked file, computed in the browser for the intake
+   row; falls back to a local fingerprint where SubtleCrypto is absent */
+async function fileFingerprint(file: File): Promise<string> {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const buf = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch {
+    /* fall through */
+  }
+  return `local-${file.name}-${file.size}-${file.lastModified}`;
+}
 
 export interface ReceiptsScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
@@ -47,21 +94,19 @@ export interface ReceiptsScreenProps {
 export default function ReceiptsScreen({
   onToast,
 }: ReceiptsScreenProps) {
-  
+  const { receipts: receiptDtos, refresh: refreshReceipts } = useReceipts();
+  const { bankAccounts } = useBankAccounts();
+  const { accounts: coaAccounts } = useChartOfAccounts();
   const [activeTab, setActiveTab] = useState<'review' | 'reviewed' | 'all'>('review');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDragover, setIsDragover] = useState(false);
   const [copyConfirmed, setCopyConfirmed] = useState(false);
 
-  // Ephemeral rows while OCR extraction is in flight (persisted once resolved)
+  // Ephemeral rows only while the intake POST itself is in flight
   const [processingRows, setProcessingRows] = useState<ReceiptItem[]>([]);
-  // Transient "Expense created" / "Matched" badge labels (not persisted)
-  const [actionLabels, setActionLabels] = useState<Record<string, string>>({});
-  // Document page (§1.5) — row open/edit renders the shared DocumentEngine
-  const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Drawer state
+  // Drawer state (account/category hold real ids for the API)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeReceipt, setActiveReceipt] = useState<ReceiptItem | null>(null);
   const [drawerForm, setDrawerForm] = useState({
@@ -69,7 +114,7 @@ export default function ReceiptsScreen({
     date: '',
     amount: '',
     tax: '',
-    account: 'Visa •4421',
+    account: '',
     category: '',
     notes: '',
   });
@@ -85,6 +130,11 @@ export default function ReceiptsScreen({
 
   const [matchMenuOpen, setMatchMenuOpen] = useState(false);
   const [matchMenuPos, setMatchMenuPos] = useState({ top: 0, left: 0 });
+  const [matchTargetId, setMatchTargetId] = useState<string | null>(null);
+  const [matchCandidates, setMatchCandidates] = useState<ReceiptMatchCandidate[]>([]);
+  const [openBillsList, setOpenBillsList] = useState<OpenBillDto[]>([]);
+  const [catSearch, setCatSearch] = useState('');
+  const [bulkCatMode, setBulkCatMode] = useState(false);
 
   // Toast
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -92,7 +142,6 @@ export default function ReceiptsScreen({
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const snapInputRef = useRef<HTMLInputElement>(null);
-  const counterRef = useRef(1050);
 
   const showToast = (msg: string) => {
     if (onToast) onToast(msg);
@@ -129,24 +178,17 @@ export default function ReceiptsScreen({
     setTimeout(() => setCopyConfirmed(false), 2000);
   };
 
-  // Open Receipt Drawer
+  // Open Receipt Drawer — form seeds from the receipt's real fields
   const handleOpenReceipt = (rec: ReceiptItem) => {
     setActiveReceipt(rec);
     setDrawerForm({
-      vendor: rec.vendor,
-      date: rec.date.includes('/')
-        ? (() => {
-            const parts = rec.date.split('/');
-            return parts.length === 3
-              ? `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
-              : rec.date;
-          })()
-        : rec.date,
-      amount: rec.amount,
-      tax: rec.tax,
-      account: rec.account || 'Visa •4421',
-      category: rec.category,
-      notes: rec.notes || '',
+      vendor: rec.dto?.vendorName || '',
+      date: rec.dto?.date || '',
+      amount: rec.dto?.amount != null ? rec.dto.amount.toFixed(2) : '',
+      tax: rec.dto?.taxAmount != null ? rec.dto.taxAmount.toFixed(2) : '',
+      account: rec.dto?.paymentAccountId || bankAccounts[0]?.id || '',
+      category: rec.dto?.categoryAccountId || '',
+      notes: rec.dto?.notes || '',
     });
     setIsDrawerOpen(true);
   };
@@ -156,32 +198,30 @@ export default function ReceiptsScreen({
     setActiveReceipt(null);
   };
 
-  /* Single source of truth: receipts are derived from the shared store */
-  const toReceiptItem = (doc: Document): ReceiptItem => {
-    const party = null;
-    return {
-      id: doc.id,
-      no: doc.number,
-      vendor: party?.name || '—',
-      amount: `$${doc.total.toFixed(2)}`,
-      tax: `$${doc.tax.toFixed(2)}`,
-      date: fmtDate(doc.date),
-      account: doc.channelId || '',
-      category: doc.lines[0]?.account || '',
-      status: doc.status === 'Draft' ? 'review' : 'reviewed',
-      notes: doc.notes,
-    };
+  /* Drawer field edits persist on blur (extraction upsert server-side) */
+  const persistDrawerFields = async () => {
+    if (!activeReceipt) return;
+    const patch: Parameters<typeof receiptMutations.update>[1] = {};
+    const dto = activeReceipt.dto;
+    if (drawerForm.vendor !== (dto?.vendorName || '')) patch.vendorName = drawerForm.vendor;
+    if (drawerForm.date && drawerForm.date !== dto?.date) patch.receiptDate = drawerForm.date;
+    const total = parseMoney(drawerForm.amount);
+    if (drawerForm.amount && total !== dto?.amount) patch.total = total;
+    const tax = parseMoney(drawerForm.tax);
+    if (drawerForm.tax && tax !== dto?.taxAmount) patch.taxAmount = tax;
+    if (drawerForm.category !== (dto?.categoryAccountId || '')) patch.categoryAccountId = drawerForm.category || null;
+    if (drawerForm.notes !== (dto?.notes || '')) patch.notes = drawerForm.notes || null;
+    if (Object.keys(patch).length === 0) return;
+    const res = await receiptMutations.update(activeReceipt.id, patch);
+    if (res.ok) await refreshReceipts();
+    else showToast(res.error || 'Changes could not be saved');
   };
 
-  const receipts = (() => {
-    const storeRows = []
-      .filter((d) => d.type === 'SalesReceipt')
-      .map((doc) => {
-        const row = toReceiptItem(doc);
-        return actionLabels[doc.id] ? { ...row, actionLabel: actionLabels[doc.id] } : row;
-      });
-    return [...processingRows, ...storeRows];
-  })();
+  /* Rows: in-flight intake rows first, then the real inbox */
+  const receipts = useMemo(
+    () => [...processingRows, ...receiptDtos.map(toReceiptItem)],
+    [processingRows, receiptDtos],
+  );
 
   // Filtered receipts
   const filteredReceipts = useMemo(() => {
@@ -206,32 +246,6 @@ export default function ReceiptsScreen({
     return receipts.filter((r) => r.status === 'review').length;
   }, [receipts]);
 
-  // Find (or create) the party behind an extracted vendor name
-  const findOrCreateParty = (vendorName: string): string => {
-    // TODO: search /api/parties for existing vendor by name
-    return "new-" + Date.now();
-  };
-  // Old store-based party creation removed — uses API now
-
-  // Match menu data — unmatched bank movements + open bills from the store
-  const unmatchedTransactions = []
-    .filter((m) => !m.documentId)
-    .map((m) => ({
-      name: m.memo || m.reference || `${m.type} ${m.id}`,
-      date: `${fmtDate(m.date)} · ${m.toAccount}`,
-      amt: `−$${m.amount.toFixed(2)}`,
-      isBank: true,
-    }));
-
-  const openBills = []
-    .filter((d) => d.type === 'Bill' && d.status !== 'Paid' && d.status !== 'Void')
-    .map((d) => ({
-      name: `Bill ${d.number} · ${null?.name || '—'}`,
-      date: `Due ${fmtDate(d.dueDate)}`,
-      amt: `$${d.total.toFixed(2)}`,
-      isBank: false,
-    }));
-
   // Bulk selection
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -248,230 +262,298 @@ export default function ReceiptsScreen({
     setSelectedIds(next);
   };
 
-  // Bulk actions
-  const handleBulkAction = (act: string) => {
+  /* Open the match menu for a receipt: real bank candidates from
+     acct_match_receipts + the tenant's open bills */
+  const openMatchMenu = async (receiptId: string, pos: { top: number; left: number }) => {
+    setMatchTargetId(receiptId);
+    setMatchMenuPos(pos);
+    setMatchCandidates([]);
+    setOpenBillsList([]);
+    setMatchMenuOpen(true);
+    const [candRes, billsRes] = await Promise.all([fetchReceiptMatchCandidates(receiptId), fetchOpenBills()]);
+    if (candRes.ok && candRes.data) setMatchCandidates(candRes.data);
+    if (billsRes.ok && billsRes.data) setOpenBillsList(billsRes.data.filter((b) => !b.inboxId || b.inboxId === receiptId));
+  };
+
+  // Bulk actions — real mutations with tallies
+  const handleBulkAction = async (act: string, anchor?: { top: number; left: number }) => {
     if (act === 'close') {
       setSelectedIds(new Set());
       return;
     }
-    const count = selectedIds.size;
+    const ids = [...selectedIds];
+    const count = ids.length;
     if (act === 'delete') {
-      selectedIds.forEach((id) => onToast('Deleted'));
+      let ok = 0;
+      for (const id of ids) {
+        const res = await receiptMutations.remove(id);
+        if (res.ok) ok += 1;
+      }
+      showToast(`Deleted ${ok} of ${count} receipt${count !== 1 ? 's' : ''}`);
       setSelectedIds(new Set());
-      showToast(`Deleted ${count} receipt${count !== 1 ? 's' : ''}`);
+      await refreshReceipts();
       return;
     }
     if (act === 'create') {
-      selectedIds.forEach((id) => onToast('Status updated'));
-      setActionLabels((prev) => {
-        const next = { ...prev };
-        selectedIds.forEach((id) => {
-          next[id] = 'Expense created';
+      let ok = 0;
+      let skipped = 0;
+      for (const id of ids) {
+        const dto = receiptDtos.find((r) => r.id === id);
+        if (!dto || dto.createdSpendId || !dto.categoryAccountId || dto.amount == null) {
+          skipped += 1;
+          continue;
+        }
+        const bankAccountId = dto.paymentAccountId || bankAccounts[0]?.id;
+        if (!bankAccountId) {
+          skipped += 1;
+          continue;
+        }
+        const res = await receiptMutations.createExpense(id, {
+          categoryAccountId: dto.categoryAccountId,
+          bankAccountId,
+          total: dto.amount,
+          taxAmount: dto.taxAmount ?? undefined,
         });
-        return next;
-      });
+        if (res.ok) ok += 1;
+        else skipped += 1;
+      }
+      showToast(
+        `Created expenses for ${ok} receipt${ok !== 1 ? 's' : ''}${skipped ? ` · ${skipped} skipped (need category + amount first)` : ''}`,
+      );
       setSelectedIds(new Set());
-      showToast(`Created expenses for ${count} receipt${count !== 1 ? 's' : ''}`);
+      await refreshReceipts();
       return;
     }
-    showToast(`${act.charAt(0).toUpperCase() + act.slice(1)} on ${count} receipt${count !== 1 ? 's' : ''}`);
+    if (act === 'categorize') {
+      if (anchor) setCatPickerPos(anchor);
+      setBulkCatMode(true);
+      setCatPickerTargetId(null);
+      setCatSearch('');
+      setCatPickerOpen(true);
+      return;
+    }
+    if (act === 'attach') {
+      const first = ids[0];
+      if (first && anchor) {
+        setSelectedIds(new Set());
+        await openMatchMenu(first, anchor);
+      }
+      return;
+    }
+    showToast(`${act} on ${count} receipt${count !== 1 ? 's' : ''}`);
   };
 
-  // Add processing row & simulate OCR extraction
-  const processFiles = (fileList: FileList | null) => {
+  /* Intake: POST the file's fingerprint — the row lands in
+     acct_document_inbox as 'uploaded'; the platform extracts fields
+     from there. No vendor or amount is invented client-side. */
+  const processFiles = (fileList: FileList | null, source: 'upload' | 'photo' = 'upload') => {
     if (!fileList || fileList.length === 0) return;
     const files = Array.from(fileList);
-
-    files.forEach((file, idx) => {
-      counterRef.current += 1;
-      const curIdNum = counterRef.current;
-      const newId = `R-${curIdNum}`;
-      const fakeVendors = [
-        'Staples',
-        'FedEx',
-        'Adobe',
-        'Amazon Web Services',
-        'Google Workspace',
-        'UPS',
-      ];
-      const vendorGuess = fakeVendors[curIdNum % fakeVendors.length];
-      const baseAmt = 35 + (curIdNum * 19) % 150;
-      const dateGuess = fmtDate(todayISO());
-
+    files.forEach((file) => {
+      const tempId = `intake-${file.name}-${file.size}`;
       const tempRow: ReceiptItem = {
-        id: newId,
-        no: newId,
-        vendor: 'Extracting…',
+        id: tempId,
+        no: file.name,
+        vendor: 'Receiving…',
         amount: '…',
         tax: '…',
-        date: dateGuess,
+        date: fmtDate(new Date().toISOString().slice(0, 10)),
         account: file.name,
         category: '',
         status: 'review',
         isProcessing: true,
+        dto: null,
       };
-
       setProcessingRows((prev) => [tempRow, ...prev]);
-
-      setTimeout(() => {
-        setProcessingRows((prev) => prev.filter((r) => r.id !== newId));
-
-        // Persist the extracted receipt as a SalesReceipt (for review)
-        const partyId = findOrCreateParty(vendorGuess);
-        const srCount = 0;
-        const taxAmt = Math.round(baseAmt * 0.06 * 100) / 100;
-        const subtotalAmt = Math.round((baseAmt - taxAmt) * 100) / 100;
-        fetch('/api/v1/documents', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'SalesReceipt', partyId, subtotal: subtotalAmt, total: baseAmt }),
-        }).catch(() => {});
-        // Old store-based document creation removed — uses Document Engine API above
-
-        showToast(`${vendorGuess} receipt extracted from ${file.name}`);
-      }, 1100 + idx * 300);
+      void (async () => {
+        const sha256 = await fileFingerprint(file);
+        const res = await receiptMutations.intake({ fileName: file.name, sha256, source });
+        setProcessingRows((prev) => prev.filter((r) => r.id !== tempId));
+        if (res.ok) {
+          showToast(`Receipt "${file.name}" received — awaiting extraction`);
+          await refreshReceipts();
+        } else showToast(res.error || `Could not receive "${file.name}"`);
+      })();
     });
   };
 
-  // Category picker selection
-  const handlePickCategory = (cat: string) => {
-    if (catPickerTargetId) {
-      const doc = null;
-      if (doc) {
-        const lines: DocumentLine[] = doc.lines.length
-          ? doc.lines.map((l, i) => (i === 0 ? { ...l, account: cat } : l))
-          : [
-              {
-                id: 'L1',
-                itemId: null,
-                description: 'Receipt',
-                qty: 1,
-                rate: doc.subtotal,
-                amount: doc.subtotal,
-                taxRate: 0,
-                account: cat,
-                tags: [],
-              },
-            ];
-        null(catPickerTargetId, { lines });
-      }
-      showToast(`Category updated to "${cat}"`);
-    }
+  // Category picker selection — persists the intended category
+  const handlePickCategory = async (accountId: string) => {
     setCatPickerOpen(false);
+    const account = coaAccounts.find((a) => a.id === accountId);
+    if (bulkCatMode) {
+      setBulkCatMode(false);
+      const ids = [...selectedIds];
+      let ok = 0;
+      for (const id of ids) {
+        const res = await receiptMutations.update(id, { categoryAccountId: accountId });
+        if (res.ok) ok += 1;
+      }
+      showToast(`Categorized ${ok} of ${ids.length} receipts as "${account?.name || 'category'}"`);
+      setSelectedIds(new Set());
+      await refreshReceipts();
+      return;
+    }
+    if (!catPickerTargetId) return;
+    const res = await receiptMutations.update(catPickerTargetId, { categoryAccountId: accountId });
+    if (res.ok) {
+      showToast(`Category updated to "${account?.name || 'category'}"`);
+      await refreshReceipts();
+    } else showToast(res.error || 'Category could not be saved');
   };
 
-  // Match menu selection
-  const handleSelectMatch = (matchName: string) => {
-    const targetId = rowMenuTargetId || activeReceipt?.id;
-    if (targetId && null) {
-      // Matched into the bank — the receipt settles as Deposited
-      onToast('Status updated');
-      setActionLabels((prev) => ({ ...prev, [targetId]: 'Matched' }));
-      showToast(`Receipt matched to "${matchName}"`);
-    }
+  // Match menu selections — bank candidate or open bill
+  const handleSelectBankMatch = async (candidate: ReceiptMatchCandidate) => {
+    if (!matchTargetId) return;
+    const res = await receiptMutations.match(matchTargetId, candidate.bankTransactionId);
     setMatchMenuOpen(false);
     setRowMenuOpen(false);
-    setIsDrawerOpen(false);
+    if (res.ok) {
+      showToast(`Receipt matched to "${candidate.description}"`);
+      setIsDrawerOpen(false);
+      await refreshReceipts();
+    } else showToast(res.error || 'Match failed');
+  };
+
+  const handleSelectBillAttach = async (bill: OpenBillDto) => {
+    if (!matchTargetId) return;
+    const res = await receiptMutations.attachBill(matchTargetId, bill.id);
+    setMatchMenuOpen(false);
+    setRowMenuOpen(false);
+    if (res.ok) {
+      showToast(`Receipt attached to bill ${bill.billNumber}`);
+      setIsDrawerOpen(false);
+      await refreshReceipts();
+    } else showToast(res.error || 'Attach failed');
   };
 
   // Row menu actions
-  const handleRowMenuAction = (action: string) => {
+  const handleRowMenuAction = async (action: string) => {
     const rec = receipts.find((r) => r.id === rowMenuTargetId);
     setRowMenuOpen(false);
-    if (!rec) return;
+    if (!rec || !rec.dto) return;
+    const dto = rec.dto;
 
     switch (action) {
       case 'view':
       case 'edit':
-        setEditingId(rec.id);
+        handleOpenReceipt(rec);
         break;
       case 'download':
-        showToast('Download original receipt PDF/JPG');
+        showToast('Original files are served by the platform file service');
         break;
-      case 'create-expense':
-        onToast('Status updated');
-        setActionLabels((prev) => ({ ...prev, [rec.id]: 'Expense created' }));
-        showToast('Expense created from receipt');
-        break;
-      case 'create-bill':
-        showToast('Bill created from receipt');
-        break;
-      case 'attach':
-        showToast('Attach to existing — opens bill picker');
-        break;
-      case 'match':
-        setMatchMenuOpen(true);
-        break;
-      case 'mark-reviewed':
-        onToast('Status updated');
-        setActionLabels((prev) => ({ ...prev, [rec.id]: 'Reviewed' }));
-        showToast('Marked as reviewed');
-        break;
-      case 'unmark-reviewed':
-        onToast('Status updated');
-        setActionLabels((prev) => {
-          const next = { ...prev };
-          delete next[rec.id];
-          return next;
+      case 'create-expense': {
+        if (dto.createdSpendId) {
+          showToast('Expense already created from this receipt');
+          break;
+        }
+        const categoryAccountId = dto.categoryAccountId;
+        const bankAccountId = dto.paymentAccountId || bankAccounts[0]?.id;
+        if (!categoryAccountId || dto.amount == null || !bankAccountId) {
+          handleOpenReceipt(rec);
+          showToast('Set the category, amount and payment account first');
+          break;
+        }
+        const res = await receiptMutations.createExpense(rec.id, {
+          categoryAccountId,
+          bankAccountId,
+          total: dto.amount,
+          taxAmount: dto.taxAmount ?? undefined,
         });
-        showToast('Moved back to review');
+        if (res.ok) {
+          showToast('Expense created from receipt');
+          await refreshReceipts();
+        } else showToast(res.error || 'Expense could not be created');
         break;
-      case 'delete':
-        onToast('Deleted');
-        showToast('Receipt deleted');
+      }
+      case 'create-bill': {
+        if (dto.createdBillId) {
+          showToast('Bill already created from this receipt');
+          break;
+        }
+        if (!dto.vendorName || dto.amount == null) {
+          handleOpenReceipt(rec);
+          showToast('Set the vendor and amount first');
+          break;
+        }
+        const res = await receiptMutations.createBill(rec.id, {
+          vendorName: dto.vendorName,
+          total: dto.amount,
+          taxAmount: dto.taxAmount ?? undefined,
+        });
+        if (res.ok) {
+          showToast('Bill created from receipt');
+          await refreshReceipts();
+        } else showToast(res.error || 'Bill could not be created');
         break;
+      }
+      case 'attach':
+      case 'match':
+        await openMatchMenu(rec.id, { top: rowMenuPos.top, left: rowMenuPos.left });
+        break;
+      case 'mark-reviewed': {
+        const res = await receiptMutations.update(rec.id, { status: 'reviewed' });
+        if (res.ok) {
+          showToast('Marked as reviewed');
+          await refreshReceipts();
+        } else showToast(res.error || 'Status could not be updated');
+        break;
+      }
+      case 'unmark-reviewed': {
+        const res = await receiptMutations.update(rec.id, { status: 'review' });
+        if (res.ok) {
+          showToast('Moved back to review');
+          await refreshReceipts();
+        } else showToast(res.error || 'Status could not be updated');
+        break;
+      }
+      case 'delete': {
+        const res = await receiptMutations.remove(rec.id);
+        if (res.ok) {
+          showToast('Receipt deleted');
+          await refreshReceipts();
+        } else showToast(res.error || 'Receipt could not be deleted');
+        break;
+      }
     }
   };
 
-  // Drawer create expense
-  const handleDrawerCreateExpense = () => {
-    if (activeReceipt) {
-      const total = parseMoney(drawerForm.amount);
-      const tax = parseMoney(drawerForm.tax);
-      const subtotal = Math.max(0, total - tax);
-      const partyId = findOrCreateParty(drawerForm.vendor || 'Unknown vendor');
-      null(activeReceipt.id, {
-        partyId,
-        date: drawerForm.date || todayISO(),
-        subtotal,
-        tax,
-        total,
-        amountPaid: total,
-        balance: 0,
-        status: 'Paid',
-        channelId: drawerForm.account,
-        notes: drawerForm.notes,
-        lines: [
-          {
-            id: 'L1',
-            itemId: null,
-            description: `Receipt — ${drawerForm.vendor}`,
-            qty: 1,
-            rate: subtotal,
-            amount: subtotal,
-            taxRate: 0,
-            account: drawerForm.category,
-            tags: [],
-          },
-        ],
-      });
-      setActionLabels((prev) => ({ ...prev, [activeReceipt.id]: 'Expense created' }));
+  // Drawer create expense — persist the form first, then create
+  const handleDrawerCreateExpense = async () => {
+    if (!activeReceipt) return;
+    if (activeReceipt.dto?.createdSpendId) {
+      showToast('Expense already created from this receipt');
+      setIsDrawerOpen(false);
+      return;
+    }
+    const total = parseMoney(drawerForm.amount);
+    if (!drawerForm.category) {
+      showToast('Pick a category first');
+      return;
+    }
+    if (!drawerForm.account) {
+      showToast('Pick a payment account first');
+      return;
+    }
+    if (!total) {
+      showToast('Enter the receipt amount first');
+      return;
+    }
+    await persistDrawerFields();
+    const res = await receiptMutations.createExpense(activeReceipt.id, {
+      categoryAccountId: drawerForm.category,
+      bankAccountId: drawerForm.account,
+      vendorName: drawerForm.vendor || undefined,
+      date: drawerForm.date || undefined,
+      total,
+      taxAmount: parseMoney(drawerForm.tax) || undefined,
+    });
+    if (res.ok) {
       showToast('Expense created from receipt');
       setIsDrawerOpen(false);
-    }
+      await refreshReceipts();
+    } else showToast(res.error || 'Expense could not be created');
   };
-
-  /* §1.5 — row open/edit renders the shared DocumentEngine page */
-  if (editingId) {
-    return (
-      <DocumentEngine
-        type="SalesReceipt"
-        documentId={editingId}
-        onToast={onToast || (() => undefined)}
-        onClose={() => setEditingId(null)}
-      />
-    );
-  }
 
   return (
     <div className={styles.container}>
@@ -678,7 +760,7 @@ export default function ReceiptsScreen({
               Saved views
             </button>
             <span className={styles.countText}>
-              1–{filteredReceipts.length} of {receipts.length}
+              {filteredReceipts.length} of {receipts.length}
             </span>
           </div>
 
@@ -690,7 +772,13 @@ export default function ReceiptsScreen({
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => handleBulkAction('categorize')}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  void handleBulkAction('categorize', {
+                    top: rect.bottom + 4,
+                    left: Math.min(rect.left, window.innerWidth - 300),
+                  });
+                }}
               >
                 <span
                   className="material-symbols-outlined"
@@ -703,7 +791,13 @@ export default function ReceiptsScreen({
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => handleBulkAction('attach')}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  void handleBulkAction('attach', {
+                    top: rect.bottom + 4,
+                    left: Math.min(rect.left, window.innerWidth - 360),
+                  });
+                }}
               >
                 <span
                   className="material-symbols-outlined"
@@ -716,7 +810,7 @@ export default function ReceiptsScreen({
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => handleBulkAction('create')}
+                onClick={() => void handleBulkAction('create')}
               >
                 <span
                   className="material-symbols-outlined"
@@ -730,7 +824,7 @@ export default function ReceiptsScreen({
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => handleBulkAction('delete')}
+                onClick={() => void handleBulkAction('delete')}
               >
                 <span
                   className="material-symbols-outlined"
@@ -743,7 +837,7 @@ export default function ReceiptsScreen({
               <button
                 type="button"
                 className={styles.bulkCloseBtn}
-                onClick={() => handleBulkAction('close')}
+                onClick={() => void handleBulkAction('close')}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                   close
@@ -789,7 +883,7 @@ export default function ReceiptsScreen({
                     key={rec.id}
                     className={`${styles.row} ${rec.isProcessing ? styles.processingRow : ''}`}
                     onClick={() => {
-                      if (!rec.isProcessing) setEditingId(rec.id);
+                      if (!rec.isProcessing) handleOpenReceipt(rec);
                     }}
                   >
                     <td
@@ -988,7 +1082,7 @@ export default function ReceiptsScreen({
         capture="environment"
         style={{ display: 'none' }}
         onChange={(e) => {
-          processFiles(e.target.files);
+          processFiles(e.target.files, 'photo');
           e.target.value = '';
         }}
       />
@@ -1022,7 +1116,7 @@ export default function ReceiptsScreen({
                   type="button"
                   className={styles.drawerIconBtn}
                   title="Download original"
-                  onClick={() => showToast('Download original receipt')}
+                  onClick={() => showToast('Original files are served by the platform file service')}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
                     download
@@ -1042,39 +1136,31 @@ export default function ReceiptsScreen({
 
             {/* Drawer Split */}
             <div className={styles.drawerSplit}>
-              {/* Left: Paper Receipt Viewer */}
+              {/* Left: intake summary — the platform holds the original
+                  file and runs extraction; nothing here is invented */}
               <div className={styles.drawerImage}>
                 <div className={styles.drawerImageViewer}>
                   <div className={styles.fakeReceipt}>
                     <div className={styles.fakeReceiptStore}>
-                      {(drawerForm.vendor || 'STORE').toUpperCase()}
+                      {(drawerForm.vendor || 'AWAITING EXTRACTION').toUpperCase()}
                     </div>
-                    <div className={styles.fakeReceiptSub}>Store #0412</div>
+                    <div className={styles.fakeReceiptSub}>{activeReceipt?.dto?.fileName || 'Receipt intake'}</div>
                     <div className={styles.receiptLineSep} />
                     <div className={styles.receiptRow}>
                       <span>Date</span>
-                      <span>{drawerForm.date || '10/30/2026'}</span>
+                      <span>{drawerForm.date ? fmtDate(drawerForm.date) : '—'}</span>
                     </div>
                     <div className={styles.receiptRow}>
-                      <span>Time</span>
-                      <span>2:42 PM</span>
-                    </div>
-                    <div className={styles.receiptDottedSep} />
-                    <div className={styles.receiptRow}>
-                      <span>Item 1</span>
-                      <span>$18.44</span>
+                      <span>Source</span>
+                      <span>{activeReceipt?.dto?.source || 'upload'}</span>
                     </div>
                     <div className={styles.receiptRow}>
-                      <span>Item 2</span>
-                      <span>$32.10</span>
+                      <span>Intake status</span>
+                      <span>{activeReceipt?.dto?.rawStatus || '—'}</span>
                     </div>
                     <div className={styles.receiptRow}>
-                      <span>Item 3</span>
-                      <span>$44.90</span>
-                    </div>
-                    <div className={styles.receiptRow}>
-                      <span>Item 4</span>
-                      <span>$38.51</span>
+                      <span>Extraction</span>
+                      <span>{activeReceipt?.dto?.extractionStatus || 'pending'}</span>
                     </div>
                     <div className={styles.receiptDottedSep} />
                     <div className={styles.receiptRow}>
@@ -1090,19 +1176,19 @@ export default function ReceiptsScreen({
                     </div>
                     <div className={styles.receiptRow}>
                       <span>Tax</span>
-                      <span>{drawerForm.tax || '$0.00'}</span>
+                      <span>{drawerForm.tax ? `$${parseMoney(drawerForm.tax).toFixed(2)}` : '$0.00'}</span>
                     </div>
                     <div className={styles.receiptTotalRow}>
                       <span>TOTAL</span>
-                      <span>{drawerForm.amount || '$0.00'}</span>
+                      <span>{drawerForm.amount ? `$${parseMoney(drawerForm.amount).toFixed(2)}` : '$0.00'}</span>
                     </div>
                     <div className={styles.receiptDottedSep} />
                     <div className={styles.receiptFooter}>
-                      VISA ****4421
+                      Original file is held by the platform
                       <br />
-                      Auth: 002847
+                      file service — fields on the right are
                       <br />
-                      Thank you!
+                      the extracted values.
                     </div>
                   </div>
                 </div>
@@ -1112,39 +1198,12 @@ export default function ReceiptsScreen({
                   <button
                     type="button"
                     className={styles.imageToolBtn}
-                    onClick={() => showToast('Zoom in')}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                      zoom_in
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.imageToolBtn}
-                    onClick={() => showToast('Zoom out')}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                      zoom_out
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.imageToolBtn}
-                    onClick={() => showToast('Rotate receipt')}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                      rotate_right
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.imageToolBtn}
-                    onClick={() => showToast('Open full image')}
+                    onClick={() => showToast('Original files are served by the platform file service')}
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                       open_in_new
                     </span>
-                    Open
+                    Open original
                   </button>
                 </div>
               </div>
@@ -1162,6 +1221,7 @@ export default function ReceiptsScreen({
                         onChange={(e) =>
                           setDrawerForm({ ...drawerForm, vendor: e.target.value })
                         }
+                        onBlur={() => void persistDrawerFields()}
                       />
                     </div>
                   </div>
@@ -1175,6 +1235,7 @@ export default function ReceiptsScreen({
                         onChange={(e) =>
                           setDrawerForm({ ...drawerForm, date: e.target.value })
                         }
+                        onBlur={() => void persistDrawerFields()}
                       />
                     </div>
                   </div>
@@ -1187,6 +1248,7 @@ export default function ReceiptsScreen({
                         onChange={(e) =>
                           setDrawerForm({ ...drawerForm, amount: e.target.value })
                         }
+                        onBlur={() => void persistDrawerFields()}
                       />
                     </div>
                   </div>
@@ -1199,6 +1261,7 @@ export default function ReceiptsScreen({
                         onChange={(e) =>
                           setDrawerForm({ ...drawerForm, tax: e.target.value })
                         }
+                        onBlur={() => void persistDrawerFields()}
                       />
                     </div>
                   </div>
@@ -1212,11 +1275,12 @@ export default function ReceiptsScreen({
                           setDrawerForm({ ...drawerForm, account: e.target.value })
                         }
                       >
-                        <option>Visa •4421</option>
-                        <option>Bank •9910</option>
-                        <option>Amex •2103</option>
-                        <option>Cash</option>
-                        <option>Personal funds — reimburse</option>
+                        <option value="">— Select account —</option>
+                        {bankAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}{a.maskedNumber ? ` •${a.maskedNumber}` : ''}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -1226,18 +1290,15 @@ export default function ReceiptsScreen({
                       <select
                         className={styles.fieldSelect}
                         value={drawerForm.category}
-                        onChange={(e) =>
-                          setDrawerForm({ ...drawerForm, category: e.target.value })
-                        }
+                        onChange={(e) => {
+                          setDrawerForm({ ...drawerForm, category: e.target.value });
+                        }}
+                        onBlur={() => void persistDrawerFields()}
                       >
                         <option value="">— Select category —</option>
-                        <option>Office supplies</option>
-                        <option>Shipping</option>
-                        <option>Software</option>
-                        <option>Advertising</option>
-                        <option>Meals &amp; entertainment</option>
-                        <option>Travel</option>
-                        <option>Ask My Accountant</option>
+                        {coaAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -1251,6 +1312,7 @@ export default function ReceiptsScreen({
                         onChange={(e) =>
                           setDrawerForm({ ...drawerForm, notes: e.target.value })
                         }
+                        onBlur={() => void persistDrawerFields()}
                       />
                     </div>
                   </div>
@@ -1270,12 +1332,12 @@ export default function ReceiptsScreen({
                       type="button"
                       className={styles.btnSecondaryOutline}
                       onClick={(e) => {
+                        if (!activeReceipt) return;
                         const rect = e.currentTarget.getBoundingClientRect();
-                        setMatchMenuPos({
+                        void openMatchMenu(activeReceipt.id, {
                           top: rect.bottom + 4,
                           left: Math.min(rect.left, window.innerWidth - 360),
                         });
-                        setMatchMenuOpen(true);
                       }}
                     >
                       <span
@@ -1315,7 +1377,7 @@ export default function ReceiptsScreen({
         </>
       )}
 
-      {/* ═══════════ CATEGORY PICKER POPUP ═══════════ */}
+      {/* ═══════════ CATEGORY PICKER POPUP — real chart of accounts ═══════════ */}
       {catPickerOpen && (
         <div
           className={styles.catPicker}
@@ -1325,59 +1387,38 @@ export default function ReceiptsScreen({
           <input
             className={styles.catPickerSearch}
             placeholder="Search categories…"
+            value={catSearch}
+            onChange={(e) => setCatSearch(e.target.value)}
           />
           <div className={styles.pickerSection}>Suggested</div>
-          <div
-            className={styles.catPickerOpt}
-            onClick={() => handlePickCategory('Office supplies')}
-          >
-            <span className={styles.catDot} style={{ backgroundColor: '#0077c5' }} />
-            Office supplies
-          </div>
-          <div
-            className={styles.catPickerOpt}
-            onClick={() => handlePickCategory('Shipping')}
-          >
-            <span className={styles.catDot} style={{ backgroundColor: '#1e5a38' }} />
-            Shipping
-          </div>
-          <div
-            className={styles.catPickerOpt}
-            onClick={() => handlePickCategory('Software')}
-          >
-            <span className={styles.catDot} style={{ backgroundColor: '#6b1e28' }} />
-            Software
-          </div>
-          <div
-            className={styles.catPickerOpt}
-            onClick={() => handlePickCategory('Advertising')}
-          >
-            <span className={styles.catDot} style={{ backgroundColor: '#0e5e6f' }} />
-            Advertising
-          </div>
+          {coaAccounts
+            .filter((a) => a.type === 'Expense')
+            .slice(0, 4)
+            .filter((a) => a.name.toLowerCase().includes(catSearch.toLowerCase()))
+            .map((a, i) => (
+              <div
+                key={a.id}
+                className={styles.catPickerOpt}
+                onClick={() => void handlePickCategory(a.id)}
+              >
+                <span className={styles.catDot} style={{ backgroundColor: ['#0077c5', '#1e5a38', '#6b1e28', '#0e5e6f'][i % 4] }} />
+                {a.name}
+              </div>
+            ))}
           <div className={styles.pickerSep} />
           <div className={styles.pickerSection}>All categories</div>
-          <div
-            className={styles.catPickerOpt}
-            onClick={() => handlePickCategory('Meals & entertainment')}
-          >
-            <span className={styles.catDot} style={{ backgroundColor: '#dad9dd' }} />
-            Meals &amp; entertainment
-          </div>
-          <div
-            className={styles.catPickerOpt}
-            onClick={() => handlePickCategory('Travel')}
-          >
-            <span className={styles.catDot} style={{ backgroundColor: '#dad9dd' }} />
-            Travel
-          </div>
-          <div
-            className={styles.catPickerOpt}
-            onClick={() => handlePickCategory('Ask My Accountant')}
-          >
-            <span className={styles.catDot} style={{ backgroundColor: '#ba1a1a' }} />
-            Ask My Accountant
-          </div>
+          {coaAccounts
+            .filter((a) => a.name.toLowerCase().includes(catSearch.toLowerCase()))
+            .map((a) => (
+              <div
+                key={a.id}
+                className={styles.catPickerOpt}
+                onClick={() => void handlePickCategory(a.id)}
+              >
+                <span className={styles.catDot} style={{ backgroundColor: '#dad9dd' }} />
+                {a.name}
+              </div>
+            ))}
         </div>
       )}
 
@@ -1457,9 +1498,9 @@ export default function ReceiptsScreen({
             type="button"
             className={styles.menuItem}
             onClick={() => {
+              const id = rowMenuTargetId;
               setRowMenuOpen(false);
-              setMatchMenuPos({ top: rowMenuPos.top, left: rowMenuPos.left });
-              setMatchMenuOpen(true);
+              if (id) void openMatchMenu(id, { top: rowMenuPos.top, left: rowMenuPos.left });
             }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
@@ -1508,7 +1549,7 @@ export default function ReceiptsScreen({
         </div>
       )}
 
-      {/* ═══════════ MATCH MENU POPUP ═══════════ */}
+      {/* ═══════════ MATCH MENU POPUP — real candidates + open bills ═══════════ */}
       {matchMenuOpen && (
         <div
           className={styles.matchMenu}
@@ -1516,11 +1557,11 @@ export default function ReceiptsScreen({
           onClick={(e) => e.stopPropagation()}
         >
           <div className={styles.matchHeader}>Unmatched bank transactions</div>
-          {unmatchedTransactions.map((txn, idx) => (
+          {matchCandidates.map((txn) => (
             <div
-              key={idx}
+              key={txn.bankTransactionId}
               className={styles.matchItem}
-              onClick={() => handleSelectMatch(txn.name)}
+              onClick={() => void handleSelectBankMatch(txn)}
             >
               <span
                 className="material-symbols-outlined"
@@ -1538,22 +1579,27 @@ export default function ReceiptsScreen({
                     textOverflow: 'ellipsis',
                   }}
                 >
-                  {txn.name}
+                  {txn.description}
                 </div>
-                <div className={styles.matchDate}>{txn.date}</div>
+                <div className={styles.matchDate}>{fmtDate(txn.date)}{txn.bankAccountName ? ` · ${txn.bankAccountName}` : ''}</div>
               </div>
               <span className={styles.matchAmt} style={{ color: '#ba1a1a' }}>
-                {txn.amt}
+                −${Math.abs(txn.amount).toFixed(2)}
               </span>
             </div>
           ))}
+          {matchCandidates.length === 0 && (
+            <div style={{ padding: '8px 12px', fontSize: 11, color: '#5a6355' }}>
+              No candidates — matching looks for the same amount within ±10 days.
+            </div>
+          )}
 
           <div className={styles.matchHeader}>Open bills</div>
-          {openBills.map((bill, idx) => (
+          {openBillsList.map((bill) => (
             <div
-              key={idx}
+              key={bill.id}
               className={styles.matchItem}
-              onClick={() => handleSelectMatch(bill.name)}
+              onClick={() => void handleSelectBillAttach(bill)}
             >
               <span
                 className="material-symbols-outlined"
@@ -1571,15 +1617,20 @@ export default function ReceiptsScreen({
                     textOverflow: 'ellipsis',
                   }}
                 >
-                  {bill.name}
+                  Bill {bill.billNumber}{bill.vendorName ? ` · ${bill.vendorName}` : ''}
                 </div>
-                <div className={styles.matchDate}>{bill.date}</div>
+                <div className={styles.matchDate}>{bill.dueDate ? `Due ${fmtDate(bill.dueDate)}` : ''}</div>
               </div>
               <span className={styles.matchAmt} style={{ color: '#5a6355' }}>
-                {bill.amt}
+                ${bill.total.toFixed(2)}
               </span>
             </div>
           ))}
+          {openBillsList.length === 0 && (
+            <div style={{ padding: '8px 12px', fontSize: 11, color: '#5a6355' }}>
+              No open bills to attach to.
+            </div>
+          )}
         </div>
       )}
 

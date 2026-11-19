@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ typ
   const config = tableMap[type];
   if (!config) {
     // Return a generic peek with just the ID
-    return NextResponse.json({ data: { type, id, title: id, subtitle: null, fields: [], pills: [], actions: [] } as PeekCard });
+    return NextResponse.json({ data: { type, id, title: id, subtitle: null, fields: [], pills: [], actions: [] } as unknown as PeekCard });
   }
 
   const { data, error } = await supabaseAdmin()
@@ -31,7 +31,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ typ
     .single();
 
   if (error || !data) {
-    return NextResponse.json({ data: { type, id, title: 'Not found', subtitle: null, fields: [], pills: [], actions: [] } as PeekCard });
+    return NextResponse.json({ data: { type, id, title: 'Not found', subtitle: null, fields: [], pills: [], actions: [] } as unknown as PeekCard });
   }
 
   const row = data as Record<string, unknown>;

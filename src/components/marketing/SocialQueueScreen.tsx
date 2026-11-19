@@ -1,86 +1,99 @@
 'use client';
 
 /**
- * Publishing Queue — resource table of scheduled/published/draft/failed posts.
- * Minimalist rebuild: status tabs + search + checkbox bulk bar (real state
- * changes: Pause/Resume/Duplicate/Archive) + row-click peek + row menu.
+ * Publishing Queue — scheduled/published/draft/failed posts, wired to the
+ * real social_posts rows (doc 23). Tabs and actions map to the statuses
+ * the API actually accepts (draft|scheduled|publishing|published|failed|
+ * cancelled) — there is no paused/archived state, so Pause/Archive are
+ * gone; cancelling a schedule and retrying a failure are the real moves.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import styles from './SocialQueue.module.css';
 import { exportToCsv } from '@/lib/csvExport';
+import { useSocialPosts, socialMutations } from '@/hooks/useSocialApi';
+import type { SocialPost } from '@/lib/socialTypes';
 
 interface SocialQueueScreenProps {
   onToast: (msg: string) => void;
-  onNavigate?: (domain: string, screenId: string) => void;
+  onNavigate?: (domain: import('@/data/shellData').DomainKey, screenId: string) => void;
 }
 
-type Status = 'Scheduled' | 'Published' | 'Draft' | 'Failed' | 'Paused' | 'Archived';
+type TabId = 'all' | 'scheduled' | 'published' | 'draft' | 'failed' | 'cancelled';
 
-interface QPost {
-  id: string;
-  title: string;
-  channel: 'Instagram' | 'TikTok' | 'Facebook' | 'LinkedIn' | 'Pinterest';
-  color: string;
-  date: string;
-  status: Status;
-  copy: string;
-  author: string;
-}
-
-const INITIAL_POSTS: QPost[] = [
-  { id: 'q1', title: 'October product spotlight', channel: 'Instagram', color: '#c13584', date: 'Oct 31 · 2:00 PM', status: 'Scheduled', copy: 'Highlighting this month\'s bestsellers.', author: 'Sarah M.' },
-  { id: 'q2', title: 'Behind the scenes', channel: 'TikTok', color: '#010101', date: 'Nov 1 · 10:00 AM', status: 'Scheduled', copy: 'Studio redesign footage.', author: 'Alex L.' },
-  { id: 'q3', title: 'Weekly company update', channel: 'LinkedIn', color: '#0a66c2', date: 'Nov 3 · 9:00 AM', status: 'Scheduled', copy: 'Milestones shared externally.', author: 'John D.' },
-  { id: 'q4', title: 'New hoodie drop', channel: 'TikTok', color: '#010101', date: 'Nov 1 · 10:00 AM', status: 'Scheduled', copy: 'Heavyweight hoodie restock.', author: 'Sarah M.' },
-  { id: 'q5', title: 'Customer spotlight', channel: 'Instagram', color: '#c13584', date: 'Nov 5 · 12:00 PM', status: 'Scheduled', copy: 'Featuring a longtime customer.', author: 'Alex L.' },
-  { id: 'q6', title: 'Holiday gift guide', channel: 'Facebook', color: '#1877f2', date: 'Oct 28 · 4:00 PM', status: 'Published', copy: 'Curated gift picks.', author: 'Sarah M.' },
-  { id: 'q7', title: 'Flash sale announcement', channel: 'Instagram', color: '#c13584', date: 'Oct 25 · 6:00 PM', status: 'Published', copy: '48-hour flash sale.', author: 'John D.' },
-  { id: 'q8', title: 'Supplier spotlight', channel: 'LinkedIn', color: '#0a66c2', date: 'Oct 27 · 11:00 AM', status: 'Published', copy: 'Spotlighting a partner.', author: 'Alex L.' },
-  { id: 'q9', title: 'Black Friday teaser', channel: 'TikTok', color: '#010101', date: '—', status: 'Draft', copy: 'Teaser for Black Friday.', author: 'Sarah M.' },
-  { id: 'q10', title: 'Weekend meme post', channel: 'TikTok', color: '#010101', date: '—', status: 'Draft', copy: 'Light weekend content.', author: 'John D.' },
-  { id: 'q11', title: 'Pinterest pin — Fall collection', channel: 'Pinterest', color: '#bd081c', date: 'Oct 20 · 3:00 PM', status: 'Failed', copy: 'Pin failed to publish — token expired.', author: 'Alex L.' },
-];
-
-const TABS: { id: string; label: string }[] = [
+const TABS: { id: TabId; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'scheduled', label: 'Scheduled' },
   { id: 'published', label: 'Published' },
   { id: 'draft', label: 'Drafts' },
   { id: 'failed', label: 'Failed' },
-  { id: 'paused', label: 'Paused' },
-  { id: 'archived', label: 'Archived' },
+  { id: 'cancelled', label: 'Cancelled' },
 ];
 
-function pill(status: Status) {
+const CHANNEL_COLOR: Record<string, string> = {
+  instagram: '#c13584',
+  tiktok: '#010101',
+  facebook: '#1877f2',
+  linkedin: '#0a66c2',
+  pinterest: '#bd081c',
+  youtube: '#ff0000',
+  threads: '#000000',
+  x: '#000000',
+};
+
+function cap(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+function titleOf(p: SocialPost): string {
+  if (p.title) return p.title;
+  const first = (p.caption || '').split('\n')[0].trim();
+  return first ? (first.length > 60 ? `${first.slice(0, 60)}…` : first) : 'Untitled post';
+}
+
+function channelOf(p: SocialPost): string {
+  const n = p.channels?.[0] || p.networks?.[0]?.network || '';
+  return n ? cap(n) : '—';
+}
+
+function dateOf(p: SocialPost): string {
+  const iso = p.scheduledAt || p.publishedAt;
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+    ' · ' + new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function pill(status: string) {
   switch (status) {
-    case 'Scheduled': return <span className={`${styles.pill} ${styles.pillGreen}`}>Scheduled</span>;
-    case 'Published': return <span className={`${styles.pill} ${styles.pillBlue}`}>Published</span>;
-    case 'Draft': return <span className={`${styles.pill} ${styles.pillGray}`}>Draft</span>;
-    case 'Failed': return <span className={`${styles.pill} ${styles.pillRed}`}>Failed</span>;
-    case 'Paused': return <span className={`${styles.pill} ${styles.pillGray}`}>Paused</span>;
-    case 'Archived': return <span className={`${styles.pill} ${styles.pillGray}`}>Archived</span>;
+    case 'scheduled': return <span className={`${styles.pill} ${styles.pillGreen}`}>Scheduled</span>;
+    case 'publishing': return <span className={`${styles.pill} ${styles.pillBlue}`}>Publishing</span>;
+    case 'published': return <span className={`${styles.pill} ${styles.pillBlue}`}>Published</span>;
+    case 'draft': return <span className={`${styles.pill} ${styles.pillGray}`}>Draft</span>;
+    case 'failed': return <span className={`${styles.pill} ${styles.pillRed}`}>Failed</span>;
+    case 'cancelled': return <span className={`${styles.pill} ${styles.pillGray}`}>Cancelled</span>;
+    default: return <span className={`${styles.pill} ${styles.pillGray}`}>{status}</span>;
   }
 }
 
-function tabCount(posts: QPost[], tabId: string): number {
-  if (tabId === 'all') return posts.length;
-  return posts.filter((p) => p.status.toLowerCase() === tabId).length;
-}
-
 export default function SocialQueueScreen({ onToast, onNavigate }: SocialQueueScreenProps) {
-  const [posts, setPosts] = useState<QPost[]>(INITIAL_POSTS);
-  const [activeTab, setActiveTab] = useState('all');
+  const { posts, loading, error, refresh } = useSocialPosts();
+  const [activeTab, setActiveTab] = useState<TabId>('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [peekPost, setPeekPost] = useState<QPost | null>(null);
+  const [peekPost, setPeekPost] = useState<SocialPost | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const filtered = posts.filter((p) => {
-    const tabMatch = activeTab === 'all' || p.status.toLowerCase() === activeTab;
+  const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    const searchMatch = !s || p.title.toLowerCase().includes(s) || p.channel.toLowerCase().includes(s);
-    return tabMatch && searchMatch;
-  });
+    return posts.filter((p) => {
+      const tabMatch = activeTab === 'all' || p.status === activeTab;
+      const searchMatch = !s || titleOf(p).toLowerCase().includes(s) || channelOf(p).toLowerCase().includes(s);
+      return tabMatch && searchMatch;
+    });
+  }, [posts, activeTab, search]);
+
+  const tabCount = (tabId: TabId): number =>
+    tabId === 'all' ? posts.length : posts.filter((p) => p.status === tabId).length;
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -106,22 +119,36 @@ export default function SocialQueueScreen({ onToast, onNavigate }: SocialQueueSc
     }
   };
 
-  const bulkUpdate = (newStatus: Status, verb: string) => {
-    setPosts((prev) => prev.map((p) => (selected.has(p.id) ? { ...p, status: newStatus } : p)));
-    onToast(`${verb} ${selected.size} post${selected.size === 1 ? '' : 's'}.`);
-    setSelected(new Set());
-  };
+  async function setStatus(post: SocialPost, status: string, verb: string) {
+    setBusy(true);
+    const r = await socialMutations.updatePost(post.id, { status });
+    setBusy(false);
+    setMenuOpenId(null);
+    if (!r.ok) { onToast(`Could not ${verb.toLowerCase()}: ${r.error || 'unknown error'}`); return; }
+    await refresh();
+    onToast(`"${titleOf(post)}" ${verb.toLowerCase()}.`);
+  }
 
-  const handleDuplicate = (post: QPost) => {
-    const dup: QPost = { ...post, id: `q${Date.now()}`, title: `${post.title} (copy)`, status: 'Draft', date: '—' };
-    setPosts((prev) => [dup, ...prev]);
+  async function handleDuplicate(post: SocialPost) {
+    setBusy(true);
+    const r = await socialMutations.createPost({
+      caption: post.caption,
+      title: post.title ? `${post.title} (copy)` : undefined,
+      channels: post.channels || [],
+      mediaUrls: post.mediaUrls || [],
+    });
+    setBusy(false);
     setPeekPost(null);
     setMenuOpenId(null);
-    onToast(`Duplicated "${post.title}".`);
-  };
+    if (!r.ok) { onToast(`Duplicate failed: ${r.error || 'unknown error'}`); return; }
+    await refresh();
+    onToast(`Duplicated "${titleOf(post)}" as a draft.`);
+  }
 
-  const handleDelete = (post: QPost) => {
-    setPosts((prev) => prev.filter((p) => p.id !== post.id));
+  async function handleDelete(post: SocialPost) {
+    setBusy(true);
+    const r = await socialMutations.deletePost(post.id);
+    setBusy(false);
     setPeekPost(null);
     setMenuOpenId(null);
     setSelected((prev) => {
@@ -129,22 +156,41 @@ export default function SocialQueueScreen({ onToast, onNavigate }: SocialQueueSc
       next.delete(post.id);
       return next;
     });
-    onToast(`Deleted "${post.title}".`);
-  };
+    if (!r.ok) { onToast(`Delete failed: ${r.error || 'unknown error'}`); return; }
+    await refresh();
+    onToast(`Deleted "${titleOf(post)}".`);
+  }
 
-  const setStatus = (post: QPost, newStatus: Status) => {
-    setPosts((prev) => prev.map((p) => (p.id === post.id ? { ...p, status: newStatus } : p)));
+  async function handleRetry(post: SocialPost) {
+    setBusy(true);
+    const r = await socialMutations.retryPost(post.id);
+    setBusy(false);
     setMenuOpenId(null);
-    onToast(`"${post.title}" marked ${newStatus}.`);
-  };
+    if (!r.ok) { onToast(`Retry failed: ${r.error || 'unknown error'}`); return; }
+    await refresh();
+    onToast(`Retrying "${titleOf(post)}" (${r.data?.targetsRetried ?? 0} targets).`);
+  }
+
+  async function bulkDelete() {
+    setBusy(true);
+    let n = 0;
+    for (const id of selected) {
+      const r = await socialMutations.deletePost(id);
+      if (r.ok) n++;
+    }
+    setBusy(false);
+    setSelected(new Set());
+    await refresh();
+    onToast(`Deleted ${n} post${n === 1 ? '' : 's'}.`);
+  }
 
   const handleExport = () => {
-    exportToCsv(filtered as unknown as Record<string, unknown>[], [
+    exportToCsv(filtered.map((p) => ({ title: titleOf(p), channel: channelOf(p), date: dateOf(p), status: p.status, source: p.sourceType })), [
       { key: 'title', label: 'Content' },
       { key: 'channel', label: 'Channel' },
       { key: 'date', label: 'Publish date' },
       { key: 'status', label: 'Status' },
-      { key: 'author', label: 'Author' },
+      { key: 'source', label: 'Source' },
     ], 'publishing-queue');
     onToast(`Exported ${filtered.length} posts to CSV.`);
   };
@@ -153,11 +199,10 @@ export default function SocialQueueScreen({ onToast, onNavigate }: SocialQueueSc
 
   return (
     <div className={styles.screen}>
-      {/* Toolbar */}
       <div className={styles.toolbar}>
         <div className={styles.toolbarLeft}>
           <h1 className={styles.toolbarTitle}>Publishing queue</h1>
-          <p className={styles.toolbarSub}>Track scheduled posts, drafts, and outcomes.</p>
+          <p className={styles.toolbarSub}>{loading ? 'Loading posts…' : 'Track scheduled posts, drafts, and outcomes.'}</p>
         </div>
         <div className={styles.toolbarRight}>
           <button type="button" className={`${styles.btn} ${styles.btnOutline}`} onClick={handleExport}>
@@ -169,43 +214,44 @@ export default function SocialQueueScreen({ onToast, onNavigate }: SocialQueueSc
         </div>
       </div>
 
-      {/* Card */}
       <div className={styles.card}>
-        {/* Status tabs */}
         <div className={styles.tabs}>
           {TABS.map((t) => (
             <button key={t.id} type="button" className={`${styles.tab} ${activeTab === t.id ? styles.tabActive : ''}`} onClick={() => { setActiveTab(t.id); setSelected(new Set()); }}>
               {t.label}
-              <span className={styles.tabCount}>{tabCount(posts, t.id)}</span>
+              <span className={styles.tabCount}>{tabCount(t.id)}</span>
             </button>
           ))}
         </div>
 
-        {/* Filter bar */}
         <div className={styles.filterBar}>
           <input className={styles.search} type="text" placeholder="Search by title or channel…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
 
-        {/* Bulk bar */}
         {hasSelection && (
           <div className={styles.bulkBar}>
             <span className={styles.bulkCount}>{selected.size} selected</span>
-            <button type="button" className={styles.bulkAction} onClick={() => bulkUpdate('Paused', 'Paused')}><span className="material-symbols-outlined">pause</span> Pause</button>
-            <button type="button" className={styles.bulkAction} onClick={() => bulkUpdate('Scheduled', 'Resumed')}><span className="material-symbols-outlined">play_arrow</span> Resume</button>
-            <button type="button" className={styles.bulkAction} onClick={() => bulkUpdate('Draft', 'Sent back to drafts')}><span className="material-symbols-outlined">edit_note</span> To draft</button>
-            <button type="button" className={styles.bulkAction} onClick={() => bulkUpdate('Archived', 'Archived')}><span className="material-symbols-outlined">archive</span> Archive</button>
-            <button type="button" className={`${styles.bulkAction} ${styles.bulkActionDanger}`} onClick={() => { setPosts((prev) => prev.filter((p) => !selected.has(p.id))); onToast(`Deleted ${selected.size} post${selected.size === 1 ? '' : 's'}.`); setSelected(new Set()); }}><span className="material-symbols-outlined">delete</span> Delete</button>
-            <button type="button" className={`${styles.bulkAction}`} onClick={() => setSelected(new Set())} style={{ marginLeft: 'auto' }}>Clear</button>
+            <button type="button" className={`${styles.bulkAction} ${styles.bulkActionDanger}`} disabled={busy} onClick={() => void bulkDelete()}><span className="material-symbols-outlined">delete</span> Delete</button>
+            <button type="button" className={styles.bulkAction} onClick={() => setSelected(new Set())} style={{ marginLeft: 'auto' }}>Clear</button>
           </div>
         )}
 
-        {/* Table */}
         <div className={styles.tableWrap}>
-          {filtered.length === 0 ? (
+          {error ? (
+            <div className={styles.empty}>
+              <span className="material-symbols-outlined">error</span>
+              <h3>Could not load posts</h3>
+              <p>{error}</p>
+            </div>
+          ) : loading ? (
+            <div className={styles.empty}>
+              <h3>Loading…</h3>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className={styles.empty}>
               <span className="material-symbols-outlined">outbox</span>
               <h3>No posts</h3>
-              <p>Adjust your filters or create a new post.</p>
+              <p>{posts.length === 0 ? 'Nothing scheduled yet — create your first post.' : 'Adjust your filters or create a new post.'}</p>
             </div>
           ) : (
             <table className={styles.table}>
@@ -222,80 +268,88 @@ export default function SocialQueueScreen({ onToast, onNavigate }: SocialQueueSc
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((post) => (
-                  <tr key={post.id} onClick={() => setPeekPost(post)}>
-                    <td className={styles.checkCell} onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.has(post.id)} onChange={() => toggleSelect(post.id)} />
-                    </td>
-                    <td>
-                      <div className={styles.contentCell}>
-                        <span className={styles.contentTitle}>{post.title}</span>
-                        <span className={styles.contentMeta}>{post.author}</span>
-                      </div>
-                    </td>
-                    <td><span className={styles.chDot} style={{ background: post.color }} />{post.channel}</td>
-                    <td style={{ color: 'var(--mut)' }}>{post.date}</td>
-                    <td>{pill(post.status)}</td>
-                    <td className={styles.menuCell} onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
-                      <button type="button" className={styles.btnIcon} onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)}>
-                        <span className="material-symbols-outlined">more_horiz</span>
-                      </button>
-                      {menuOpenId === post.id && (
-                        <div className={styles.rowMenu} style={{ right: 8, top: 36 }}>
-                          <button type="button" className={styles.rowMenuItem} onClick={() => { setPeekPost(post); setMenuOpenId(null); }}>
-                            <span className="material-symbols-outlined">visibility</span> View details
-                          </button>
-                          <button type="button" className={styles.rowMenuItem} onClick={() => { setPeekPost(null); onNavigate?.('marketing', 'mkt-create-content'); setMenuOpenId(null); }}>
-                            <span className="material-symbols-outlined">edit</span> Edit
-                          </button>
-                          <button type="button" className={styles.rowMenuItem} onClick={() => handleDuplicate(post)}>
-                            <span className="material-symbols-outlined">content_copy</span> Duplicate
-                          </button>
-                          {post.status === 'Scheduled' ? (
-                            <button type="button" className={styles.rowMenuItem} onClick={() => setStatus(post, 'Paused')}><span className="material-symbols-outlined">pause</span> Pause</button>
-                          ) : post.status === 'Paused' || post.status === 'Failed' ? (
-                            <button type="button" className={styles.rowMenuItem} onClick={() => setStatus(post, 'Scheduled')}><span className="material-symbols-outlined">play_arrow</span> Resume</button>
-                          ) : null}
-                          <button type="button" className={styles.rowMenuItem} onClick={() => setStatus(post, 'Archived')}><span className="material-symbols-outlined">archive</span> Archive</button>
-                          <button type="button" className={`${styles.rowMenuItem} ${styles.rowMenuItemDanger}`} onClick={() => handleDelete(post)}><span className="material-symbols-outlined">delete</span> Delete</button>
+                {filtered.map((post) => {
+                  const ch = channelOf(post);
+                  return (
+                    <tr key={post.id} onClick={() => setPeekPost(post)}>
+                      <td className={styles.checkCell} onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected.has(post.id)} onChange={() => toggleSelect(post.id)} />
+                      </td>
+                      <td>
+                        <div className={styles.contentCell}>
+                          <span className={styles.contentTitle}>{titleOf(post)}</span>
+                          <span className={styles.contentMeta}>{post.sourceType}</span>
                         </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td><span className={styles.chDot} style={{ background: CHANNEL_COLOR[(post.channels?.[0] || '').toLowerCase()] || '#666' }} />{ch}</td>
+                      <td style={{ color: 'var(--mut)' }}>{dateOf(post)}</td>
+                      <td>{pill(post.status)}</td>
+                      <td className={styles.menuCell} onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+                        <button type="button" className={styles.btnIcon} onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)}>
+                          <span className="material-symbols-outlined">more_horiz</span>
+                        </button>
+                        {menuOpenId === post.id && (
+                          <div className={styles.rowMenu} style={{ right: 8, top: 36 }}>
+                            <button type="button" className={styles.rowMenuItem} onClick={() => { setPeekPost(post); setMenuOpenId(null); }}>
+                              <span className="material-symbols-outlined">visibility</span> View details
+                            </button>
+                            <button type="button" className={styles.rowMenuItem} onClick={() => { setPeekPost(null); onNavigate?.('marketing', 'mkt-create-content'); setMenuOpenId(null); }}>
+                              <span className="material-symbols-outlined">edit</span> Edit
+                            </button>
+                            <button type="button" className={styles.rowMenuItem} disabled={busy} onClick={() => void handleDuplicate(post)}>
+                              <span className="material-symbols-outlined">content_copy</span> Duplicate
+                            </button>
+                            {post.status === 'failed' && (
+                              <button type="button" className={styles.rowMenuItem} disabled={busy} onClick={() => void handleRetry(post)}><span className="material-symbols-outlined">refresh</span> Retry publish</button>
+                            )}
+                            {post.status === 'scheduled' && (
+                              <button type="button" className={styles.rowMenuItem} disabled={busy} onClick={() => void setStatus(post, 'cancelled', 'Schedule cancelled')}><span className="material-symbols-outlined">cancel</span> Cancel schedule</button>
+                            )}
+                            {post.status !== 'draft' && post.status !== 'published' && (
+                              <button type="button" className={styles.rowMenuItem} disabled={busy} onClick={() => void setStatus(post, 'draft', 'Sent back to drafts')}><span className="material-symbols-outlined">edit_note</span> To draft</button>
+                            )}
+                            <button type="button" className={`${styles.rowMenuItem} ${styles.rowMenuItemDanger}`} disabled={busy} onClick={() => void handleDelete(post)}><span className="material-symbols-outlined">delete</span> Delete</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </div>
       </div>
 
-      {/* Peek */}
       {peekPost && (
         <>
           <div className={`${styles.scrim} ${styles.scrimOpen}`} onClick={() => setPeekPost(null)} />
           <div className={`${styles.peek} ${styles.peekOpen}`}>
             <div className={styles.peekHead}>
               <div>
-                <h3 className={styles.peekHeadTitle}>{peekPost.title}</h3>
+                <h3 className={styles.peekHeadTitle}>{titleOf(peekPost)}</h3>
                 <p className={styles.peekHeadSub}>
-                  <span className={styles.chDot} style={{ background: peekPost.color }} />
-                  {peekPost.channel} · {peekPost.date}
+                  <span className={styles.chDot} style={{ background: CHANNEL_COLOR[(peekPost.channels?.[0] || '').toLowerCase()] || '#666' }} />
+                  {channelOf(peekPost)} · {dateOf(peekPost)}
                 </p>
               </div>
               <button type="button" className={styles.btnIcon} onClick={() => setPeekPost(null)}><span className="material-symbols-outlined">close</span></button>
             </div>
             <div className={styles.peekBody}>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>{peekPost.copy}</p>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>{peekPost.caption}</p>
               <div className={styles.peekField}><span className={styles.peekLabel}>Status</span><span className={styles.peekValue}>{pill(peekPost.status)}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Channel</span><span className={styles.peekValue}>{peekPost.channel}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Publish date</span><span className={styles.peekValue}>{peekPost.date}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Author</span><span className={styles.peekValue}>{peekPost.author}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Channel</span><span className={styles.peekValue}>{channelOf(peekPost)}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Publish date</span><span className={styles.peekValue}>{dateOf(peekPost)}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Source</span><span className={styles.peekValue}>{peekPost.sourceType}</span></div>
+              {peekPost.error && <div className={styles.peekField}><span className={styles.peekLabel}>Error</span><span className={styles.peekValue}>{peekPost.error}</span></div>}
               <div className={styles.peekField}><span className={styles.peekLabel}>Post ID</span><span className={styles.peekValue}>{peekPost.id}</span></div>
             </div>
             <div className={styles.peekFooter}>
-              <button type="button" className={`${styles.btn} ${styles.btnDanger}`} onClick={() => handleDelete(peekPost)}><span className="material-symbols-outlined">delete</span> Delete</button>
-              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} onClick={() => handleDuplicate(peekPost)}><span className="material-symbols-outlined">content_copy</span> Duplicate</button>
-              <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => { setPeekPost(null); onNavigate?.('marketing', 'mkt-create-content'); }}><span className="material-symbols-outlined">edit</span> Edit</button>
+              <button type="button" className={`${styles.btn} ${styles.btnDanger}`} disabled={busy} onClick={() => void handleDelete(peekPost)}><span className="material-symbols-outlined">delete</span> Delete</button>
+              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} disabled={busy} onClick={() => void handleDuplicate(peekPost)}><span className="material-symbols-outlined">content_copy</span> Duplicate</button>
+              {peekPost.status === 'failed' && (
+                <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} disabled={busy} onClick={() => void handleRetry(peekPost)}><span className="material-symbols-outlined">refresh</span> Retry</button>
+              )}
             </div>
           </div>
         </>

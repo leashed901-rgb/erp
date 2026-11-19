@@ -51,6 +51,49 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .from('crm_customers').select('*')
       .eq('id', id).eq('tenant_id', DEFAULT_TENANT_ID).single();
     if (error) return NextResponse.json({ error: { code: 'NOT_FOUND', message: error.message } }, { status: 404 });
+    const [invFinRes, lastOrderRes, openTicketsRes] = await Promise.all([
+      supabaseAdmin()
+        .from('acct_ar_invoices')
+        .select('total, amount_paid, amount_credited')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .eq('customer_id', id)
+        .not('status', 'in', '(paid,void,written_off,draft)'),
+      supabaseAdmin()
+        .from('erp_orders')
+        .select('order_number, total, created_at')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .eq('crm_customer_id', id)
+        .order('created_at', { ascending: false })
+        .limit(1),
+      supabaseAdmin()
+        .from('support_tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .eq('requester_customer_id', id)
+        .is('deleted_at', null)
+        .not('status', 'in', '(resolved,closed)'),
+    ]);
+    const openBalance = (invFinRes.data || []).reduce(
+      (sum, inv) =>
+        sum +
+        Math.max(
+          0,
+          Number(inv.total || 0) - Number(inv.amount_paid || 0) - Number(inv.amount_credited || 0),
+        ),
+      0,
+    );
+    const financials = {
+      openBalance,
+      openInvoiceCount: (invFinRes.data || []).length,
+      lastOrder: lastOrderRes.data?.[0]
+        ? {
+            ref: lastOrderRes.data[0].order_number,
+            at: lastOrderRes.data[0].created_at,
+            total: Number(lastOrderRes.data[0].total || 0),
+          }
+        : null,
+      openTickets: openTicketsRes.count || 0,
+    };
     const [notesRes, tasksRes, activityRes] = await Promise.all([
       supabaseAdmin().from('crm_notes').select('*').eq('customer_id', id).order('created_at', { ascending: false }).limit(20),
       supabaseAdmin().from('crm_tasks').select('*').eq('customer_id', id).order('due_at', { ascending: true }).limit(20),
@@ -62,14 +105,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company_name || c.email || 'Unnamed',
       first_name: c.first_name, last_name: c.last_name,
       email: c.email, phone: c.phone, company: c.company_name,
-      balance: Number(c.outstanding_balance) || 0, lifetimeValue: Number(c.lifetime_value) || 0,
+      balance: openBalance, lifetimeValue: Number(c.lifetime_value) || 0, financials,
       lifecycleStage: c.lifecycle_stage,
       address_line1: c.address_line1, address_line2: c.address_line2, city: c.city, state: c.state, postal_code: c.postal_code, country: c.country,
       preferred_name: c.preferred_name, mobile_phone: c.mobile_phone,
       marketing_email_opt_in: c.marketing_email_opt_in, marketing_sms_opt_in: c.marketing_sms_opt_in,
       customer_type: c.customer_type, lifecycle_status: c.lifecycle_status,
       total_visits: c.total_visits, total_spend_30d: c.total_spend_30d,
-      last_activity_at: c.last_activity_at, outstanding_balance: c.outstanding_balance,
+      last_activity_at: c.last_activity_at, outstanding_balance: openBalance,
       notes: notesRes.data || [], tasks: tasksRes.data || [], activity: activityRes.data || [],
       created_at: c.created_at, updated_at: c.updated_at,
     } });
@@ -222,6 +265,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         is_1099_vendor: body.is1099 ?? undefined,
         tax_number: body.tax_number ?? undefined,
         tax_form_type: body.tax_form_type ?? undefined,
+        is_active: body.is_active ?? undefined,
         w9_received_at: body.w9_received !== undefined
           ? (body.w9_received ? new Date().toISOString() : null)
           : undefined,

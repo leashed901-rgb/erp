@@ -12,15 +12,15 @@
   src: url('/inter.woff2') format('woff2');
 }
 
-/* Material Symbols Outlined — SELF-HOSTED (fallback). Primary load is
-   the Google CDN <link> in layout.tsx (faster, doesn't depend on the
-   dev server serving a 4MB file). font-display: swap so icons show
-   immediately with a fallback, then swap when the font arrives. */
+/* Material Symbols Outlined — SELF-HOSTED (was: Google CDN).
+   Self-hosted so icons don't render as text words like "more_horiz" when
+   the external CDN is slow/blocked. font-display: block hides the glyph
+   until the font is ready (up to 3s) instead of showing the raw word. */
 @font-face {
   font-family: 'Material Symbols Outlined';
   font-style: normal;
   font-weight: 100 700;
-  font-display: swap;
+  font-display: block;
   src: url('/material-symbols.woff2') format('woff2');
 }
 @layer base {

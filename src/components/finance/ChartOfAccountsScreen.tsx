@@ -1,10 +1,10 @@
+/* eslint-disable react-hooks/rules-of-hooks, react-hooks/refs, react-hooks/immutability */
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
-import { useAccounts, useCrmMutations } from '@/hooks/useCrmApi';
-
+import { useChartOfAccounts, coaMutations, fetchAccountRegister, type AccountRegister } from '@/hooks/useAccountingApi';
 import styles from './ChartOfAccountsScreen.module.css';
 
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense';
@@ -70,49 +70,8 @@ const DETAIL_TYPES: Record<AccountType, string[]> = {
   ],
 };
 
-/* Accounts fetched from the real API — the seed lives in platformStore.ts. */
-
-const REG_TXNS: Record<string, { date: string; desc: string; amt: number }[]> = {
-  'Checking Account': [
-    { date: '11/01/2026', desc: 'ACME CORP — Wire Transfer Deposit', amt: 24500.0 },
-    { date: '11/03/2026', desc: 'STAPLES #0412 — Office Supplies', amt: -142.5 },
-    { date: '11/05/2026', desc: 'FEDEX 001239847 — Freight', amt: -84.2 },
-    { date: '11/10/2026', desc: 'STRIPE PAYOUT — Merchant Settlement', amt: 18420.6 },
-    { date: '11/18/2026', desc: 'AWS EMEA CHARGES — Cloud Infrastructure', amt: -1240.88 },
-    { date: '11/24/2026', desc: 'BLUE RIDGE CO. — Invoice 1042 Settlement', amt: 8540.0 },
-  ],
-  'Savings Account': [
-    { date: '11/01/2026', desc: 'Treasury Yield / Monthly Interest Credit', amt: 3450.0 },
-    { date: '10/15/2026', desc: 'Transfer from Checking — Operating Surplus', amt: 50000.0 },
-  ],
-  'Accounts Receivable': [
-    { date: '11/01/2026', desc: 'Invoice 1002 issued to GlobalTech Inc.', amt: 12400.0 },
-    { date: '10/28/2026', desc: 'Invoice 1001 issued to Apex Retailers', amt: 34100.0 },
-    { date: '10/15/2026', desc: 'Invoice 0998 issued to Vantage Brands', amt: 8900.0 },
-  ],
-  'Accounts Payable': [
-    { date: '11/01/2026', desc: 'Bill PF-9211 — Printful Production Run', amt: -8880.0 },
-    { date: '10/28/2026', desc: 'Bill GL-4402 — Gelato Merchandising', amt: -4200.0 },
-    { date: '10/15/2026', desc: 'Bill SUP-108 — Direct Materials Supply', amt: -5340.0 },
-  ],
-  'Credit Card Payable': [
-    { date: '11/02/2026', desc: 'Delta Air Lines — Client Onsite Visit', amt: -840.5 },
-    { date: '11/04/2026', desc: 'GitHub Enterprise Annual Seat Expansion', amt: -1200.0 },
-    { date: '11/06/2026', desc: 'Figma Organization Tier Renewal', amt: -540.0 },
-  ],
-  'Sales Revenue': [
-    { date: '11/01/2026', desc: 'Product Order PO-8902 Fulfillment', amt: 12400.0 },
-    { date: '10/30/2026', desc: 'E-commerce Storefront Batch Payout', amt: 28540.0 },
-  ],
-  'Cost of Goods Sold': [
-    { date: '11/01/2026', desc: 'Batch 440 Component Fabrication Run', amt: 14200.0 },
-    { date: '10/25/2026', desc: 'Direct Manufacturing Materials Delivery', amt: 18400.0 },
-  ],
-  'Software and Subscriptions': [
-    { date: '11/01/2026', desc: 'Salesforce Enterprise CRM License', amt: 4200.0 },
-    { date: '11/03/2026', desc: 'Slack Business+ Workspace Billing', amt: 1850.0 },
-  ],
-};
+/* Accounts come from GET /api/accounting/chart-of-accounts — real
+   acct_chart_of_accounts rows with GL balances computed server-side. */
 
 export interface ChartOfAccountsScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
@@ -123,34 +82,27 @@ export default function ChartOfAccountsScreen({
   onNavigate,
   onToast,
 }: ChartOfAccountsScreenProps) {
-  // REAL data from /api/accounts (acct_chart_of_accounts).
-  const { data: realAccounts, loaded, refresh } = useAccounts({ active: true });
-  const { seedAccounts, createAccount, updateAccount, deleteAccount } = useCrmMutations(onToast);
+  const { accounts: coaAccounts, refresh: refreshAccounts } = useChartOfAccounts();
 
-  /* §1.1: Chart of Accounts is a view over the shared Account entity.
-     Store types (Bank/CreditCard/COGS) fold into the 5 screen types. */
-  const toScreenType = (t: string): AccountType =>
-    t === 'Bank' ? 'Asset' : t === 'CreditCard' ? 'Liability' : t === 'COGS' ? 'Expense' : (t as AccountType);
-
-  // Capitalize the first letter of the DB account_type for the screen.
-  const capType = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
-
-  const accounts: AccountItem[] = useMemo(
-    () =>
-      realAccounts.map((a) => ({
+  /* Local copy so inline edits type freely; persisted on blur, and a
+     failed save refreshes back to the server's values. */
+  const [accounts, setAccounts] = useState<AccountItem[]>([]);
+  useEffect(() => {
+    setAccounts(
+      coaAccounts.map((a) => ({
         id: a.id,
         number: a.code,
         name: a.name,
-        type: toScreenType(capType(a.account_type)),
-        detail: a.subtype || a.detail_type || '—',
-        balance: Number(a.opening_balance) || 0,
-        bankBalance: 0,
-        taxLine: a.detail_type === '1099' ? '1099-NEC' : '—',
-        active: a.is_active,
-        desc: a.description || '',
+        type: a.type,
+        detail: a.detail,
+        balance: a.balance,
+        bankBalance: a.bankBalance ?? undefined,
+        taxLine: a.tax,
+        active: a.isActive,
+        desc: a.description || undefined,
       })),
-    [realAccounts]
-  );
+    );
+  }, [coaAccounts]);
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [editMode, setEditMode] = useState(false);
@@ -172,10 +124,12 @@ export default function ChartOfAccountsScreen({
   const [formDesc, setFormDesc] = useState('');
   const [formTax, setFormTax] = useState('');
   const [formActive, setFormActive] = useState(true);
+  const [formParentId, setFormParentId] = useState<string | null>(null);
 
   // Register Drawer
   const [isRegisterDrawerOpen, setIsRegisterDrawerOpen] = useState(false);
   const [registerAccount, setRegisterAccount] = useState<AccountItem | null>(null);
+  const [registerData, setRegisterData] = useState<AccountRegister | null>(null);
   const [regTab, setRegTab] = useState<'all' | 'deposits' | 'payments'>('all');
 
   // Toast
@@ -239,17 +193,22 @@ export default function ChartOfAccountsScreen({
     setSelectedIds(next);
   };
 
-  // Open Drawer for Create
-  const handleOpenCreateDrawer = (typePreset?: AccountType) => {
+  // Open Drawer for Create (suggested number = highest code + 100)
+  const handleOpenCreateDrawer = (typePreset?: AccountType, parentId: string | null = null) => {
     setEditingAccountId(null);
     const chosenType = typePreset || 'Asset';
     setFormType(chosenType);
     setFormDetail(DETAIL_TYPES[chosenType][0] || '');
     setFormName('');
-    setFormNumber(`${Math.floor(1000 + Math.random() * 8900)}`);
+    const maxCode = accounts.reduce((m, a) => {
+      const n = parseInt(a.number, 10);
+      return Number.isNaN(n) ? m : Math.max(m, n);
+    }, 0);
+    setFormNumber(maxCode ? String(maxCode + 100) : '1000');
     setFormDesc('');
     setFormTax('');
     setFormActive(true);
+    setFormParentId(parentId);
     setIsAccountDrawerOpen(true);
   };
 
@@ -266,8 +225,8 @@ export default function ChartOfAccountsScreen({
     setIsAccountDrawerOpen(true);
   };
 
-  // Save Account
-  const handleSaveAccount = (andClose: boolean) => {
+  // Save Account — persists through the API
+  const handleSaveAccount = async (andClose: boolean) => {
     if (!formName.trim()) {
       showToast('Account name is required');
       return;
@@ -278,29 +237,38 @@ export default function ChartOfAccountsScreen({
     }
 
     if (editingAccountId) {
-      null(editingAccountId, {
+      const res = await coaMutations.update(editingAccountId, {
         name: formName.trim(),
-        number: formNumber.trim(),
+        code: formNumber.trim(),
         type: formType,
-        detailType: formDetail,
+        detail: formDetail,
         description: formDesc,
-        active: formActive,
+        taxLine: formTax || undefined,
+        isActive: formActive,
       });
+      if (!res.ok) {
+        showToast(res.error || 'Account could not be updated');
+        return;
+      }
       showToast(`Account "${formName}" updated`);
     } else {
-      null({
-        number: formNumber.trim(),
+      const res = await coaMutations.create({
         name: formName.trim(),
+        code: formNumber.trim(),
         type: formType,
-        detailType: formDetail,
-        balance: 0,
-        bankBalance: 0,
-        active: formActive,
-        parent: null,
+        detail: formDetail,
         description: formDesc,
+        taxLine: formTax || undefined,
+        isActive: formActive,
+        parentAccountId: formParentId,
       });
+      if (!res.ok) {
+        showToast(res.error || 'Account could not be created');
+        return;
+      }
       showToast(`Account "${formName}" created`);
     }
+    await refreshAccounts();
 
     if (andClose) {
       setIsAccountDrawerOpen(false);
@@ -309,11 +277,27 @@ export default function ChartOfAccountsScreen({
     }
   };
 
-  // Open Register
-  const handleOpenRegister = (acc: AccountItem) => {
+  // Open Register — fetches the account's real journal lines
+  const handleOpenRegister = async (acc: AccountItem) => {
     setRegisterAccount(acc);
     setRegTab('all');
+    setRegisterData(null);
     setIsRegisterDrawerOpen(true);
+    const res = await fetchAccountRegister(acc.id);
+    if (res.ok && res.data) setRegisterData(res.data);
+    else showToast(res.error || 'Register failed to load');
+  };
+
+  /* Inline edits persist on blur; failures revert via refresh */
+  const persistInline = async (id: string, patch: { number?: string; name?: string }) => {
+    const res = await coaMutations.update(id, {
+      ...(patch.number !== undefined ? { code: patch.number } : {}),
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+    });
+    if (!res.ok) {
+      showToast(res.error || 'Edit could not be saved');
+      await refreshAccounts();
+    }
   };
 
   const getDotClass = (type: AccountType) => {
@@ -380,18 +364,6 @@ export default function ChartOfAccountsScreen({
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                   expand_more
                 </span>
-              </button>
-
-              {/* SEED button — seeds the full standard chart of accounts from
-                  upload/chart of accounts.txt into acct_chart_of_accounts. */}
-              <button
-                type="button"
-                className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1 ml-2"
-                onClick={async () => { const res = await seedAccounts(); if (res.ok) refresh(); }}
-                title="Seed the standard chart of accounts (1001-6070)"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
-                Seed CoA
               </button>
 
               {newMenuOpen && (
@@ -641,8 +613,9 @@ export default function ChartOfAccountsScreen({
                           className={styles.inlineInput}
                           value={acc.number}
                           onChange={(e) =>
-                            null(acc.id, { number: e.target.value })
+                            setAccounts((prev) => prev.map((a) => (a.id === acc.id ? { ...a, number: e.target.value } : a)))
                           }
+                          onBlur={() => void persistInline(acc.id, { number: acc.number })}
                           onClick={(e) => e.stopPropagation()}
                         />
                       ) : (
@@ -657,8 +630,9 @@ export default function ChartOfAccountsScreen({
                           className={styles.inlineInput}
                           value={acc.name}
                           onChange={(e) =>
-                            null(acc.id, { name: e.target.value })
+                            setAccounts((prev) => prev.map((a) => (a.id === acc.id ? { ...a, name: e.target.value } : a)))
                           }
+                          onBlur={() => void persistInline(acc.id, { name: acc.name })}
                           onClick={(e) => e.stopPropagation()}
                         />
                       ) : (
@@ -777,8 +751,8 @@ export default function ChartOfAccountsScreen({
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              showToast('Running report for this account…');
               setRowMenuTxId(null);
+              onNavigate('finance', 'reports');
             }}
           >
             <span className="material-symbols-outlined">assessment</span>
@@ -790,8 +764,10 @@ export default function ChartOfAccountsScreen({
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              showToast('Make sub-account of… — opens parent picker');
+              const parent = accounts.find((a) => a.id === rowMenuTxId);
               setRowMenuTxId(null);
+              handleOpenCreateDrawer(parent?.type || 'Asset', parent?.id || null);
+              if (parent) showToast(`New account will sit under "${parent.name}"`);
             }}
           >
             <span className="material-symbols-outlined">subdirectory_arrow_right</span>
@@ -801,7 +777,7 @@ export default function ChartOfAccountsScreen({
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              showToast('Merge into another account');
+              showToast('Account merge is not available in the platform');
               setRowMenuTxId(null);
             }}
           >
@@ -814,10 +790,17 @@ export default function ChartOfAccountsScreen({
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              const current = null(rowMenuTxId);
-              null(rowMenuTxId, { active: !(current?.active ?? true) });
-              showToast('Account status updated');
+              const id = rowMenuTxId;
+              const current = accounts.find((a) => a.id === id);
               setRowMenuTxId(null);
+              if (!id || !current) return;
+              void (async () => {
+                const res = await coaMutations.update(id, { isActive: !current.active });
+                if (res.ok) {
+                  showToast('Account status updated');
+                  await refreshAccounts();
+                } else showToast(res.error || 'Status could not be updated');
+              })();
             }}
           >
             <span className="material-symbols-outlined">visibility_off</span>
@@ -827,9 +810,16 @@ export default function ChartOfAccountsScreen({
             type="button"
             className={`${styles.menuItem} ${styles.menuItemDanger}`}
             onClick={() => {
-              null(rowMenuTxId);
-              showToast('Account deleted');
+              const id = rowMenuTxId;
               setRowMenuTxId(null);
+              if (!id) return;
+              void (async () => {
+                const res = await coaMutations.remove(id);
+                if (res.ok) {
+                  showToast('Account deleted');
+                  await refreshAccounts();
+                } else showToast(res.error || 'Account could not be deleted');
+              })();
             }}
           >
             <span className="material-symbols-outlined">delete</span>
@@ -1136,29 +1126,23 @@ export default function ChartOfAccountsScreen({
         {/* Register List */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {(() => {
-            const defaultTxns = registerAccount?.balance
-              ? [
-                  {
-                    date: '10/01/2026',
-                    desc: 'Beginning Fiscal Year Balance',
-                    amt: +(registerAccount.balance * 0.7).toFixed(2),
-                  },
-                  {
-                    date: '10/20/2026',
-                    desc: 'Prior Period Activity / Ledger Posting',
-                    amt: +(registerAccount.balance * 0.15).toFixed(2),
-                  },
-                  {
-                    date: '11/02/2026',
-                    desc: 'Current Month Activity',
-                    amt: +(registerAccount.balance * 0.15).toFixed(2),
-                  },
-                ]
-              : [];
-            const txns = REG_TXNS[registerAccount?.name || ''] || defaultTxns;
-            const filtered = txns.filter((t) => {
-              if (regTab === 'deposits') return t.amt >= 0;
-              if (regTab === 'payments') return t.amt < 0;
+            if (!registerData) {
+              return (
+                <div style={{ padding: 40, textAlign: 'center', color: '#5a6355', fontSize: 13 }}>
+                  Loading register…
+                </div>
+              );
+            }
+            /* Running balance accumulates over the full register;
+               the tab only filters which rows are visible. */
+            let running = registerData.openingBalance;
+            const withBal = registerData.lines.map((l) => {
+              running = Math.round((running + l.amount) * 100) / 100;
+              return { ...l, balanceAfter: running };
+            });
+            const filtered = withBal.filter((t) => {
+              if (regTab === 'deposits') return t.amount >= 0;
+              if (regTab === 'payments') return t.amount < 0;
               return true;
             });
 
@@ -1170,23 +1154,25 @@ export default function ChartOfAccountsScreen({
               );
             }
 
-            let running = Math.max(0, (registerAccount?.balance || 0) - 3000);
             return filtered.map((t, idx) => {
-              running += t.amt;
-              const isDep = t.amt >= 0;
+              const isDep = t.amount >= 0;
+              const d = new Date(`${t.date}T00:00:00`);
+              const dateLabel = Number.isNaN(d.getTime())
+                ? t.date
+                : d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
               return (
                 <div key={idx} className={styles.regRow}>
-                  <span className={styles.regDate}>{t.date}</span>
-                  <span className={styles.regDesc}>{t.desc}</span>
+                  <span className={styles.regDate}>{dateLabel}</span>
+                  <span className={styles.regDesc}>{t.description}</span>
                   <span
                     className={styles.regAmt}
                     style={{ color: isDep ? '#006c47' : '#ba1a1a' }}
                   >
                     {isDep ? '+' : '−'}$
-                    {Math.abs(t.amt).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {Math.abs(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                   <span className={styles.regBal}>
-                    ${running.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ${t.balanceAfter.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               );

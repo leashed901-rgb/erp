@@ -10,6 +10,7 @@ import {
   type BlankView,
   type RenderRequest,
 } from '@/lib/renderCore';
+import { enqueueRenderJob } from '@/lib/renderJobAdapter';
 
 const errBody = (code: string, message: string, status: number) =>
   NextResponse.json(
@@ -289,42 +290,58 @@ async function queueOne(
       };
     }
 
-    const { data: inserted, error: insErr } = await (supabaseAdmin().from as any)('design_renders')
-      .insert({
-        tenant_id: DEFAULT_TENANT_ID,
-        design_id: designId,
-        canonical_product_id: item.blankId,
-        view_angle: item.view,
-        color: item.color,
-        kind: item.kind,
-        input_hash: hash,
-        renderer_version: RENDERER_VERSION,
-        storage_path: null,
-        status: 'queued',
-      })
+    // Enqueue via the unified craft_jobs queue (S600). The adapter calls
+    // ds_enqueue_job with kind='mockup_render' (idempotency_key = the input
+    // hash) AND mirrors a shadow design_renders row so the review grid,
+    // publish/preview/test-render, and fulfillment.ts keep reading from
+    // design_renders unchanged.
+    const enq = await enqueueRenderJob({
+      designId,
+      blankId: item.blankId,
+      view: item.view,
+      color: item.color,
+      kind: item.kind,
+      inputHash: hash,
+      rendererVersion: RENDERER_VERSION,
+    });
+    if (!enq.ok) {
+      return fail('QUEUE_FAILED', `craft_jobs enqueue: ${enq.error}`);
+    }
+    // Read the shadow design_renders row back so the response carries the
+    // public id the client polls /api/v1/renders?designId=… for.
+    const { data: mirrored, error: mirErr } = await (supabaseAdmin().from as any)('design_renders')
       .select(SELECT_COLS)
-      .single();
-    if (insErr) {
-      // Unique-index race: a concurrent queue won — re-read and reuse.
-      if (String((insErr as any).code) === '23505') {
-        const { data: raced } = await (supabaseAdmin().from as any)('design_renders')
-          .select(SELECT_COLS)
-          .eq('tenant_id', DEFAULT_TENANT_ID)
-          .eq('input_hash', hash)
-          .eq('kind', item.kind)
-          .eq('view_angle', item.view)
-          .eq('color', item.color)
-          .limit(1);
-        if (raced?.[0]) {
-          return {
-            row: { ...mapRow(raced[0] as RenderRow), reused: true, templateVerified: blank.verified },
-          };
-        }
-      }
-      throw new Error(`design_renders insert: ${insErr.message}`);
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .eq('input_hash', hash)
+      .eq('kind', item.kind)
+      .eq('view_angle', item.view)
+      .eq('color', item.color)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (mirErr) {
+      return fail('INTERNAL', `design_renders readback: ${mirErr.message}`);
+    }
+    const row = (mirrored?.[0] ?? null) as RenderRow | null;
+    if (!row) {
+      // The shadow insert raced and lost; the craft_jobs row still exists.
+      // Synthesise a minimal row so the client can keep polling by hash.
+      return {
+        row: {
+          id: enq.data.jobId,
+          view: item.view,
+          color: item.color,
+          kind: item.kind,
+          status: 'queued',
+          storagePath: null,
+          inputHash: hash,
+          createdAt: new Date().toISOString(),
+          reused: false,
+          templateVerified: blank.verified,
+        },
+      };
     }
     return {
-      row: { ...mapRow(inserted as RenderRow), reused: false, templateVerified: blank.verified },
+      row: { ...mapRow(row), reused: false, templateVerified: blank.verified },
     };
   } catch (err) {
     return fail('INTERNAL', err instanceof Error ? err.message : 'Failed to queue render.');

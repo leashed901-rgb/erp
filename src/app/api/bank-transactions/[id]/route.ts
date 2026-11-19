@@ -1,55 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
+import { shapeRow } from '../route';
 
-/** PATCH /api/bank-transactions/[id] — categorize or update a bank txn.
- *  Body: { category?, status?, payee?, excluded? }
- *  Real columns: review_status (review/categorized/excluded), category_account_id,
- *  matched_doc_id, matched_doc_type. */
+function err(code: string, message: string, status: number) {
+  return NextResponse.json({ error: { code, message, requestId: crypto.randomUUID() } }, { status });
+}
+
+const SELECT =
+  'id, bank_account_id, transaction_date, posted_date, amount, currency, description, payee, reference, match_status, matched_journal_line_id, review_status, txn_type, category_account_id, payee_vendor_id, payee_customer_id, transfer_bank_account_id, memo, suggested_rule_id, posted_journal_id, matched_doc_type, matched_doc_id, excluded_reason, created_at';
+
+async function getRow(id: string) {
+  const { data, error } = await supabaseAdmin()
+    .from('acct_bank_transactions')
+    .select(SELECT)
+    .eq('id', id)
+    .eq('tenant_id', DEFAULT_TENANT_ID)
+    .single();
+  if (error || !data) return null;
+  return data;
+}
+
+/** GET /api/bank-transactions/[id] */
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const row = await getRow(id);
+  if (!row) return err('NOT_FOUND', 'Bank transaction not found', 404);
+  return NextResponse.json({ data: shapeRow(row) });
+}
+
+/** PATCH /api/bank-transactions/[id] — edit memo/payee, exclude or
+ *  undo an exclusion. Categorizing (posting to the books) is NOT done
+ *  here — use POST /categorize, which runs acct_accept_bank_transaction
+ *  so the journal is real. */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch {
-    return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid JSON body', requestId: crypto.randomUUID() } }, { status: 400 });
+    return err('VALIDATION', 'Invalid JSON', 400);
   }
-  const updates: Record<string, unknown> = { reviewed_at: new Date().toISOString() };
-  if ('payee' in body) updates.payee = body.payee;
-  if ('description' in body) updates.description = body.description;
-  // category maps to category_account_id (FK to acct_chart_of_accounts).
-  // For now, store the string the user picked — the join to a real account
-  // happens in a later enrichment step.
-  if ('category' in body) updates.category_account_id = body.category;
-  // status flips
-  if (body.excluded === true) {
+  const row = await getRow(id);
+  if (!row) return err('NOT_FOUND', 'Bank transaction not found', 404);
+  if (row.review_status === 'posted') {
+    return err('VALIDATION', 'This transaction is already posted to the books — reverse the journal instead of editing it', 400);
+  }
+  const updates: Record<string, unknown> = {};
+  if (body.memo !== undefined) updates.memo = body.memo as string | null;
+  if (body.payee !== undefined) updates.payee = body.payee as string | null;
+  if (body.description !== undefined) updates.description = body.description as string;
+  if (body.payee_vendor_id !== undefined) updates.payee_vendor_id = body.payee_vendor_id as string | null;
+  if (body.payee_customer_id !== undefined) updates.payee_customer_id = body.payee_customer_id as string | null;
+  if (body.exclude === true) {
     updates.review_status = 'excluded';
-  } else if (body.status) {
-    updates.review_status = body.status;
+    updates.excluded_reason = (body.excluded_reason as string) || 'Excluded by user';
+  } else if (body.exclude === false) {
+    updates.review_status = 'for_review';
+    updates.excluded_reason = null;
   }
-
+  if (Object.keys(updates).length === 0) return err('VALIDATION', 'Nothing to update', 400);
   const { data, error } = await supabaseAdmin()
     .from('acct_bank_transactions')
     .update(updates)
     .eq('id', id)
     .eq('tenant_id', DEFAULT_TENANT_ID)
-    .select('*')
+    .select(SELECT)
     .single();
-  if (error || !data) {
-    // If category_account_id is an FK constraint failure (string vs UUID),
-    // retry without it — just flip the review_status.
-    if (updates.category_account_id) {
-      delete updates.category_account_id;
-      const { data: d2, error: e2 } = await supabaseAdmin()
-        .from('acct_bank_transactions')
-        .update(updates)
-        .eq('id', id)
-        .eq('tenant_id', DEFAULT_TENANT_ID)
-        .select('*')
-        .single();
-      if (e2) {
-        return NextResponse.json({ error: { code: 'INTERNAL', message: e2.message } }, { status: 500 });
-      }
-      return NextResponse.json({ data: d2 });
-    }
-    return NextResponse.json({ error: { code: 'VALIDATION', message: error?.message || 'Bank transaction not found', requestId: crypto.randomUUID() } }, { status: 400 });
+  if (error) return err('VALIDATION', error.message, 400);
+  return NextResponse.json({ data: shapeRow(data) });
+}
+
+/** DELETE /api/bank-transactions/[id] — delete a review-queue row.
+ *  Posted rows cannot be deleted (they have a journal). */
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const row = await getRow(id);
+  if (!row) return err('NOT_FOUND', 'Bank transaction not found', 404);
+  if (row.review_status === 'posted' || row.posted_journal_id) {
+    return err('VALIDATION', 'This transaction is posted to the books — reverse its journal entry instead of deleting it', 400);
   }
-  return NextResponse.json({ data });
+  const { error } = await supabaseAdmin()
+    .from('acct_bank_transactions')
+    .delete()
+    .eq('id', id)
+    .eq('tenant_id', DEFAULT_TENANT_ID);
+  if (error) return err('INTERNAL', error.message, 500);
+  return NextResponse.json({ data: { id, deleted: true } });
 }

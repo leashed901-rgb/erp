@@ -255,16 +255,6 @@
 .drawerOpen {
   transform: translateX(0);
 }
-.drawerWide {
-  width: 960px;
-}
-.drawerBare > div:nth-child(2) {
-  /* Embedded full-page surfaces bring their own header/footer — drop padding */
-  padding: 0;
-}
-.drawerBare > div:last-child {
-  /* Footer reserved for the Close button only — keep it but compact */
-}
 .fieldLabel {
   display: block;
   font: 600 11px Inter;

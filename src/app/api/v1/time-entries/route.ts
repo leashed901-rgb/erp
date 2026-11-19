@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     .eq('tenant_id', DEFAULT_TENANT_ID)
     .order('created_at', { ascending: false })
     .limit(100);
-  if (q) query = query.ilike('name', '%' + q + '%');
+  if (q) query = query.ilike('description', '%' + q + '%');
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: { code: 'INTERNAL', message: error.message, requestId: crypto.randomUUID() } }, { status: 500 });
   return NextResponse.json({ data });

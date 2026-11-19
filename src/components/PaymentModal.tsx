@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { usePlatformStore } from '@/lib/platformStore';
-import { AccountPicker } from './UniversalPickers';
 import { useInvoices } from '@/hooks/useAccounting';
+import { useBankAccounts } from '@/hooks/useAccountingApi';
 import type { Invoice } from '@/lib/accountingTypes';
 
 /**
@@ -14,8 +13,7 @@ import type { Invoice } from '@/lib/accountingTypes';
  *  - Online (Stripe): customer paid on the website; funds settled in bank.
  *  - Bank transfer / ACH: received a wire or ACH.
  *  - Applied to an invoice: pick which unpaid invoice this pays off; the
- *    modal marks it Paid in the client store + records the payment in the
- *    payment_transactions table so it flows into accounting.
+ *    receive endpoint creates the receipt and updates the invoice.
  *  - Standalone: no invoice — just record money received (customer credit,
  *    prepayment, overpayment).
  *
@@ -56,7 +54,7 @@ export default function PaymentModal({
   onClose: () => void;
   onSaved?: () => void;
 }) {
-  const store = usePlatformStore();
+  const { bankAccounts } = useBankAccounts();
   const [amount, setAmount] = useState('');
   const [provider, setProvider] = useState<string>('cash');
   const [reference, setReference] = useState('');
@@ -75,13 +73,12 @@ export default function PaymentModal({
     (inv) => Number(inv.balanceDue) > 0 && inv.status !== 'PAID' && inv.status !== 'VOID',
   );
 
-  // Default the deposit account to the first bank account.
+  // Default the deposit account to the first real bank account.
   useEffect(() => {
-    if (!depositAccount) {
-      const bank = store.getAccountsByType('Bank')[0];
-      setDepositAccount(bank ? bank.id : null);
+    if (!depositAccount && bankAccounts.length) {
+      setDepositAccount(bankAccounts[0].id);
     }
-  }, [depositAccount, store]);
+  }, [depositAccount, bankAccounts]);
 
   // When provider = stripe, default status to 'settled' but make it
   // easy to switch to 'pending' if the payout hasn't landed yet.
@@ -311,13 +308,16 @@ export default function PaymentModal({
             )}
           </div>
 
-          {/* Deposit to */}
-          <AccountPicker
-            value={depositAccount}
-            onChange={(id) => setDepositAccount(id)}
-            label="Deposit to"
-            filterType="Bank"
-          />
+          {/* Deposit to — real bank accounts (acct_bank_accounts) */}
+          <div>
+            <label className="field-label">Deposit to</label>
+            <select className="field-input" value={depositAccount || ''} onChange={e => setDepositAccount(e.target.value || null)}>
+              <option value="">Select account…</option>
+              {bankAccounts.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Reference — check #, Stripe charge ID, etc. */}
           <div>

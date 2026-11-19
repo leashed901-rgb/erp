@@ -9,15 +9,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid JSON body', requestId: crypto.randomUUID() } }, { status: 400 });
   }
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  // Whitelist fields that can be updated on a deal. Only include columns
-  // that exist in the current schema — `notes` and `source` are optional
-  // and may not be present, so they're conditionally set.
-  for (const f of ['name','stage_id','status','amount','probability','expected_close_date','lost_reason','won_at','lost_at','owner_staff_id','customer_id','lead_id']) {
+  // Whitelist fields that can be updated on a deal.
+  for (const f of ['name','stage_id','status','amount','probability','expected_close_date','source','lost_reason','won_at','lost_at','owner_staff_id','notes','customer_id','lead_id']) {
     if (f in body) updates[f] = body[f];
   }
-  // Optional columns — only set if the body sends them.
-  if ('source' in body) updates.source = body.source;
-  if ('notes' in body) updates.notes = body.notes;
   // If stage changed, update stage_entered_at.
   if ('stage_id' in body) updates.stage_entered_at = new Date().toISOString();
   const { data, error } = await supabaseAdmin()

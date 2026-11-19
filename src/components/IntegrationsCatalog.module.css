@@ -11,6 +11,11 @@
   border-right: 1px solid #eceaf1;
   padding: 16px 10px;
   background: #faf9fc;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  max-height: 100vh;
+  overflow-y: auto;
 }
 
 .sideTitle {
@@ -88,24 +93,47 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 
+@media (max-width: 1280px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A card is a logo and a name. Nothing else fits on it — the
+   connecting happens in the flyout the click opens. */
 .card {
   border: 1px solid #eceaf1;
   border-radius: 10px;
-  padding: 14px;
+  padding: 16px;
   background: #fff;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  width: 100%;
 }
 
-.cardTop {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.card:hover {
+  border-color: #c9c4d6;
+  box-shadow: 0 2px 10px rgba(31, 41, 55, 0.07);
 }
 
 .icon {
@@ -142,32 +170,6 @@
   color: #6b7280;
 }
 
-.cardFoot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-}
-
-.chip {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #eceaf1;
-  color: #5a6355;
-}
-
-.chipActive {
-  background: #e3ede1;
-  color: #0a6400;
-}
-
-.chipPending {
-  background: #fdf3e0;
-  color: #8a6100;
-}
-
 .connectBtn {
   font-size: 12px;
   font-weight: 600;
@@ -184,86 +186,10 @@
   cursor: default;
 }
 
-.catalogNote {
-  font-size: 12px;
-  color: #6b7280;
-}
-
 .empty {
   padding: 40px 0;
   color: #6b7280;
   font-size: 13px;
-}
-
-.chevron {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  padding: 0 2px 0 0;
-  color: #6b7280;
-  display: flex;
-  align-items: center;
-}
-
-.sideLabel {
-  flex: 1;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  font-size: 13px;
-  color: inherit;
-  padding: 0;
-}
-
-/* Expandable children under a capability — the guide line keeps the
-   group clean, the same pattern as the app's side rail trees. */
-.treeChildren {
-  margin: 2px 0 6px 17px;
-  border-left: 1px solid #dedce6;
-  padding-left: 8px;
-}
-
-.treeChild {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 5px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: #374151;
-  font-size: 12.5px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.treeChild:hover {
-  background: #eceaf1;
-}
-
-.treeChildName {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #d1d5db;
-  flex: 0 0 7px;
-}
-
-.dotActive {
-  background: #0a6400;
-}
-
-.chipError {
-  background: #fdecec;
-  color: #9b1c1c;
 }
 
 .modalBackdrop {
@@ -276,22 +202,120 @@
   z-index: 60;
 }
 
+/* The authentication flyout: two columns (Kim, 2026-11-16). Left
+   says what this is and where the key lives; right is the form —
+   or, when connected, the disconnect. */
 .modal {
-  width: 420px;
+  width: 880px;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 64px);
   overflow-y: auto;
   background: #fff;
   border-radius: 12px;
-  padding: 20px;
   box-shadow: 0 18px 50px rgba(31, 41, 55, 0.25);
 }
 
-.modalHead {
+.authGrid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  min-height: 340px;
+}
+
+@media (max-width: 720px) {
+  .authGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.authSide {
+  background: #faf9fc;
+  border-right: 1px solid #eceaf1;
+  padding: 24px 22px;
   display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 14px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.authSide .icon,
+.authSide .iconFallback {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  font-size: 19px;
+}
+
+.authName {
+  font-size: 19px;
+  font-weight: 650;
+  color: #1f2937;
+  line-height: 1.2;
+}
+
+.authStatus {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-top: 4px;
+}
+
+.authGuide {
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+.authGuideTitle {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 5px;
+}
+
+.authGuide p {
+  margin: 0 0 6px;
+}
+
+.authDocs {
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0a6400;
+  text-decoration: none;
+}
+
+.authDocs:hover {
+  text-decoration: underline;
+}
+
+.authNote {
+  margin-top: auto;
+  padding-top: 14px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.authMain {
+  padding: 24px 22px;
+}
+
+.disconnectBtn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1px solid #b3261e;
+  background: #fff;
+  color: #b3261e;
+  cursor: pointer;
+}
+
+.disconnectBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .fieldLabel {
@@ -336,4 +360,176 @@
   background: #fff;
   color: #374151;
   cursor: pointer;
+}
+
+.sideSub {
+  padding-left: 26px;
+  font-size: 12.5px;
+  color: #4b5563;
+}
+
+.authAbout {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.5;
+  margin: 2px 0 0;
+}
+
+.pointsList {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pointRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pointName {
+  color: #374151;
+}
+
+.pointMeta {
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.sideBack {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.pointRow {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 0;
+}
+
+.pointHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pointDesc {
+  font-size: 11.5px;
+  color: #6b7280;
+  line-height: 1.45;
+}
+
+.tagGroup {
+  margin-bottom: 10px;
+}
+
+.groupLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.tagWrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tag {
+  font-size: 11.5px;
+  line-height: 1.3;
+  padding: 3px 9px;
+  border: 1px solid #e7e3f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #374151;
+}
+
+.placeRow {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+.placeDomain {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.placeModule {
+  font-size: 12.5px;
+  color: #374151;
+}
+
+.connectLine {
+  font-size: 12.5px;
+  color: #374151;
+}
+
+.treeRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-right: 6px;
+}
+
+.treeRow:hover {
+  background: #eceaf1;
+}
+
+.chevBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chev {
+  font-size: 16px;
+  color: #6b7280;
+  transition: transform 0.15s ease;
+}
+
+.chevOpen {
+  transform: rotate(180deg);
+}
+
+.chevSpacer {
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.treeLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  padding: 5px 4px;
+  border: none;
+  background: transparent;
+  color: #1f2937;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
 }

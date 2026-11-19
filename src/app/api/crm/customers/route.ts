@@ -1,5 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
+import { writePartySpine } from '@/lib/partySpine';
+
+/**
+ * ── @platform/commands bridge — legacy direct-write ────────────────────────
+ * This route is one of three designated "anchor" routes (parties,
+ * crm/customers, products) where the data-access unification is documented.
+ *
+ * The canonical data-access path in the monorepo is:
+ *   API route → @platform/commands (defineCommand registry) → @platform/db
+ *   (typed RPC wrappers over p_* Postgres functions) → supabase
+ * The command registry is the single source of truth for what the platform
+ * does — every command is also surfaced to AI agents via apps/mcp-gateway.
+ *
+ * NEW routes should delegate to commands:
+ *   import { getCommandContext, studio } from '@/lib/commands';
+ *   const ctx = getCommandContext(reqUserId);
+ *   const r = await studio.someCommand.run({...}, ctx);
+ *   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+ *
+ * This route (and 138 others) currently calls supabaseAdmin().from('t')...
+ * directly. That works (the staff app is single-tenant, service-role), but
+ * it bypasses the registry — so the audit trail in platform_audit_log loses
+ * the command id, and AI agents can't reach this mutation via MCP. Migrating
+ * the 139 routes is a Phase 2 effort; this comment block establishes the
+ * bridge so the migration has a clear target. Until then, this route stays
+ * on the legacy direct-write path for backward compatibility.
+ *
+ * The bridge lives in apps/web/src/lib/commands.ts — `getCommandContext()`
+ * builds `{ supabase, userId, tenantId }` from supabaseAdmin + DEFAULT_TENANT_ID
+ * + the caller's user id. The studio/techpack/rfq/media command bundles are
+ * re-exported from there so consumers don't need to learn a second import.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
 
 /**
  * GET /api/crm/customers
@@ -90,6 +123,16 @@ export async function POST(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: { code: 'VALIDATION', message: error.message, fields: { detail: error.details }, requestId: crypto.randomUUID() } }, { status: 400 });
   }
+
+  // Write to the party spine — one record per human/company in platform_parties
+  await writePartySpine(data.id, 'customer', {
+    name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.company_name || data.email,
+    email: data.email,
+    phone: data.phone,
+    company: data.company_name,
+    city: data.city,
+    state: data.state,
+  });
 
   return NextResponse.json({ data, warnings: [] }, { status: 201 });
 }

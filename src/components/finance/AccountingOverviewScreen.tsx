@@ -1,9 +1,33 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
+import { useAccountingOverview, bankTxnMutations, receiptMutations } from '@/hooks/useAccountingApi';
 import styles from './AccountingOverviewScreen.module.css';
+
+const fmtDate = (iso: string) => {
+  if (!iso) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : iso;
+};
+const fmtShort = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+const money = (n: number) =>
+  `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+async function fileFingerprint(file: File): Promise<string> {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const buf = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch { /* fall through */ }
+  return `local-${file.name}-${file.size}-${file.lastModified}`;
+}
 
 interface ChecklistItem {
   id: string;
@@ -30,6 +54,7 @@ interface BankTransactionItem {
   desc: string;
   amount: number;
   suggested: string;
+  suggestedAccountId: string | null;
   reviewed: boolean;
 }
 
@@ -41,161 +66,9 @@ interface ActivityItem {
   meta: string;
 }
 
-const INITIAL_CHECKLIST: ChecklistItem[] = [
-  {
-    id: 'c1',
-    title: 'Connect bank account',
-    desc: 'Chase •9910 linked',
-    done: true,
-  },
-  {
-    id: 'c2',
-    title: 'Chart of accounts',
-    desc: '34 accounts mapped',
-    done: true,
-  },
-  {
-    id: 'c3',
-    title: 'First reconciliation',
-    desc: 'October closed',
-    done: true,
-  },
-  {
-    id: 'c4',
-    title: 'Import receipts',
-    desc: '12 awaiting review',
-    done: false,
-    targetScreen: 'receipts',
-    targetDomain: 'finance',
-  },
-  {
-    id: 'c5',
-    title: 'Set up bank rules',
-    desc: 'Auto-categorize repeating transactions',
-    done: false,
-    targetScreen: 'rules',
-    targetDomain: 'finance',
-  },
-  {
-    id: 'c6',
-    title: 'Sales tax',
-    desc: 'Configure tax rates',
-    done: false,
-    targetScreen: 'tax-summary',
-    targetDomain: 'finance',
-  },
-];
 
-const INITIAL_RECEIPTS: ReceiptItem[] = [
-  {
-    id: 'r1',
-    payee: 'Staples',
-    category: 'Office supplies',
-    date: '10/30/2026',
-    amount: '$142.50',
-    account: 'Visa •4421',
-    isNew: true,
-  },
-  {
-    id: 'r2',
-    payee: 'FedEx',
-    category: 'Shipping',
-    date: '10/29/2026',
-    amount: '$84.20',
-    account: 'Bank •9910',
-    isNew: true,
-  },
-  {
-    id: 'r3',
-    payee: 'Adobe',
-    category: 'Software',
-    date: '10/30/2026',
-    amount: '$59.99',
-    account: 'Visa •4421',
-    isNew: true,
-  },
-];
 
-const INITIAL_BANK_TRANSACTIONS: BankTransactionItem[] = [
-  {
-    id: 'bt1',
-    date: '10/30',
-    desc: 'STAPLES #0412',
-    amount: -142.5,
-    suggested: 'Office supplies',
-    reviewed: false,
-  },
-  {
-    id: 'bt2',
-    date: '10/29',
-    desc: 'FEDEX 001239847',
-    amount: -84.2,
-    suggested: 'Shipping',
-    reviewed: false,
-  },
-  {
-    id: 'bt3',
-    date: '10/28',
-    desc: 'STRIPE PAYOUT',
-    amount: 1842.6,
-    suggested: 'Stripe clearing',
-    reviewed: false,
-  },
-  {
-    id: 'bt4',
-    date: '10/27',
-    desc: 'AWS EMEA CHARGES',
-    amount: -124.88,
-    suggested: 'Software',
-    reviewed: false,
-  },
-  {
-    id: 'bt5',
-    date: '10/27',
-    desc: 'ACME CORP — ACH',
-    amount: 1240.0,
-    suggested: 'Invoice 1002',
-    reviewed: false,
-  },
-];
 
-const INITIAL_ACTIVITIES: ActivityItem[] = [
-  {
-    id: 'a1',
-    icon: 'check_circle',
-    iconClass: styles.activityIconSecondary,
-    title: 'October reconciled',
-    meta: 'Sarah A. · 2 hours ago',
-  },
-  {
-    id: 'a2',
-    icon: 'receipt_long',
-    iconClass: styles.activityIconQbBlue,
-    title: 'Invoice 1002 sent to Acme Corp',
-    meta: 'Marcus L. · Yesterday',
-  },
-  {
-    id: 'a3',
-    icon: 'credit_card',
-    iconClass: styles.activityIconQbMaroon,
-    title: 'Staples expense created',
-    meta: 'Auto · 10/30',
-  },
-  {
-    id: 'a4',
-    icon: 'tune',
-    iconClass: styles.activityIconTertiary,
-    title: 'Rule added: Stripe payouts',
-    meta: 'Priya N. · 10/28',
-  },
-  {
-    id: 'a5',
-    icon: 'person_add',
-    iconClass: styles.activityIconMuted,
-    title: 'New vendor: Printful',
-    meta: 'Auto · 10/26',
-  },
-];
 
 export interface AccountingOverviewScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
@@ -216,10 +89,105 @@ export default function AccountingOverviewScreen({
   const [selectedPeriod, setSelectedPeriod] = useState('This month');
   const [isPeriodMenuOpen, setIsPeriodMenuOpen] = useState(false);
 
-  // Dynamic state
-  const [checklist, setChecklist] = useState<ChecklistItem[]>(INITIAL_CHECKLIST);
-  const [receipts, setReceipts] = useState<ReceiptItem[]>(INITIAL_RECEIPTS);
-  const [bankTxns, setBankTxns] = useState<BankTransactionItem[]>(INITIAL_BANK_TRANSACTIONS);
+  // Live data — every number on this screen comes from
+  // /api/accounting/overview (real acct_* aggregates)
+  const { overview, refresh: refreshOverview } = useAccountingOverview();
+
+  const checklist: ChecklistItem[] = useMemo(() => {
+    if (!overview) return [];
+    return [
+      {
+        id: 'c1',
+        title: 'Connect bank account',
+        desc: overview.bankAccountCount > 0 ? `${overview.bankAccountNames.join(', ')} linked` : 'No bank account linked yet',
+        done: overview.bankAccountCount > 0,
+      },
+      {
+        id: 'c2',
+        title: 'Chart of accounts',
+        desc: `${overview.coaCount} active accounts`,
+        done: overview.coaCount > 0,
+      },
+      {
+        id: 'c3',
+        title: 'First reconciliation',
+        desc: overview.lastReconciledDate ? `Last reconciled ${fmtDate(overview.lastReconciledDate)}` : 'No reconciliations yet',
+        done: !!overview.lastReconciledDate,
+        targetScreen: 'reconcile',
+        targetDomain: 'finance',
+      },
+      {
+        id: 'c4',
+        title: 'Import receipts',
+        desc: overview.receiptsForReview > 0 ? `${overview.receiptsForReview} awaiting review` : 'Inbox clear',
+        done: overview.receiptsForReview === 0,
+        targetScreen: 'receipts',
+        targetDomain: 'finance',
+      },
+      {
+        id: 'c5',
+        title: 'Set up bank rules',
+        desc: overview.activeRuleCount > 0 ? `${overview.activeRuleCount} active rules` : 'Auto-categorize repeating transactions',
+        done: overview.activeRuleCount > 0,
+        targetScreen: 'rules',
+        targetDomain: 'finance',
+      },
+      {
+        id: 'c6',
+        title: 'Sales tax',
+        desc: overview.taxCodeCount > 0 ? `${overview.taxCodeCount} tax code${overview.taxCodeCount === 1 ? '' : 's'} configured` : 'Configure tax rates',
+        done: overview.taxCodeCount > 0,
+        targetScreen: 'tax-summary',
+        targetDomain: 'finance',
+      },
+    ];
+  }, [overview]);
+
+  const receipts: ReceiptItem[] = useMemo(
+    () =>
+      (overview?.receiptsPreview || []).map((r) => ({
+        id: r.id,
+        payee: r.vendorName,
+        category: '',
+        date: fmtDate(r.date),
+        amount: r.amount != null ? `$${r.amount.toFixed(2)}` : '—',
+        account: r.paymentAccountLabel || '',
+        isNew: r.isNew,
+      })),
+    [overview],
+  );
+
+  const bankTxns: BankTransactionItem[] = useMemo(
+    () =>
+      (overview?.reviewFeed || []).map((t) => ({
+        id: t.id,
+        date: fmtShort(t.date),
+        desc: t.description,
+        amount: t.amount,
+        suggested: t.suggestedLabel || '—',
+        suggestedAccountId: t.suggestedAccountId,
+        reviewed: false,
+      })),
+    [overview],
+  );
+
+  const activities: ActivityItem[] = useMemo(() => {
+    const icons: Record<string, { icon: string; cls: string }> = {
+      journal: { icon: 'menu_book', cls: styles.activityIconSecondary },
+      receipt: { icon: 'receipt_long', cls: styles.activityIconQbBlue },
+      bank: { icon: 'account_balance', cls: styles.activityIconQbMaroon },
+    };
+    return (overview?.activity || []).map((a) => {
+      const meta = icons[a.kind] || { icon: 'history', cls: styles.activityIconMuted };
+      return {
+        id: a.id,
+        icon: meta.icon,
+        iconClass: meta.cls,
+        title: a.title,
+        meta: `${a.detail} · ${new Date(a.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+      };
+    });
+  }, [overview]);
 
   // Modals
   const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
@@ -264,11 +232,15 @@ export default function AccountingOverviewScreen({
   const totalCount = checklist.length;
   const progressPercent = Math.round((completedCount / totalCount) * 100);
 
-  // Toggle checklist item
+  // Checklist state is computed from the books — the badge navigates
+  // to the screen where the remaining work happens
   const handleToggleChecklist = (id: string) => {
-    setChecklist((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
-    );
+    const item = checklist.find((i) => i.id === id);
+    if (item?.done) {
+      showToast(`${item.title} — done`);
+      return;
+    }
+    if (item?.targetScreen) onNavigate(item.targetDomain || 'finance', item.targetScreen);
   };
 
   // Copy forwarding mail
@@ -287,30 +259,33 @@ export default function AccountingOverviewScreen({
 
   const handleFileUploaded = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files && files.length > 0) {
-      const file = files[0];
-      const newReceipt: ReceiptItem = {
-        id: `r-${Date.now()}`,
-        payee: file.name.split('.')[0].replace(/[-_]/g, ' ') || 'New Receipt',
-        category: 'Uncategorized',
-        date: '11/04/2026',
-        amount: `$${(Math.random() * 200 + 15).toFixed(2)}`,
-        account: 'Pending review',
-        isNew: true,
-      };
-      setReceipts((prev) => [newReceipt, ...prev]);
-      showToast(`Uploaded receipt: ${file.name}`);
-      e.target.value = '';
-    }
+    e.target.value = '';
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    void (async () => {
+      const sha256 = await fileFingerprint(file);
+      const res = await receiptMutations.intake({ fileName: file.name, sha256, source: 'upload' });
+      if (res.ok) {
+        showToast(`Receipt "${file.name}" received — awaiting extraction`);
+        await refreshOverview();
+      } else showToast(res.error || 'Upload failed');
+    })();
   };
 
-  // Review bank transaction
-  const handleAcceptReview = (txn: BankTransactionItem) => {
-    setBankTxns((prev) =>
-      prev.map((t) => (t.id === txn.id ? { ...t, reviewed: true } : t))
-    );
+  // Review bank transaction — Accept applies the suggested category
+  // through the bank-transactions API
+  const handleAcceptReview = async (txn: BankTransactionItem) => {
     setSelectedReviewTxn(null);
-    showToast(`Matched ${txn.desc} to ${txn.suggested}`);
+    if (!txn.suggestedAccountId) {
+      showToast('No category suggestion — categorize it in the bank feed');
+      onNavigate('finance', 'bank');
+      return;
+    }
+    const res = await bankTxnMutations.categorize(txn.id, txn.suggestedAccountId);
+    if (res.ok) {
+      showToast(`Categorized ${txn.desc} as ${txn.suggested}`);
+      await refreshOverview();
+    } else showToast(res.error || 'Categorize failed');
   };
 
   return (
@@ -344,7 +319,7 @@ export default function AccountingOverviewScreen({
           <div>
             <h1 className={styles.pageTitle}>Accounting — Overview</h1>
             <p className={styles.pageSubtitle}>
-              Bank feed, receipts, reconcile, books. Unsaid · Nov 2026
+              Bank feed, receipts, reconcile, books. {overview?.entityName || 'Unsaid'} · {new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
             </p>
           </div>
           <div className={styles.headerActions}>
@@ -374,7 +349,7 @@ export default function AccountingOverviewScreen({
                     onClick={() => {
                       setSelectedPeriod(period);
                       setIsPeriodMenuOpen(false);
-                      showToast(`Filter set to ${period}`);
+                      showToast('Overview totals are all-time — period filtering is not applied');
                     }}
                   >
                     <span>{period}</span>
@@ -420,12 +395,14 @@ export default function AccountingOverviewScreen({
             onClick={() => onNavigate('finance', 'bank')}
           >
             <span className={styles.kpiLabel}>For review</span>
-            <div className={styles.kpiValue}>47</div>
+            <div className={styles.kpiValue}>{overview?.reviewCount ?? '—'}</div>
             <div className={styles.kpiDeltaTertiary}>
               <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
                 schedule
               </span>
-              Oldest 6 days ago
+              {overview?.reviewOldestDate
+                ? `Oldest ${Math.max(0, Math.round((Date.now() - new Date(overview.reviewOldestDate).getTime()) / 86400000))} days ago`
+                : 'Queue clear'}
             </div>
           </div>
 
@@ -436,8 +413,8 @@ export default function AccountingOverviewScreen({
             onClick={() => onNavigate('finance', 'bank')}
           >
             <span className={styles.kpiLabel}>Uncategorized</span>
-            <div className={styles.kpiValue}>$2,418.90</div>
-            <div className={styles.kpiDeltaMuted}>12 transactions</div>
+            <div className={styles.kpiValue}>{overview ? money(overview.uncategorizedTotal) : '—'}</div>
+            <div className={styles.kpiDeltaMuted}>{overview?.uncategorizedCount ?? 0} transactions</div>
           </div>
 
           {/* Card 3 */}
@@ -447,12 +424,12 @@ export default function AccountingOverviewScreen({
             onClick={() => onNavigate('finance', 'bank')}
           >
             <span className={styles.kpiLabel}>Bank balance</span>
-            <div className={styles.kpiValue}>$84,210.40</div>
+            <div className={styles.kpiValue}>{overview ? money(overview.bankBalance) : '—'}</div>
             <div className={styles.kpiDeltaSecondary}>
               <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
                 sync
               </span>
-              2m ago · Chase •9910
+              {overview?.bankAccountNames.join(' · ') || 'No accounts'}
             </div>
           </div>
 
@@ -463,12 +440,88 @@ export default function AccountingOverviewScreen({
             onClick={() => onNavigate('finance', 'reconcile')}
           >
             <span className={styles.kpiLabel}>Reconciled</span>
-            <div className={styles.kpiValue}>Oct 31</div>
+            <div className={styles.kpiValue}>{overview?.lastReconciledDate ? fmtShort(overview.lastReconciledDate) : '—'}</div>
             <div className={styles.kpiDeltaSecondary}>
               <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
                 check_circle
               </span>
-              Period closed
+              {overview?.lastReconciledDate ? (overview.lastReconciledStatus || 'Reconciled') : 'No reconciliations yet'}
+            </div>
+          </div>
+
+          {/* Card 5 — Revenue MTD (ledger, ties to /api/reports) */}
+          <div
+            className={styles.kpiCard}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onNavigate('finance', 'quick-view')}
+          >
+            <span className={styles.kpiLabel}>Revenue MTD</span>
+            <div className={styles.kpiValue}>{overview?.kpis ? money(overview.kpis.revenueMtd) : '—'}</div>
+            <div className={styles.kpiDeltaSecondary}>Posted lines · this month</div>
+          </div>
+
+          {/* Card 6 — Expenses MTD (all expense accounts incl. COGS) */}
+          <div
+            className={styles.kpiCard}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onNavigate('finance', 'quick-view')}
+          >
+            <span className={styles.kpiLabel}>Expenses MTD</span>
+            <div className={styles.kpiValue}>{overview?.kpis ? money(overview.kpis.expensesMtd) : '—'}</div>
+            <div className={styles.kpiDeltaSecondary}>Posted lines · this month</div>
+          </div>
+
+          {/* Card 7 — Net income YTD */}
+          <div
+            className={styles.kpiCard}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onNavigate('finance', 'quick-view')}
+          >
+            <span className={styles.kpiLabel}>Net income YTD</span>
+            <div className={styles.kpiValue}>{overview?.kpis ? money(overview.kpis.netIncomeYtd) : '—'}</div>
+            <div className={styles.kpiDeltaSecondary}>Revenue − expenses · calendar YTD</div>
+          </div>
+
+          {/* Card 8 — Unposted drafts */}
+          <div
+            className={styles.kpiCard}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onNavigate('finance', 'finance-accounting--journal-entries')}
+          >
+            <span className={styles.kpiLabel}>Unposted drafts</span>
+            <div className={styles.kpiValue}>{overview?.kpis ? String(overview.kpis.unpostedDrafts) : '—'}</div>
+            <div className={styles.kpiDeltaTertiary}>Journal entries awaiting posting</div>
+          </div>
+
+          {/* Card 9 — Close progress (latest month-end close) */}
+          <div
+            className={styles.kpiCard}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onNavigate('finance', 'close')}
+          >
+            <span className={styles.kpiLabel}>Close progress</span>
+            <div className={styles.kpiValue}>
+              {overview?.kpis?.closeProgress ? `${overview.kpis.closeProgress.done}/${overview.kpis.closeProgress.total}` : '—'}
+            </div>
+            <div className={styles.kpiDeltaSecondary}>
+              {overview?.kpis?.closeProgress
+                ? `${Math.round((overview.kpis.closeProgress.done / Math.max(1, overview.kpis.closeProgress.total)) * 100)}% of tasks done`
+                : 'No close started'}
+            </div>
+          </div>
+
+          {/* Card 10 — Trial balance (must show balanced) */}
+          <div
+            className={styles.kpiCard}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onNavigate('finance', 'quick-view')}
+          >
+            <span className={styles.kpiLabel}>Trial balance</span>
+            <div className={styles.kpiValue}>
+              {overview?.kpis ? (overview.kpis.trialBalance.balanced ? 'Balanced' : 'OUT OF BALANCE') : '—'}
+            </div>
+            <div className={styles.kpiDeltaSecondary}>
+              {overview?.kpis ? `Dr ${money(overview.kpis.trialBalance.debits)} = Cr ${money(overview.kpis.trialBalance.credits)}` : ''}
             </div>
           </div>
         </div>
@@ -600,7 +653,7 @@ export default function AccountingOverviewScreen({
             <div className={styles.inboxHeader}>
               <div>
                 <h2 className={styles.cardTitle}>Receipts inbox</h2>
-                <p className={styles.cardSubtitle}>{receipts.length} for review</p>
+                <p className={styles.cardSubtitle}>{overview?.receiptsForReview ?? 0} for review</p>
               </div>
               <button
                 type="button"
@@ -665,10 +718,10 @@ export default function AccountingOverviewScreen({
                   </div>
                   <div className={styles.inboxRowContent}>
                     <div className={styles.inboxRowTitle}>
-                      {r.payee} · {r.category}
+                      {r.payee}{r.category ? ` · ${r.category}` : ''}
                     </div>
                     <div className={styles.inboxRowMeta}>
-                      {r.date} · {r.amount} · {r.account}
+                      {r.date} · {r.amount}{r.account ? ` · ${r.account}` : ''}
                     </div>
                   </div>
                   {r.isNew && <span className={styles.newBadge}>New</span>}
@@ -686,7 +739,7 @@ export default function AccountingOverviewScreen({
               <div>
                 <h2 className={styles.cardTitle}>For review</h2>
                 <p className={styles.cardSubtitle}>
-                  {bankTxns.filter((t) => !t.reviewed).length} bank transactions
+                  {overview?.reviewCount ?? 0} bank transactions
                 </p>
               </div>
               <button
@@ -783,7 +836,10 @@ export default function AccountingOverviewScreen({
               Recent activity
             </h2>
             <div className={styles.activityList}>
-              {INITIAL_ACTIVITIES.map((act) => (
+              {activities.length === 0 && (
+                <div style={{ fontSize: 12, color: '#5a6355', padding: '8px 0' }}>No accounting activity yet.</div>
+              )}
+              {activities.map((act) => (
                 <div key={act.id} className={styles.activityItem}>
                   <span
                     className={`material-symbols-outlined ${styles.activityIcon} ${act.iconClass}`}
@@ -844,7 +900,7 @@ export default function AccountingOverviewScreen({
               >
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 600 }}>{selectedReviewTxn.desc}</div>
-                  <div style={{ fontSize: 12, color: '#5a6355' }}>Date: {selectedReviewTxn.date}/2026</div>
+                  <div style={{ fontSize: 12, color: '#5a6355' }}>Date: {selectedReviewTxn.date}</div>
                 </div>
                 <div
                   style={{
@@ -863,7 +919,7 @@ export default function AccountingOverviewScreen({
                   Suggested Match / Category
                 </label>
                 <div style={{ fontSize: 13, fontWeight: 500, color: '#0a6400' }}>
-                  {selectedReviewTxn.suggested} (98% confidence score)
+                  {selectedReviewTxn.suggested}
                 </div>
               </div>
 
@@ -872,7 +928,7 @@ export default function AccountingOverviewScreen({
                   Rule or Match Logic
                 </label>
                 <div style={{ fontSize: 12, color: '#5a6355' }}>
-                  Auto-categorized based on payee keyword rule &amp; previous reconciliation history.
+                  Suggested by the platform from bank rules and prior categorizations. Accepting applies this category to the transaction.
                 </div>
               </div>
             </div>
@@ -892,7 +948,7 @@ export default function AccountingOverviewScreen({
               <button
                 type="button"
                 className={styles.btnPrimary}
-                onClick={() => handleAcceptReview(selectedReviewTxn)}
+                onClick={() => void handleAcceptReview(selectedReviewTxn)}
               >
                 Accept &amp; Match
               </button>
@@ -920,22 +976,15 @@ export default function AccountingOverviewScreen({
 
             <div className={styles.modalBody}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 12 }}>
-                <div style={{ paddingBottom: 8, borderBottom: '1px solid #eeedf1' }}>
-                  <div style={{ fontWeight: 600, color: '#1a1c1e' }}>Period closed: October 2026</div>
-                  <div style={{ color: '#5a6355' }}>By Sarah A. (CFO) · 11/04/2026 08:14 AM UTC · Hash #4f82a1b</div>
-                </div>
-                <div style={{ paddingBottom: 8, borderBottom: '1px solid #eeedf1' }}>
-                  <div style={{ fontWeight: 600, color: '#1a1c1e' }}>Invoice #1002 status changed to Sent</div>
-                  <div style={{ color: '#5a6355' }}>By Marcus L. · 11/03/2026 04:30 PM UTC · $1,240.00 to Acme Corp</div>
-                </div>
-                <div style={{ paddingBottom: 8, borderBottom: '1px solid #eeedf1' }}>
-                  <div style={{ fontWeight: 600, color: '#1a1c1e' }}>Automated OCR intake: Staples Receipt</div>
-                  <div style={{ color: '#5a6355' }}>System Bot · 10/30/2026 11:15 AM UTC · $142.50 to Office supplies</div>
-                </div>
-                <div style={{ paddingBottom: 8, borderBottom: '1px solid #eeedf1' }}>
-                  <div style={{ fontWeight: 600, color: '#1a1c1e' }}>Rule created: Stripe Payouts to Clearing Account</div>
-                  <div style={{ color: '#5a6355' }}>By Priya N. · 10/28/2026 02:40 PM UTC · Rule ID #rul_9801</div>
-                </div>
+                {(overview?.activity || []).map((a) => (
+                  <div key={a.id} style={{ paddingBottom: 8, borderBottom: '1px solid #eeedf1' }}>
+                    <div style={{ fontWeight: 600, color: '#1a1c1e' }}>{a.title}</div>
+                    <div style={{ color: '#5a6355' }}>{a.detail} · {new Date(a.at).toLocaleString('en-US')}</div>
+                  </div>
+                ))}
+                {(overview?.activity || []).length === 0 && (
+                  <div style={{ color: '#5a6355' }}>No accounting activity recorded yet.</div>
+                )}
               </div>
             </div>
 

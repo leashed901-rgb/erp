@@ -207,6 +207,7 @@ export default function CustomerProfile({ customerId, onToast, onBack, onCreate 
 
   function handleNewTxn(label: string) {
     setTxnMenuOpen(false);
+    if (!customer) return;
     if (onCreate) {
       onCreate(label, { customerName: fullName(customer), customerId: customer.id });
     } else {

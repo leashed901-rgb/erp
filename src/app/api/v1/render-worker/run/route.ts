@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
 import { apiError } from '@/lib/podServer';
 import { processRenderQueue } from '@/lib/renderWorker';
+import { renderQueueCounts } from '@/lib/renderJobAdapter';
 
 /**
  * POST /api/v1/render-worker/run — the render worker's run entry point.
- * Claims a batch of queued design_renders rows (FOR UPDATE SKIP LOCKED
- * via the claim_design_renders RPC; stuck rows > 5 min are recovered
- * inside the claim) and renders each. One bad row never fails the batch.
+ * Claims a batch of queued craft_jobs rows (kind='mockup_render') via
+ * ds_claim_jobs (FOR UPDATE SKIP LOCKED; stuck rows > 5 min are recovered
+ * by ds_reap_stale_jobs called by the adapter) and renders each. One bad
+ * row never fails the batch.
  * Body: { limit?: number } (default 5, max 20).
  *
  * Serve intent (the actual serving is the platform/CDN's job): outputs
@@ -34,26 +35,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/** GET /api/v1/render-worker/run — queue depths, for the review grid. */
+/**
+ * GET /api/v1/render-worker/run — queue depths, for the review grid.
+ * Reports both craft_jobs (the live queue) and design_renders (the legacy
+ * read-back surface) so dashboards stay consistent during the migration.
+ */
 export async function GET() {
   try {
-    const { data, error } = await supabaseAdmin()
-      .from('design_renders')
-      .select('status')
-      .eq('tenant_id', DEFAULT_TENANT_ID);
-    if (error) throw new Error(error.message);
-    const counts: Record<string, number> = {
-      queued: 0,
-      running: 0,
-      succeeded: 0,
-      failed: 0,
-      stale: 0,
-    };
-    for (const r of data ?? []) {
-      const s = r.status as string;
-      if (s in counts) counts[s]++;
-    }
-    return NextResponse.json({ counts });
+    const { craftJobs, designRenders } = await renderQueueCounts();
+    return NextResponse.json({ counts: craftJobs, designRenders });
   } catch (err) {
     return apiError(err instanceof Error ? err.message : 'Failed to read render queue.');
   }

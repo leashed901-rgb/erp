@@ -10,6 +10,9 @@ import { podLinesForOrder } from '@/lib/fulfillment';
  * (b) POD orders that still need a PO: their lines resolved to the chosen
  *     route (priority 1) + print-file status. A line with no route is
  *     listed with routeId null — reported, never guessed.
+ *
+ * Both parts read the LIVE order world (erp_orders + erp_order_lines),
+ * not the legacy `orders` / `order_items` tables (0 rows).
  */
 export async function GET() {
   try {
@@ -23,22 +26,14 @@ export async function GET() {
 
     const orderIds = [...new Set((pos ?? []).map((p) => p.order_id as string))];
     const { data: orders } = await supabaseAdmin()
-      .from('orders')
-      .select('id,status,total,created_at,customer_id')
+      .from('erp_orders')
+      .select('id,status,total,created_at,customer_email,metadata')
       .in('id', orderIds.length ? orderIds : ['00000000-0000-0000-0000-000000000000']);
     const orderById = new Map((orders ?? []).map((o) => [o.id as string, o]));
-    const customerIds = [
-      ...new Set((orders ?? []).map((o) => o.customer_id as string).filter(Boolean)),
-    ];
-    const { data: customers } = await supabaseAdmin()
-      .from('customers')
-      .select('id,firstName,lastName')
-      .in('id', customerIds.length ? customerIds : ['00000000-0000-0000-0000-000000000000']);
-    const customerName = (customerId: string | null): string | null => {
-      if (!customerId) return null;
-      const c = (customers ?? []).find((x) => (x.id as string) === customerId);
-      if (!c) return null;
-      return `${(c.firstName as string) ?? ''} ${(c.lastName as string) ?? ''}`.trim() || null;
+    const customerName = (o: Record<string, unknown> | undefined): string | null => {
+      if (!o) return null;
+      const meta = (o.metadata || {}) as Record<string, unknown>;
+      return (meta.customer_name as string) || (o.customer_email ? String(o.customer_email).split('@')[0] : null);
     };
     const supplierIds = [...new Set((pos ?? []).map((p) => p.supplier_id as string).filter(Boolean))];
     const { data: suppliers } = await supabaseAdmin()
@@ -52,7 +47,7 @@ export async function GET() {
       orderId: p.order_id,
       orderStatus: (orderById.get(p.order_id as string)?.status as string) ?? null,
       orderTotal: (orderById.get(p.order_id as string)?.total as number | null) ?? null,
-      customerName: customerName((orderById.get(p.order_id as string)?.customer_id as string | null) ?? null),
+      customerName: customerName(orderById.get(p.order_id as string) as Record<string, unknown> | undefined),
       supplierId: p.supplier_id,
       supplierName: supById.get(p.supplier_id as string)?.name ?? null,
       supplierSlug: supById.get(p.supplier_id as string)?.slug ?? null,
@@ -66,8 +61,8 @@ export async function GET() {
 
     // POD orders missing a PO: scan recent orders for POD lines.
     const { data: recentOrders } = await supabaseAdmin()
-      .from('orders')
-      .select('id,status,total,created_at,customer_id')
+      .from('erp_orders')
+      .select('id,status,total,created_at,customer_email,metadata')
       .eq('tenant_id', DEFAULT_TENANT_ID)
       .order('created_at', { ascending: false })
       .limit(50);
@@ -87,7 +82,7 @@ export async function GET() {
           orderId: o.id as string,
           orderStatus: o.status as string | null,
           orderTotal: o.total as number | null,
-          customerName: customerName((o.customer_id as string | null) ?? null),
+          customerName: customerName(o as unknown as Record<string, unknown>),
           lines,
         });
       }

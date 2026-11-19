@@ -32,3 +32,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (error || !data) return NextResponse.json({ error: { code: 'VALIDATION', message: error?.message || 'Not found', requestId: crypto.randomUUID() } }, { status: 400 });
   return NextResponse.json({ data });
 }
+
+/** DELETE /api/v1/tickets/[id] — soft delete (deleted_at stamp;
+ *  ticket rows and their immutable events are never hard-deleted). */
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const { error } = await supabaseAdmin()
+    .from('support_tickets')
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('tenant_id', DEFAULT_TENANT_ID);
+  if (error) return NextResponse.json({ error: { code: 'INTERNAL', message: error.message, requestId: crypto.randomUUID() } }, { status: 500 });
+  return NextResponse.json({ data: { id, deleted: true } });
+}

@@ -1,4 +1,5 @@
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
+import { aliasFor } from '@/lib/categoryAliases';
 
 /**
  * Shared server helpers for the /api/v1 POD routes. All reads go through
@@ -103,7 +104,11 @@ export function resolveCategoryPath(
     byParent.set(n.parent_id ?? null, list);
   }
   const match = (pool: CategoryNode[], seg: string) =>
-    pool.find((n) => norm(n.name) === norm(seg) || norm(n.slug) === norm(seg));
+    pool.find((n) => norm(n.name) === norm(seg) || norm(n.slug) === norm(seg)) ??
+    // Storefront / legacy name — resolve through the alias bridge.
+    pool.find((n) =>
+      (aliasFor(seg) ?? []).some((a) => norm(n.name) === norm(a) || norm(n.slug) === norm(a)),
+    );
 
   // Walk: roots first, then children of the previous match.
   let current = match(byParent.get(null) ?? [], clean[0]);
@@ -140,15 +145,18 @@ export function resolveCategoryIds(
   // Compare on letters+digits only, so 'Home Living' matches
   // 'Home & Living' (slug home-and-living) and 'Kids' matches 'Kids'.
   const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const catRoots = nodes.filter(
-    (n) => norm(n.slug) === norm(category) || norm(n.name) === norm(category),
-  );
+  const matchName = (n: CategoryNode, name: string) =>
+    norm(n.slug) === norm(name) || norm(n.name) === norm(name);
+  let catRoots = nodes.filter((n) => matchName(n, category));
+  if (catRoots.length === 0) {
+    // Storefront / legacy name — resolve through the alias bridge.
+    const aliased = aliasFor(category) ?? [];
+    catRoots = nodes.filter((n) => aliased.some((a) => matchName(n, a)));
+  }
   if (catRoots.length === 0) return { ids: new Set(), topName: null, resolvedPath: null };
   const topName = topNameOf(nodes, catRoots[0].id);
   if (subcategory) {
-    const subRoots = nodes.filter(
-      (n) => norm(n.name) === norm(subcategory) || norm(n.slug) === norm(subcategory),
-    );
+    const subRoots = nodes.filter((n) => matchName(n, subcategory));
     const catIds = descendantsOf(nodes, new Set(catRoots.map((c) => c.id)));
     const inScope = subRoots.filter((n) => catIds.has(n.id));
     if (inScope.length > 0) {
@@ -156,6 +164,18 @@ export function resolveCategoryIds(
         ids: descendantsOf(nodes, new Set(inScope.map((n) => n.id))),
         topName,
         resolvedPath: [catRoots[0].name, ...inScope.map((n) => n.name)],
+      };
+    }
+    // Alias fallback, still scoped to the category — a storefront sub
+    // name ('Bottoms') resolves to the tree's rollup ('All bottoms').
+    const aliased = aliasFor(subcategory) ?? [];
+    const aliasRoots = nodes.filter((n) => aliased.some((a) => matchName(n, a)));
+    const aliasInScope = aliasRoots.filter((n) => catIds.has(n.id));
+    if (aliasInScope.length > 0) {
+      return {
+        ids: descendantsOf(nodes, new Set(aliasInScope.map((n) => n.id))),
+        topName,
+        resolvedPath: [catRoots[0].name, ...aliasInScope.map((n) => n.name)],
       };
     }
     // No such subcategory under this category — empty, honestly.

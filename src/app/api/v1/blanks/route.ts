@@ -32,7 +32,7 @@ import {
 export async function GET(req: NextRequest) {
   try {
     const params = new URL(req.url).searchParams;
-    const category = params.get('category') ?? 'Men';
+    const category = params.get('category') ?? "Men's clothing";
     const subcategory = params.get('subcategory') ?? undefined;
     const pathParam = params.get('path') ?? undefined;
     const q = params.get('q')?.trim() || undefined;

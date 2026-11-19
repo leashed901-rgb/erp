@@ -22,6 +22,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if ('title' in body && typeof body.title === 'string' && body.title.trim()) updates.title = body.title.trim();
   if ('priority' in body && typeof body.priority === 'string' && body.priority) updates.priority = body.priority;
   if ('due_at' in body) updates.due_at = body.due_at ?? null;
+  if ('description' in body) updates.description = body.description ?? null;
+  if ('board_column' in body) updates.board_column = body.board_column ?? null;
+  if ('assigned_to' in body) updates.assigned_to = body.assigned_to ?? null;
+  if ('start_at' in body) updates.start_at = body.start_at ?? null;
+  if ('task_type' in body && typeof body.task_type === 'string' && body.task_type) updates.task_type = body.task_type;
+  if ('related_type' in body) updates.related_type = body.related_type ?? null;
+  if ('related_id' in body) updates.related_id = body.related_id ?? null;
+  if ('tags' in body && Array.isArray(body.tags)) updates.tags = body.tags;
 
   if (typeof body.status === 'string' && body.status) {
     updates.status = body.status;

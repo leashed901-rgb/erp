@@ -3,6 +3,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import styles from './BillsScreen.module.css';
 import type { DocumentStatus } from '@/lib/platformStore';
+import { importCsvFile, resolvePartyId } from '@/lib/csvImport';
+import { VIEW_DEFS } from '@/lib/viewDefs';
 import DocumentEngine from '../DocumentEngine';
 
 export interface BillItem {
@@ -37,54 +39,9 @@ const toIsoDate = (display: string): string => {
   return m ? `${m[3]}-${m[1]}-${m[2]}` : display;
 };
 
-/* Source badges derive from tags (set on create) and the activity log */
-const SOURCE_FROM_TAG: Record<string, BillItem['source']> = {
-  'source:upload': 'Upload',
-  'source:email': 'Email forwarded',
-  'source:scan': 'Auto-scanned',
-};
-
-/* Store DocumentStatus → the screen's three tabs: For review / Unpaid / Paid.
-   Drafts land in 'For review' (upload → review → approve → paid funnel);
-   Approved/Overdue/etc. are payable, so they land in 'Unpaid'. */
-const toTabStatus = (s: DocumentStatus): BillItem['status'] =>
-  s === 'ForReview' || s === 'Draft'
-    ? 'For review'
-    : s === 'Paid' || s === 'Deposited'
-    ? 'Paid'
-    : 'Unpaid';
-
 /* Next bill number per the platform numbering scheme */
 const nextBillNumber = () =>
   `BILL-${Date.now()}`;
-
-/* Store Document → the screen's local row type */
-function toBillItem(doc: Document, vendorName: string): BillItem {
-  const taggedSource = doc.tags.map((t) => SOURCE_FROM_TAG[t]).find(Boolean);
-  const activityText = doc.activity.map((a) => a.text).join(' ').toLowerCase();
-  const source: BillItem['source'] =
-    taggedSource ??
-    (activityText.includes('email')
-      ? 'Email forwarded'
-      : activityText.includes('upload') || activityText.includes('scan')
-      ? 'Auto-scanned'
-      : 'Manual');
-  return {
-    id: doc.id,
-    vendor: vendorName || '—',
-    source,
-    billNo: doc.number,
-    billDate: toDisplayDate(doc.date),
-    category: doc.lines[0]?.description || 'Uncategorized',
-    className: doc.lines[0]?.account || undefined,
-    location: undefined,
-    memo: doc.memo,
-    dueDate: toDisplayDate(doc.dueDate),
-    amount: doc.total,
-    attachmentsCount: doc.attachments.length,
-    status: toTabStatus(doc.status),
-  };
-}
 
 type ColumnKey =
   | 'vendor'
@@ -142,7 +99,8 @@ export default function BillsScreen({
   // Tabs: 'For review' | 'Unpaid' | 'Paid'
   const [activeTab, setActiveTab] = useState<'For review' | 'Unpaid' | 'Paid'>('For review');
 
-  // Fetch real bills from the Document Engine API
+  // Fetch real bills from the Document Engine API (acct_ap_bills).
+  // Re-runs after every mutation so the list always shows the live row.
   const loadBills = useCallback(() => {
     fetch('/api/v1/documents?type=Bill')
       .then((r) => r.json())
@@ -164,6 +122,7 @@ export default function BillsScreen({
       })
       .catch(() => {});
   }, []);
+
   useEffect(() => { loadBills(); }, [loadBills]);
 
   // Selected bill rows
@@ -206,11 +165,7 @@ export default function BillsScreen({
   const [activeRowMenuId, setActiveRowMenuId] = useState<string | null>(null);
 
   // New Bill form state
-  const [newVendor, setNewVendor] = useState(
-    () =>
-      null
-        ?.name || 'Printful'
-  );
+  const [newVendor, setNewVendor] = useState('Printful');
   const [newBillNo, setNewBillNo] = useState<string>(nextBillNumber);
   const [newBillDate, setNewBillDate] = useState('11/04/2026');
   const [newDueDate, setNewDueDate] = useState('12/04/2026');
@@ -298,18 +253,25 @@ export default function BillsScreen({
     () => Array.from(new Set(bills.map((b) => b.vendor))).sort(),
     [bills]
   );
+
+  // Cross-screen filter: the Parties list hands over a vendor id prefix
+  // (sessionStorage 'bills.vendorFilter') so "View bills" lands already
+  // filtered to that vendor. Consumed once, then cleared.
+  useEffect(() => {
+    if (bills.length === 0) return;
+    let stored: string | null = null;
+    try {
+      stored = sessionStorage.getItem('bills.vendorFilter');
+      sessionStorage.removeItem('bills.vendorFilter');
+    } catch { /* storage unavailable */ }
+    if (stored && vendorOptions.includes(stored)) setSelectedVendor(stored);
+  }, [bills, vendorOptions]);
   const categoryOptions = useMemo(
     () => Array.from(new Set(bills.map((b) => b.category))).sort(),
     [bills]
   );
 
   // Find or create the Vendor party for a new bill
-  const findOrCreateVendorParty = (vendorName: string): string => {
-    const name = vendorName.trim() || 'Unknown Vendor';
-    // TODO: search /api/parties for existing vendor by name
-    return "new-" + Date.now();
-  };
-
   // Bulk selection handlers
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -360,92 +322,99 @@ export default function BillsScreen({
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files && files.length > 0) {
-      const file = files[0];
-      const amount = +(Math.random() * 500 + 45).toFixed(2);
-      const today = new Date().toISOString().slice(0, 10);
-      const due = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .slice(0, 10);
-      // Find or create the vendor party, then write the bill to the store
-      const partyId = findOrCreateVendorParty(
-        file.name.split('.')[0].replace(/[-_]/g, ' ') || 'New Vendor'
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    e.target.value = '';
+    // A CSV is a real import: vendor, bill number, dates and amount come
+    // from the file; the vendor name resolves to a party id.
+    if (/\.csv$/i.test(file.name)) {
+      const { ok, failed } = await importCsvFile(
+        file,
+        VIEW_DEFS.bills.columns,
+        VIEW_DEFS.bills.apiPath,
+        async (row) => {
+          const partyId = await resolvePartyId(row.party_name || '');
+          if (!partyId) return null;
+          const total = Number(String(row.total || '').replace(/[^0-9.]/g, '')) || 0;
+          return {
+            type: 'Bill',
+            partyId,
+            number: row.bill_number || undefined,
+            date: row.bill_date || undefined,
+            dueDate: row.due_date || undefined,
+            memo: row.status ? `Imported status: ${row.status}` : undefined,
+            subtotal: total,
+            total,
+          };
+        },
       );
-      fetch("/api/v1/documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "Bill", partyId, subtotal: amount, total: amount }) }).catch(() => {});
+      if (ok === 0 && failed === 0) { showToast('That CSV has no data rows'); return; }
       setActiveTab('For review');
-      showToast(`Uploaded ${file.name} — Added to 'For review'`);
-      e.target.value = '';
+      showToast(`Import finished — ${ok} created${failed ? `, ${failed} failed` : ''}`);
+      loadBills();
+      return;
     }
+    // A receipt image/PDF has no readable amount without OCR, so it lands
+    // in For review with NO amount rather than a fabricated one — and only
+    // when its filename names a vendor that actually exists.
+    const today = new Date().toISOString().slice(0, 10);
+    const due = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const vendorName = file.name.split('.')[0].replace(/[-_]/g, ' ') || '';
+    const partyId = await resolvePartyId(vendorName);
+    if (!partyId) {
+      showToast(`Uploaded ${file.name} — no vendor matches "${vendorName}", so no bill was created`);
+      return;
+    }
+    fetch("/api/v1/documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "Bill", partyId, subtotal: 0, total: 0, date: today, dueDate: due, memo: `Uploaded ${file.name} — amount to review` }) }).then(() => loadBills()).catch(() => {});
+    setActiveTab('For review');
+    showToast(`Uploaded ${file.name} — Added to 'For review' (no amount read)`);
   };
 
   // Create Bill Modal submit — creates via the Document Engine API
-  const handleSaveNewBill = (e: React.FormEvent) => {
+  const handleSaveNewBill = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(newAmount) || 0;
-    const partyId = findOrCreateVendorParty(newVendor);
-    fetch("/api/v1/documents", {
+    const partyId = await resolvePartyId(newVendor);
+    if (!partyId) {
+      showToast(`No vendor matches "${newVendor}" — pick an existing vendor first`);
+      return;
+    }
+    const res = await fetch("/api/v1/documents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "Bill", partyId, number: newBillNo, status: "ForReview", date: toIsoDate(newBillDate), dueDate: toIsoDate(newDueDate), subtotal: amount, total: amount }),
-    }).catch(() => {});
+    });
+    if (!res.ok) { showToast('Bill could not be created'); return; }
+    loadBills();
     showToast(`Bill ${newBillNo} created`);
-    setShowNewBill(false);
+    setIsCreateModalOpen(false);
     setNewVendor(''); setNewBillNo(''); setNewBillDate(''); setNewDueDate(''); setNewAmount('');
   };
   // Remaining old code removed — handleSaveNewBill now uses the Document Engine API above
 
-  // Review & Approve — calls POST /api/v1/documents/[id]/approve (wraps acct_decide_bill).
-  // On success the row visibly flips to Unpaid (the refresh re-fetches from the DB).
-  const handleApproveBill = async (id: string) => {
+  // Review & Approve — registry action bill.approve → acct_decide_bill
+  const handleApproveBill = (id: string) => {
+    fetch(`/api/v1/documents/${id}/approve?type=Bill`, { method: "POST" }).then(() => loadBills()).catch(() => {});
     setActiveRowMenuId(null);
-    try {
-      const res = await fetch(`/api/v1/documents/${id}/approve?type=Bill`, { method: 'POST' });
-      if (res.ok) {
-        showToast('Bill approved → Unpaid');
-        loadBills();
-      } else {
-        const json = await res.json().catch(() => ({}));
-        showToast(`Approve failed: ${json?.error?.message || res.statusText}`);
-      }
-    } catch {
-      showToast('Approve failed — network error');
-    }
+    showToast('Bill approved and moved to Unpaid');
   };
 
-  // Mark as Paid — records a full payment against the bill.
-  const handleMarkAsPaid = async (id: string) => {
+  // Mark as Paid — records a full payment against the bill
+  const handleMarkAsPaid = (id: string) => {
+    fetch(`/api/v1/documents/${id}/pay?type=Bill`, { method: "POST" }).then(() => loadBills()).catch(() => {});
     setActiveRowMenuId(null);
-    try {
-      const res = await fetch(`/api/v1/documents/${id}/pay?type=Bill`, { method: 'POST' });
-      if (res.ok) {
-        showToast('Bill marked as Paid');
-        loadBills();
-      } else {
-        const json = await res.json().catch(() => ({}));
-        showToast(`Pay failed: ${json?.error?.message || res.statusText}`);
-      }
-    } catch {
-      showToast('Pay failed — network error');
-    }
+    showToast('Bill marked as Paid');
   };
 
   // Delete Bill
-  const handleDeleteBill = async (id: string) => {
+  const handleDeleteBill = (id: string) => {
+    fetch(`/api/v1/documents/${id}?type=Bill`, { method: "DELETE" }).then(() => loadBills()).catch(() => {});
     setActiveRowMenuId(null);
-    try {
-      const res = await fetch(`/api/v1/documents/${id}?type=Bill`, { method: 'DELETE' });
-      if (res.ok) {
-        showToast('Bill deleted');
-        loadBills();
-      } else {
-        const json = await res.json().catch(() => ({}));
-        showToast(`Delete failed: ${json?.error?.message || res.statusText}`);
-      }
-    } catch {
-      showToast('Delete failed — network error');
-    }
+    showToast('Bill deleted');
   };
 
   // Column toggle

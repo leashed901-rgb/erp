@@ -8,6 +8,7 @@ import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
  *
  *   product    — the canonical row + category join
  *   variants   — product_variants for this product
+ *   media      — product_media for this product, ordered by sort_order
  *   orders     — orders containing this product (via order_items → variant),
  *                with per-order quantity/line totals for THIS product
  *   shipping   — methods observed on those orders + the supplier default
@@ -40,6 +41,24 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     .order('created_at', { ascending: true });
   const variantRows = variants || [];
   const variantIds = variantRows.map((v: any) => v.id);
+
+  // Media for this product — the images the PDP renders. (product_media has
+  // no tenant_id column; the product row itself is tenant-scoped.)
+  const { data: mediaRows } = await sb
+    .from('product_media')
+    .select('id,url,alt_text,media_type,sort_order,width,height')
+    .eq('product_id', id)
+    .order('sort_order', { ascending: true })
+    .order('id', { ascending: true });
+  const media = (mediaRows || []).map((m: any) => ({
+    id: m.id,
+    url: m.url,
+    alt_text: m.alt_text,
+    media_type: m.media_type,
+    sort_order: m.sort_order,
+    width: m.width,
+    height: m.height,
+  }));
 
   // Publications (designs on this product's variants) + the designs themselves
   let publications: any[] = [];
@@ -167,8 +186,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     };
   }).sort((a, b) => b.publications - a.publications);
 
-  // Stats
-  const prices = variantRows.map((v: any) => Number(v.price)).filter(n => !Number.isNaN(n));
+  // Stats — NULL price means the supplier gave no price; it must be skipped
+  // explicitly (Number(null) is 0, which would fake a $0.00 price floor).
+  const prices = variantRows.map((v: any) => v.price).filter((p: any) => p != null).map((p: any) => Number(p)).filter(n => !Number.isNaN(n));
   const units_sold = orderRows.reduce((s, o) => s + o.qty, 0);
   const revenue = +orderRows.reduce((s, o) => s + o.line_total, 0).toFixed(2);
 
@@ -195,6 +215,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       owner_type: p.owner_type,
       supplier_id: p.supplier_id,
       preferred_supplier_id: p.preferred_supplier_id,
+      income_account_id: p.income_account_id,
+      cogs_account_id: p.cogs_account_id,
       created_at: p.created_at,
       updated_at: p.updated_at,
       published_at: p.published_at,
@@ -204,8 +226,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       sku: v.sku,
       size: v.size,
       color: v.color,
-      price: Number(v.price),
+      price: v.price != null ? Number(v.price) : null,
       compare_at_price: v.compare_at_price != null ? Number(v.compare_at_price) : null,
+      // standard_cost was missing from this whitelist, so the product
+      // page's Variants tab + Pricing matrix showed blank Cost/Margin
+      // even though the global Variants list (list-rows loader) had them.
+      standard_cost: v.standard_cost != null ? Number(v.standard_cost) : null,
       is_active: v.is_active,
       status: v.status,
       in_stock: v.in_stock,
@@ -214,6 +240,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       weight_lb: v.weight_lb,
       updated_at: v.updated_at,
     })),
+    media,
     orders: orderRows,
     shipping: {
       observed: [...observed.values()].map(m => ({
@@ -230,8 +257,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         sku: v.sku,
         size: v.size,
         color: v.color,
-        price: Number(v.price),
+        price: v.price != null ? Number(v.price) : null,
         compare_at_price: v.compare_at_price != null ? Number(v.compare_at_price) : null,
+        standard_cost: v.standard_cost != null ? Number(v.standard_cost) : null,
       })),
       design_prices: designs.filter(d => d.retail_price != null).map(d => ({
         design_id: d.id,
@@ -277,6 +305,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.is_best_seller !== undefined) updates.is_best_seller = !!body.is_best_seller;
   if (body.is_house_favorite !== undefined) updates.is_house_favorite = !!body.is_house_favorite;
   if (body.fulfillment_type !== undefined) updates.fulfillment_type = body.fulfillment_type;
+  // Sales / Purchasing / Accounting drawer tabs.
+  if (body.supplier_id !== undefined) updates.supplier_id = body.supplier_id || null;
+  if (body.preferred_supplier_id !== undefined) updates.preferred_supplier_id = body.preferred_supplier_id || null;
+  if (body.income_account_id !== undefined) updates.income_account_id = body.income_account_id || null;
+  if (body.cogs_account_id !== undefined) updates.cogs_account_id = body.cogs_account_id || null;
   if (body.status !== undefined) {
     const allowed = ['draft', 'published', 'archived'];
     if (!allowed.includes(body.status)) {
@@ -299,15 +332,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 /**
  * DELETE /api/products/[id] — archive (status='archived'). The row is kept:
- * orders/designs reference it.
+ * orders/designs reference it. Goes through the registry
+ * `product.archive` → `app_archive_record` so the archive is the same
+ * operation every surface uses.
  */
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { error } = await supabaseAdmin()
-    .from('products')
-    .update({ status: 'archived', published_at: null, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .eq('tenant_id', DEFAULT_TENANT_ID);
+  const { error } = await supabaseAdmin().rpc('app_archive_record', {
+    p_table: 'products',
+    p_id: id,
+    p_archive: true,
+  });
   if (error) return NextResponse.json({ error: { code: 'INTERNAL', message: error.message } }, { status: 500 });
   return NextResponse.json({ data: { id, archived: true } });
 }

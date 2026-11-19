@@ -14,7 +14,7 @@
  * banner instead of pretending to work.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 interface ApptCustomer { id: string; preferred_name: string | null; first_name: string | null; last_name: string | null; company_name: string | null; email: string | null; phone: string | null }
 interface ApptStaff { id: string; display_name: string | null; first_name: string | null; last_name: string | null; color_label: string | null }
@@ -92,7 +92,7 @@ function addDays(d: Date, n: number): Date {
 }
 
 export default function AppointmentsScreen({ onToast }: Props) {
-  const [view, setView] = useState<'day' | 'week' | 'list'>('week');
+  const [view, setView] = useState<'day' | 'week' | 'list' | 'setup'>('week');
   const [items, setItems] = useState<ApptItem[]>([]);
   const [meta, setMeta] = useState<ApptMeta | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -113,6 +113,104 @@ export default function AppointmentsScreen({ onToast }: Props) {
   // reschedule dialog
   const [resched, setResched] = useState<ApptItem | null>(null);
   const [reschedForm, setReschedForm] = useState({ date: '', time: '', duration_minutes: 30 });
+
+  // ── Scheduling setup (CRM pack): the Appointments children live
+  // HERE, inside Appointments — services, staff, resources and
+  // booking policies from the lookups/slots data, staff blocked
+  // times from /api/crm/staff-blocked-times, and each appointment's
+  // status history from crm_appointment_status_history. None of
+  // these is a page of its own.
+  interface BookingPolicy { id: string; service_id: string | null; slot_interval_minutes: number | null; min_notice_minutes: number | null; max_advance_days: number | null; buffer_before_minutes: number | null; buffer_after_minutes: number | null; cancellation_window_hours: number | null; late_cancel_fee: number | null; no_show_fee: number | null; deposit_required: boolean | null; deposit_amount: number | null; allow_online_booking: boolean | null; auto_confirm: boolean | null }
+  interface BlockedTime { id: string; staff_id: string; starts_at: string; ends_at: string; block_type: string | null; reason: string | null }
+  interface StatusHistoryRow { id: string; from_status: string | null; to_status: string | null; reason: string | null; changed_at: string }
+  const [setupLoaded, setSetupLoaded] = useState(false);
+  const [policies, setPolicies] = useState<BookingPolicy[]>([]);
+  const [blockedStaffId, setBlockedStaffId] = useState('');
+  const [blocked, setBlocked] = useState<BlockedTime[]>([]);
+  const [blockForm, setBlockForm] = useState({ date: dateKeyCT(new Date()), start: '09:00', end: '17:00', block_type: 'unavailable', reason: '' });
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [svcForm, setSvcForm] = useState({ name: '', duration: '30', price: '' });
+  const [svcBusy, setSvcBusy] = useState(false);
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [historyRows, setHistoryRows] = useState<StatusHistoryRow[]>([]);
+
+  const loadSetup = useCallback(async () => {
+    try {
+      const [lk, pol] = await Promise.all([
+        fetch('/api/crm/appointments/lookups').then((r) => r.json()).catch(() => null),
+        fetch('/api/crm/data/crm_booking_policies').then((r) => r.json()).catch(() => null),
+      ]);
+      if (lk?.data) setLookups(lk.data as Lookups);
+      setPolicies((pol?.data as BookingPolicy[]) || []);
+    } catch { /* honest empty sections below */ }
+    setSetupLoaded(true);
+  }, []);
+
+  useEffect(() => { if (view === 'setup' && !setupLoaded) void loadSetup(); }, [view, setupLoaded, loadSetup]);
+
+  const loadBlocked = useCallback(async (staffId: string) => {
+    if (!staffId) { setBlocked([]); return; }
+    try {
+      const r = await fetch(`/api/crm/staff-blocked-times?staff_id=${encodeURIComponent(staffId)}`);
+      const j = await r.json();
+      setBlocked((j.data as BlockedTime[]) || []);
+    } catch { setBlocked([]); }
+  }, []);
+
+  useEffect(() => { if (blockedStaffId) void loadBlocked(blockedStaffId); }, [blockedStaffId, loadBlocked]);
+
+  async function handleAddBlock() {
+    if (!blockedStaffId) { onToast('Pick a staff member first'); return; }
+    setBlockBusy(true);
+    try {
+      const r = await fetch('/api/crm/staff-blocked-times', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId: blockedStaffId,
+          startsAt: new Date(`${blockForm.date}T${blockForm.start}`).toISOString(),
+          endsAt: new Date(`${blockForm.date}T${blockForm.end}`).toISOString(),
+          blockType: blockForm.block_type,
+          reason: blockForm.reason.trim() || undefined,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) { onToast(j.error?.message || 'Could not add the blocked time'); return; }
+      setBlockForm((f) => ({ ...f, reason: '' }));
+      await loadBlocked(blockedStaffId);
+      onToast('Blocked time added');
+    } finally { setBlockBusy(false); }
+  }
+
+  async function handleAddService() {
+    if (!svcForm.name.trim()) return;
+    setSvcBusy(true);
+    try {
+      const r = await fetch('/api/crm/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: svcForm.name.trim(), default_duration_minutes: Number(svcForm.duration) || 30, default_price: svcForm.price ? Number(svcForm.price) : undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok) { onToast(j.error?.message || 'Could not add the service'); return; }
+      setSvcForm({ name: '', duration: '30', price: '' });
+      setSetupLoaded(false);
+      await loadSetup();
+      onToast('Service added');
+    } finally { setSvcBusy(false); }
+  }
+
+  async function toggleHistory(a: ApptItem) {
+    if (historyFor === a.id) { setHistoryFor(null); return; }
+    setHistoryFor(a.id);
+    setHistoryRows([]);
+    try {
+      const r = await fetch(`/api/crm/data/crm_appointment_status_history?appointment_id=${encodeURIComponent(a.id)}`);
+      const j = await r.json();
+      const rows = ((j.data as StatusHistoryRow[]) || []).slice().sort((x, y) => String(x.changed_at).localeCompare(String(y.changed_at)));
+      setHistoryRows(rows);
+    } catch { setHistoryRows([]); }
+  }
 
   const range = useMemo(() => {
     if (view === 'day') {
@@ -387,6 +485,7 @@ export default function AppointmentsScreen({ onToast }: Props) {
         <button className={`px-3 py-2 text-label-md tab-underline ${view === 'day' ? 'active' : 'text-on-surface-variant'}`} onClick={() => setView('day')}>Day</button>
         <button className={`px-3 py-2 text-label-md tab-underline ${view === 'week' ? 'active' : 'text-on-surface-variant'}`} onClick={() => setView('week')}>Week</button>
         <button className={`px-3 py-2 text-label-md tab-underline ${view === 'list' ? 'active' : 'text-on-surface-variant'}`} onClick={() => setView('list')}>List</button>
+        <button className={`px-3 py-2 text-label-md tab-underline ${view === 'setup' ? 'active' : 'text-on-surface-variant'}`} onClick={() => setView('setup')}>Scheduling setup</button>
       </div>
 
       {/* header */}
@@ -397,6 +496,7 @@ export default function AppointmentsScreen({ onToast }: Props) {
               {view === 'day' && new Date(range.from).toLocaleDateString('en-US', { timeZone: TZ, weekday: 'long', month: 'long', day: 'numeric' })}
               {view === 'week' && `Week of ${weekDays[0].toLocaleDateString('en-US', { timeZone: TZ, month: 'short', day: 'numeric' })}`}
               {view === 'list' && 'All appointments'}
+              {view === 'setup' && 'Scheduling setup'}
             </h1>
             <p className="text-body-sm text-on-surface-variant mt-0.5">Bookings, confirmations and the front-desk loop — live on crm_appointments.</p>
           </div>
@@ -448,7 +548,7 @@ export default function AppointmentsScreen({ onToast }: Props) {
 
       {/* loading / empty */}
       {!loaded && <div className="bg-white rounded-xl border border-surface-dim p-8 text-center text-on-surface-variant text-body-md">Loading appointments…</div>}
-      {loaded && items.length === 0 && (
+      {loaded && view !== 'setup' && items.length === 0 && (
         <div className="bg-white rounded-xl border border-surface-dim p-8 text-center">
           <span className="material-symbols-outlined text-[40px] text-on-surface-variant">event_available</span>
           <h2 className="text-headline-sm mt-2">Nothing booked in this window</h2>
@@ -546,7 +646,8 @@ export default function AppointmentsScreen({ onToast }: Props) {
             </thead>
             <tbody className="divide-y divide-surface-dim">
               {items.map((a) => (
-                <tr key={a.id} className="hover:bg-surface-container-low">
+                <Fragment key={a.id}>
+                <tr className="hover:bg-surface-container-low">
                   <td className="px-3 py-2 font-mono text-[12px] text-primary">{a.appointment_number}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtDay(a.starts_at)}<span className="text-on-surface-variant"> · </span>{fmtTime(a.starts_at)}–{fmtTime(a.ends_at)}</td>
                   <td className="px-3 py-2 font-medium">{nameOf(a.customer)}</td>
@@ -565,13 +666,163 @@ export default function AppointmentsScreen({ onToast }: Props) {
                       {nextActions(a).length > 0 && (
                         <button disabled={busyId === a.id} onClick={() => openResched(a)} className="h-6 px-2 rounded text-[11px] border border-surface-dim text-on-surface-variant hover:bg-surface-container-low disabled:opacity-50">Resched</button>
                       )}
+                      <button onClick={() => void toggleHistory(a)} className="h-6 px-2 rounded text-[11px] border border-surface-dim text-on-surface-variant hover:bg-surface-container-low">History</button>
                       {nextActions(a).length === 0 && <span className="text-[11px] text-on-surface-variant">—</span>}
                     </div>
                   </td>
                 </tr>
+                {historyFor === a.id && (
+                  <tr className="bg-surface-container-low/60">
+                    <td colSpan={7} className="px-4 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant mb-2">Status history</div>
+                      {historyRows.length === 0 ? (
+                        <div className="text-body-sm text-on-surface-variant">No status changes recorded for this appointment yet.</div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {historyRows.map((h) => (
+                            <div key={h.id} className="flex items-center gap-2 text-body-sm">
+                              <span className="text-on-surface-variant">{new Date(h.changed_at).toLocaleString('en-US', { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                              <span>{h.from_status ? h.from_status.replace(/_/g, ' ') : '—'} → <span className="font-semibold">{(h.to_status || '').replace(/_/g, ' ')}</span></span>
+                              {h.reason && <span className="text-on-surface-variant">· {h.reason}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* SETUP view — services, staff, resources, booking policies, blocked times */}
+      {view === 'setup' && (
+        <div className="space-y-4">
+          {!setupLoaded ? (
+            <div className="bg-white rounded-xl border border-surface-dim p-8 text-center text-on-surface-variant text-body-md">Loading scheduling setup…</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+                <div className="bg-white rounded-xl border border-surface-dim p-5">
+                  <h2 className="text-headline-sm mb-1">Services</h2>
+                  <p className="text-body-sm text-on-surface-variant mb-3">What customers book. Services feed the booking dialog and slot search.</p>
+                  {(lookups?.services || []).length === 0 ? (
+                    <p className="text-body-sm text-on-surface-variant py-2">No services yet — add the first one below.</p>
+                  ) : (
+                    <table className="w-full text-left text-body-sm">
+                      <thead><tr className="text-label-sm text-on-surface-variant uppercase tracking-wider border-b border-surface-dim"><th className="py-2 pr-2">Service</th><th className="py-2 pr-2">Duration</th><th className="py-2 pr-2">Price</th><th className="py-2">Active</th></tr></thead>
+                      <tbody className="divide-y divide-surface-dim">
+                        {(lookups?.services || []).map((s) => (
+                          <tr key={s.id}><td className="py-2 pr-2 font-medium">{s.name}</td><td className="py-2 pr-2">{s.default_duration_minutes ?? '—'} min</td><td className="py-2 pr-2">{s.default_price != null ? `$${Number(s.default_price).toFixed(2)}` : '—'}</td><td className="py-2">{s.is_active === false ? 'No' : 'Yes'}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    <input className="h-8 px-2 border border-surface-dim rounded text-body-md flex-1 min-w-[140px]" placeholder="New service — name" value={svcForm.name} onChange={(e) => setSvcForm({ ...svcForm, name: e.target.value })} />
+                    <input className="h-8 px-2 border border-surface-dim rounded text-body-md w-20" placeholder="Mins" inputMode="numeric" value={svcForm.duration} onChange={(e) => setSvcForm({ ...svcForm, duration: e.target.value })} />
+                    <input className="h-8 px-2 border border-surface-dim rounded text-body-md w-20" placeholder="Price" inputMode="decimal" value={svcForm.price} onChange={(e) => setSvcForm({ ...svcForm, price: e.target.value })} />
+                    <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-50" disabled={svcBusy || !svcForm.name.trim()} onClick={() => void handleAddService()}>Add service</button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-surface-dim p-5">
+                  <h2 className="text-headline-sm mb-1">Staff &amp; blocked times</h2>
+                  <p className="text-body-sm text-on-surface-variant mb-3">Who can be booked, and when they are unavailable. Blocked times remove slots from booking.</p>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {(lookups?.staff || []).map((s) => (
+                      <span key={s.id} className="px-2 py-0.5 rounded-full bg-surface-container-high text-[11px] font-semibold">{staffName(s)}</span>
+                    ))}
+                    {(lookups?.staff || []).length === 0 && <span className="text-body-sm text-on-surface-variant">No staff on file.</span>}
+                  </div>
+                  <select className="h-8 px-2 border border-surface-dim rounded text-body-md bg-white w-full" value={blockedStaffId} onChange={(e) => setBlockedStaffId(e.target.value)} aria-label="Staff member for blocked times">
+                    <option value="">Pick a staff member to see their blocked times…</option>
+                    {(lookups?.staff || []).map((s) => (<option key={s.id} value={s.id}>{staffName(s)}</option>))}
+                  </select>
+                  {blockedStaffId && (
+                    <>
+                      {blocked.length === 0 ? (
+                        <p className="text-body-sm text-on-surface-variant py-2">No blocked times for this staff member.</p>
+                      ) : (
+                        <div className="space-y-1.5 py-2">
+                          {blocked.map((b) => (
+                            <div key={b.id} className="flex items-center gap-2 text-body-sm">
+                              <span className="font-medium">{fmtDay(b.starts_at)}</span>
+                              <span className="text-on-surface-variant">{fmtTime(b.starts_at)}–{fmtTime(b.ends_at)}</span>
+                              {b.block_type && <span className="pill tag">{b.block_type}</span>}
+                              {b.reason && <span className="text-on-surface-variant">· {b.reason}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <input type="date" className="h-8 px-2 border border-surface-dim rounded text-body-md" value={blockForm.date} onChange={(e) => setBlockForm({ ...blockForm, date: e.target.value })} />
+                        <input type="time" className="h-8 px-2 border border-surface-dim rounded text-body-md" value={blockForm.start} onChange={(e) => setBlockForm({ ...blockForm, start: e.target.value })} />
+                        <input type="time" className="h-8 px-2 border border-surface-dim rounded text-body-md" value={blockForm.end} onChange={(e) => setBlockForm({ ...blockForm, end: e.target.value })} />
+                        <select className="h-8 px-2 border border-surface-dim rounded text-body-md bg-white" value={blockForm.block_type} onChange={(e) => setBlockForm({ ...blockForm, block_type: e.target.value })} aria-label="Block type">
+                          <option value="unavailable">Unavailable</option>
+                          <option value="time_off">Time off</option>
+                          <option value="training">Training</option>
+                          <option value="other">Other</option>
+                        </select>
+                        <input className="h-8 px-2 border border-surface-dim rounded text-body-md flex-1 min-w-[120px]" placeholder="Reason (optional)" value={blockForm.reason} onChange={(e) => setBlockForm({ ...blockForm, reason: e.target.value })} />
+                        <button className="h-8 px-3 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-50" disabled={blockBusy} onClick={() => void handleAddBlock()}>Block time</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+                <div className="bg-white rounded-xl border border-surface-dim p-5">
+                  <h2 className="text-headline-sm mb-1">Resources</h2>
+                  <p className="text-body-sm text-on-surface-variant mb-3">Rooms, chairs and equipment an appointment can reserve.</p>
+                  {(lookups?.resources || []).length === 0 ? (
+                    <p className="text-body-sm text-on-surface-variant py-2">No resources on file.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {(lookups?.resources || []).map((r) => (
+                        <div key={r.id} className="flex items-center gap-2 text-body-md"><span className="font-medium">{r.name}</span>{r.resource_type && <span className="pill tag">{r.resource_type}</span>}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl border border-surface-dim p-5">
+                  <h2 className="text-headline-sm mb-1">Booking policies</h2>
+                  <p className="text-body-sm text-on-surface-variant mb-3">The rules slot search enforces — intervals, notice, buffers, cancellation terms.</p>
+                  {policies.length === 0 ? (
+                    <p className="text-body-sm text-on-surface-variant py-2">No booking policies configured — slot search uses its defaults.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {policies.map((p) => (
+                        <div key={p.id} className="border border-surface-dim rounded-lg p-3 text-body-sm">
+                          <div className="font-semibold mb-1">{p.service_id ? ((lookups?.services || []).find((s) => s.id === p.service_id)?.name || 'Service policy') : 'All services'}</div>
+                          <div className="text-on-surface-variant">
+                            {p.slot_interval_minutes ? `${p.slot_interval_minutes} min slots` : ''}
+                            {p.min_notice_minutes != null ? ` · ${p.min_notice_minutes} min notice` : ''}
+                            {p.max_advance_days ? ` · book up to ${p.max_advance_days} days ahead` : ''}
+                            {(p.buffer_before_minutes || p.buffer_after_minutes) ? ` · buffers ${p.buffer_before_minutes || 0}/${p.buffer_after_minutes || 0} min` : ''}
+                          </div>
+                          <div className="text-on-surface-variant">
+                            {p.cancellation_window_hours != null ? `Free cancellation inside ${p.cancellation_window_hours}h` : ''}
+                            {p.late_cancel_fee ? ` · late cancel $${Number(p.late_cancel_fee).toFixed(2)}` : ''}
+                            {p.no_show_fee ? ` · no-show $${Number(p.no_show_fee).toFixed(2)}` : ''}
+                            {p.deposit_required ? ` · deposit $${Number(p.deposit_amount || 0).toFixed(2)}` : ''}
+                            {p.allow_online_booking ? ' · online booking on' : ''}
+                            {p.auto_confirm ? ' · auto-confirm on' : ''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

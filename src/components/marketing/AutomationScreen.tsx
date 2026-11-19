@@ -4,6 +4,9 @@
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
 import { useMemo, useState } from 'react';
+import { useAutomations, useAutomationRuns, automationMutations } from '@/hooks/useMarketingApi';
+import type { AutomationRunStats } from '@/hooks/useMarketingApi';
+import type { AutomationFlow } from '@/lib/marketingTypes';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -36,64 +39,30 @@ interface Run {
 interface Trigger { value: string; source: string; }
 interface StepKindMeta { label: string; cls: string; icon: string; }
 
-const INITIAL_RECIPES: Recipe[] = [
-  { id: 'a1', name: 'Abandoned cart recovery', trigger: 'Cart abandoned', triggerDesc: 'Fires 1h after a customer leaves checkout with items',
-    steps: [
-      { kind: 'wait', label: 'Wait 1 hour' },
-      { kind: 'email', label: 'Send email · Cart reminder #1' },
-      { kind: 'wait', label: 'Wait 23 hours' },
-      { kind: 'email', label: 'Send email · Cart reminder #2' },
-      { kind: 'condition', label: 'If order not created' },
-    ],
-    runs7d: 542, success: 99.2, lastRun: '2026-11-02T09:14', status: 'Active' },
-  { id: 'a2', name: 'Welcome series', trigger: 'Customer created', triggerDesc: 'Fires when a new customer is created',
-    steps: [
-      { kind: 'email', label: 'Send email · Welcome' },
-      { kind: 'wait', label: 'Wait 2 days' },
-      { kind: 'email', label: 'Send email · How to shop' },
-      { kind: 'wait', label: 'Wait 5 days' },
-      { kind: 'email', label: 'Send email · First offer' },
-    ],
-    runs7d: 186, success: 100, lastRun: '2026-11-02T10:02', status: 'Active' },
-  { id: 'a3', name: 'Post-purchase review', trigger: 'Order created', triggerDesc: 'Fires when an order is created in any channel',
-    steps: [
-      { kind: 'wait', label: 'Wait 14 days' },
-      { kind: 'email', label: 'Send email · Review request' },
-      { kind: 'condition', label: 'If review not submitted' },
-      { kind: 'wait', label: 'Wait 7 days' },
-      { kind: 'email', label: 'Send email · Review reminder' },
-    ],
-    runs7d: 312, success: 98.1, lastRun: '2026-11-02T07:12', status: 'Active' },
-  { id: 'a4', name: 'Invoice paid → thank you', trigger: 'Invoice paid', triggerDesc: 'Fires when an invoice is paid in Finance',
-    steps: [
-      { kind: 'email', label: 'Send email · Thank you' },
-      { kind: 'segment', label: 'Add to segment · Paid invoices' },
-      { kind: 'webhook', label: 'POST to Slack' },
-    ],
-    runs7d: 88, success: 100, lastRun: '2026-11-01T16:40', status: 'Active' },
-  { id: 'a5', name: 'Win-back (paused)', trigger: 'Schedule', triggerDesc: 'Fires on a recurring cadence',
-    steps: [
-      { kind: 'condition', label: 'If no order in 60d' },
-      { kind: 'email', label: 'Send email · We miss you' },
-      { kind: 'wait', label: 'Wait 7 days' },
-      { kind: 'email', label: 'Send email · Final offer' },
-    ],
-    runs7d: 0, success: 0, lastRun: '2026-10-20T08:00', status: 'Paused' },
-  { id: 'a6', name: 'New automation (draft)', trigger: 'Order created', triggerDesc: 'Fires when an order is created in any channel',
-    steps: [
-      { kind: 'condition', label: 'If order total > $50' },
-    ],
-    runs7d: 0, success: 0, lastRun: '—', status: 'Draft' },
-];
 
-const RUNS: Run[] = [
-  { started: '2026-11-02T09:14', recipe: 'Abandoned cart recovery', subject: 'Acme Corp', step: 'Send email · Cart reminder #1', steps: '2 / 5', duration: '1.2s', result: 'Success' },
-  { started: '2026-11-02T09:05', recipe: 'Welcome series', subject: 'Blue Ridge Co.', step: 'Wait 2 days', steps: '2 / 5', duration: '—', result: 'Pending' },
-  { started: '2026-11-02T08:42', recipe: 'Post-purchase review', subject: 'Northwind Labs', step: 'Send email · Review request', steps: '2 / 5', duration: '0.9s', result: 'Success' },
-  { started: '2026-11-02T07:12', recipe: 'Invoice paid → thank you', subject: 'INV-1054', step: 'POST to Slack', steps: '3 / 3', duration: '0.6s', result: 'Success' },
-  { started: '2026-11-02T06:58', recipe: 'Abandoned cart recovery', subject: 'Maple Supply', step: 'Send email · Cart reminder #2', steps: '4 / 5', duration: '—', result: 'Failed' },
-  { started: '2026-11-02T06:32', recipe: 'Welcome series', subject: 'Orion Apparel', step: 'Send email · Welcome', steps: '1 / 5', duration: '1.1s', result: 'Success' },
-];
+const FLOW_STATUS_FROM_DB: Record<string, Recipe['status']> = { active: 'Active', paused: 'Paused', draft: 'Draft', archived: 'Draft' };
+const FLOW_STATUS_TO_DB: Record<string, string> = { Active: 'active', Paused: 'paused', Draft: 'draft' };
+
+function fmtLastRun(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function flowToRecipe(f: AutomationFlow, stats?: AutomationRunStats): Recipe {
+  const trigger = (f.trigger || {}) as Record<string, unknown>;
+  const action = (f.action || {}) as Record<string, unknown>;
+  return {
+    id: f.id,
+    name: f.name,
+    trigger: typeof trigger.event === 'string' ? trigger.event : f.workflowType,
+    triggerDesc: typeof trigger.description === 'string' ? trigger.description : '',
+    steps: Array.isArray(action.steps) ? (action.steps as Step[]) : [],
+    runs7d: stats?.runs7d ?? 0,
+    success: stats?.success ?? 0,
+    lastRun: fmtLastRun(stats?.lastRun ?? null),
+    status: FLOW_STATUS_FROM_DB[f.status] || 'Draft',
+  };
+}
 
 const statusPillMap: Record<string, string> = {
   Active: 'bg-secondary-container text-on-secondary-container',
@@ -158,7 +127,26 @@ interface ActivateMenuState { top: number; left: number; }
 
 export default function AutomationScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's filters, editing, peekId, etc.) ─── */
-  const [recipes, setRecipes] = useState<Recipe[]>(INITIAL_RECIPES);
+  const { flows: apiFlows, setFlows: setApiFlows } = useAutomations();
+  const { runs: apiRuns, stats: runStats } = useAutomationRuns();
+  /* Runs are real crm_automation_runs rows, mapped to the table shape.
+     No worker writes them yet, so this is empty until a workflow fires —
+     the table already renders that honestly as "No runs in this view." */
+  const allRuns: Run[] = useMemo(() => apiRuns.map((r) => {
+    const started = new Date(r.createdAt).getTime();
+    const done = r.executedAt ? new Date(r.executedAt).getTime() : null;
+    const dur = done != null && done >= started ? `${Math.max(1, Math.round((done - started) / 1000))}s` : '—';
+    return {
+      started: r.createdAt,
+      recipe: r.workflowName,
+      subject: r.enrollmentId || r.actionType,
+      step: r.actionType,
+      steps: '1 action',
+      duration: dur,
+      result: r.result,
+    };
+  }), [apiRuns]);
+  const recipes: Recipe[] = useMemo(() => apiFlows.map((f) => flowToRecipe(f, runStats[f.id])), [apiFlows, runStats]);
   const [view, setView] = useState<'recipes' | 'runs'>('recipes');
   const [q, setQ] = useState('');
   const [triggers, setTriggers] = useState<Set<string>>(new Set(TRIGGERS.map(t => t.value)));
@@ -212,8 +200,8 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
 
   const filteredRuns = useMemo(() => {
     const map: Record<string, Run['result']> = { success: 'Success', failed: 'Failed', pending: 'Pending' };
-    return RUNS.filter(r => runsFilter === 'all' || r.result === map[runsFilter]);
-  }, [runsFilter]);
+    return allRuns.filter(r => runsFilter === 'all' || r.result === map[runsFilter]);
+  }, [runsFilter, allRuns]);
 
   const chips = useMemo(() => {
     const list: { k: 'q' | 'triggers' | 'statuses'; label: string }[] = [];
@@ -224,7 +212,20 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
   }, [q, triggers, statuses]);
 
   const activeCount = recipes.filter(r => r.status === 'Active').length;
-  const editorRuns = useMemo(() => RUNS.filter(r => !editing || r.recipe === editing.name), [editing]);
+  const pausedCount = recipes.filter(r => r.status === 'Paused').length;
+  const draftCount = recipes.filter(r => r.status === 'Draft').length;
+  // KPI strip aggregates come from the per-flow run stats the runs API
+  // already returns — no invented totals.
+  const totalRuns7d = recipes.reduce((s, r) => s + r.runs7d, 0);
+  const successRate = totalRuns7d > 0
+    ? recipes.reduce((s, r) => s + r.runs7d * r.success, 0) / totalRuns7d
+    : null;
+  const lastRunIso = Object.values(runStats).reduce<string | null>((acc, s) => {
+    if (!s.lastRun) return acc;
+    if (!acc) return s.lastRun;
+    return s.lastRun > acc ? s.lastRun : acc;
+  }, null);
+  const editorRuns = useMemo(() => allRuns.filter(r => !editing || r.recipe === editing.name), [editing, allRuns]);
 
   const triggerDescText = (() => {
     const t = TRIGGERS.find(x => x.value === draftTrigger.value);
@@ -244,13 +245,15 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
       ? { value: recipe.trigger, source: (TRIGGERS.find(t => t.value === recipe.trigger) || { source: 'Commerce' }).source }
       : { value: 'Order created', source: 'Commerce' });
     setSelectedStepIndex(null);
+    const dto = recipe ? apiFlows.find(f => f.id === recipe.id) : null;
+    const condSettings = ((dto?.condition || {}) as Record<string, unknown>).settings as Record<string, unknown> | undefined;
     setEName(recipe ? recipe.name : '');
-    setEDesc('');
-    setEEnv('live');
-    setEReentry(false);
-    setEStopgoal(true);
-    setETestbefore(true);
-    setENotify(true);
+    setEDesc(condSettings && typeof condSettings.description === 'string' ? condSettings.description : '');
+    setEEnv(condSettings && condSettings.env === 'test' ? 'test' : 'live');
+    setEReentry(dto ? dto.allowReentry : false);
+    setEStopgoal(condSettings ? condSettings.stopgoal !== false : true);
+    setETestbefore(condSettings ? condSettings.testbefore !== false : true);
+    setENotify(condSettings ? condSettings.notify !== false : true);
     setEditorTab('canvas');
     setEditorOpen(true);
     setPeekId(null);
@@ -299,20 +302,36 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
     setTriggerModalOpen(false);
   }
 
+  async function setFlowStatus(r: Recipe, status: Recipe['status']) {
+    const res = await automationMutations.update(r.id, { status: FLOW_STATUS_TO_DB[status] });
+    if (!res.ok || !res.data) { onToast('Update failed: ' + (res.error || '')); return; }
+    setApiFlows(apiFlows.map(x => x.id === r.id ? res.data! : x));
+  }
+  async function duplicateFlow(r: Recipe) {
+    const dto = apiFlows.find(f => f.id === r.id);
+    if (!dto) return;
+    const res = await automationMutations.create({
+      name: r.name + ' (copy)', workflowType: dto.workflowType, status: 'draft',
+      trigger: dto.trigger, condition: dto.condition, action: dto.action, allowReentry: dto.allowReentry,
+    });
+    if (!res.ok || !res.data) { onToast('Duplicate failed: ' + (res.error || '')); return; }
+    setApiFlows([res.data, ...apiFlows]);
+    onToast('Duplicated');
+  }
   function rowAction(act: string, r: Recipe) {
     setRowMenu(null);
     if (act === 'open') openEditor(r);
-    else if (act === 'test') onToast('Test run started for ' + r.name);
-    else if (act === 'pause') { setRecipes(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Paused' } : x)); onToast('Paused'); }
-    else if (act === 'resume') { setRecipes(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Active' } : x)); onToast('Resumed'); }
-    else if (act === 'duplicate') {
-      const copy: Recipe = { ...r, id: 'a' + Date.now(), name: r.name + ' (copy)', status: 'Draft', runs7d: 0, success: 0, lastRun: '—' };
-      setRecipes(prev => [copy, ...prev]);
-      onToast('Duplicated');
-    } else if (act === 'delete') {
+    else if (act === 'test') onToast('No automation worker is running yet — workflows save, but nothing executes them, so there is no test run to fire');
+    else if (act === 'pause') { void setFlowStatus(r, 'Paused').then(() => onToast('Paused')); }
+    else if (act === 'resume') { void setFlowStatus(r, 'Active').then(() => onToast('Resumed')); }
+    else if (act === 'duplicate') { void duplicateFlow(r); }
+    else if (act === 'delete') {
       if (confirm('Delete this automation?')) {
-        setRecipes(prev => prev.filter(x => x.id !== r.id));
-        onToast('Deleted');
+        void automationMutations.remove(r.id).then(res => {
+          if (!res.ok) { onToast('Delete failed: ' + (res.error || '')); return; }
+          setApiFlows(apiFlows.filter(x => x.id !== r.id));
+          onToast('Deleted');
+        });
       }
     }
   }
@@ -324,14 +343,9 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
 
   function peekAction(act: string, r: Recipe) {
     if (act === 'open') { closePeek(); openEditor(r); }
-    else if (act === 'test') onToast('Test run started');
-    else if (act === 'pause') { setRecipes(prev => prev.map(x => x.id === r.id ? { ...x, status: 'Paused' } : x)); closePeek(); onToast('Paused'); }
-    else if (act === 'duplicate') {
-      const copy: Recipe = { ...r, id: 'a' + Date.now(), name: r.name + ' (copy)', status: 'Draft', runs7d: 0, success: 0, lastRun: '—' };
-      setRecipes(prev => [copy, ...prev]);
-      closePeek();
-      onToast('Duplicated');
-    }
+    else if (act === 'test') onToast('No automation worker is running yet — workflows save, but nothing executes them, so there is no test run to fire');
+    else if (act === 'pause') { void setFlowStatus(r, 'Paused').then(() => { closePeek(); onToast('Paused'); }); }
+    else if (act === 'duplicate') { void duplicateFlow(r).then(() => closePeek()); }
   }
 
   function collectPayload(): { name: string; description: string; trigger: string; triggerDesc: string; steps: Step[]; environment: string; rules: { reentry: boolean; stopgoal: boolean; testbefore: boolean; notify: boolean; } } {
@@ -346,28 +360,42 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
     };
   }
 
-  function saveEditor() {
+  function flowInput(payload: ReturnType<typeof collectPayload>, status: Recipe['status']) {
+    return {
+      name: payload.name,
+      workflowType: payload.trigger.toLowerCase().includes('win-back') || payload.trigger.toLowerCase().includes('win_back') ? 'win_back'
+        : payload.trigger.toLowerCase().includes('invoice') || payload.trigger.toLowerCase().includes('payment') ? 'payment_reminder'
+        : 'custom',
+      status: FLOW_STATUS_TO_DB[status] || 'draft',
+      trigger: { event: payload.trigger, source: draftTrigger.source, description: payload.triggerDesc },
+      condition: { settings: { description: payload.description, env: payload.environment, stopgoal: payload.rules.stopgoal, testbefore: payload.rules.testbefore, notify: payload.rules.notify } },
+      action: { steps: payload.steps },
+      allowReentry: payload.rules.reentry,
+    };
+  }
+
+  async function persistEditor(status: Recipe['status']): Promise<boolean> {
     const payload = collectPayload();
     if (editing) {
-      setRecipes(prev => prev.map(x => x.id === editing.id ? { ...x, ...payload, triggerDesc: payload.triggerDesc } : x));
+      const res = await automationMutations.update(editing.id, flowInput(payload, status));
+      if (!res.ok || !res.data) { onToast('Save failed: ' + (res.error || '')); return false; }
+      setApiFlows(apiFlows.map(x => x.id === editing.id ? res.data! : x));
     } else {
-      const id = 'a' + Date.now();
-      const newRecipe: Recipe = { ...payload, id, runs7d: 0, success: 0, lastRun: '—', status: 'Draft' };
-      setRecipes(prev => [newRecipe, ...prev]);
+      const res = await automationMutations.create(flowInput(payload, status));
+      if (!res.ok || !res.data) { onToast('Save failed: ' + (res.error || '')); return false; }
+      setApiFlows([res.data, ...apiFlows]);
     }
+    return true;
+  }
+
+  async function saveEditor() {
+    if (!await persistEditor(editing ? editing.status : 'Draft')) return;
     onToast('Automation saved');
     closeEditor();
   }
 
-  function saveWithStatus(status: Recipe['status']) {
-    const payload = collectPayload();
-    if (editing) {
-      setRecipes(prev => prev.map(x => x.id === editing.id ? { ...x, ...payload, status } : x));
-    } else {
-      const id = 'a' + Date.now();
-      const newRecipe: Recipe = { ...payload, id, runs7d: 0, success: 0, lastRun: '—', status };
-      setRecipes(prev => [newRecipe, ...prev]);
-    }
+  async function saveWithStatus(status: Recipe['status']) {
+    if (!await persistEditor(status)) return;
     onToast('Saved · ' + status);
     closeEditor();
   }
@@ -378,7 +406,7 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
   }
 
   function testEditor() {
-    if (editing) onToast('Test run started');
+    if (editing) onToast('Test runs execute in the automation worker against this saved definition');
     else onToast('Save the automation before testing');
   }
 
@@ -478,22 +506,22 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Active automations</span>
           <div className="text-headline-lg mt-1">{activeCount}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">2 paused · 1 draft</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">{pausedCount} paused · {draftCount} draft</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Runs (7d)</span>
-          <div className="text-headline-lg mt-1">1,486</div>
-          <div className="text-[11px] text-secondary mt-1">+22% vs prior week</div>
+          <div className="text-headline-lg mt-1">{totalRuns7d.toLocaleString()}</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">Across {recipes.length} automations</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Success rate</span>
-          <div className="text-headline-lg mt-1">98.7%</div>
-          <div className="text-[11px] text-secondary mt-1">19 failed runs</div>
+          <div className="text-headline-lg mt-1">{successRate !== null ? successRate.toFixed(1) + '%' : '—'}</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">{totalRuns7d > 0 ? 'Weighted by run volume' : 'No runs yet'}</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
-          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Avg. latency</span>
-          <div className="text-headline-lg mt-1">1.4s</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">Trigger → action</div>
+          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Last run</span>
+          <div className="text-headline-lg mt-1">{lastRunIso ? fmtLastRun(lastRunIso) : '—'}</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">Most recent automation run</div>
         </div>
       </div>
 
@@ -785,8 +813,11 @@ export default function AutomationScreen({ onToast }: MarketingScreenProps) {
                 <span className="material-symbols-outlined text-[16px]">play_arrow</span>Test run
               </button>
               <div className="flex">
-                <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={saveEditor}>
+                <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main flex items-center gap-1" onClick={saveEditor}>
                   <span className="material-symbols-outlined text-[16px]">save</span>Save &amp; close
+                </button>
+                <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={handleActivateMenu}>
+                  <span className="material-symbols-outlined text-[16px]">expand_more</span>
                 </button>
               </div>
             </div>

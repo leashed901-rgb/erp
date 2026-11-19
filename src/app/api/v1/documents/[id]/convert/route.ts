@@ -49,20 +49,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   // Create target
   const newNumber = `${toType.substring(0, 3).toUpperCase()}-${Date.now()}`;
+  // Invoices need the tenant's accounting entity; open_balance is a
+  // GENERATED column — never insert it.
+  let entityId: string | null = null;
+  if (targetTable === 'acct_ar_invoices') {
+    const { data: resolved } = await supabaseAdmin().rpc('acct_default_entity', { p_tenant_id: DEFAULT_TENANT_ID });
+    entityId = (resolved as string) || null;
+  }
+  const dueDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  })();
   const insert: Record<string, unknown> = {
     tenant_id: DEFAULT_TENANT_ID,
     invoice_number: newNumber,
     invoice_date: new Date().toISOString().slice(0, 10),
+    due_date: dueDate,
     customer_id: source.customer_id || source.crm_customer_id,
     currency: source.currency || 'USD',
     subtotal: Number(source.subtotal) || 0,
     tax_total: Number(source.tax_total) || 0,
     total: Number(source.total) || 0,
     amount_paid: 0,
-    open_balance: Number(source.total) || 0,
     status: 'draft',
     notes: source.notes || null,
   };
+  if (entityId) insert.entity_id = entityId;
 
   const { data: newDoc, error: createErr } = await supabaseAdmin().from(targetTable).insert(insert).select('*').single();
   if (createErr) {

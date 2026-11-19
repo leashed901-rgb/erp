@@ -24,10 +24,7 @@
  * global Catalog domain (Published Items & SKUs) on the main icon rail.
  */
 import { useEffect, useRef, useState } from 'react';
-import {
-  SUPPLIER_COLORS,
-  useDesignCanvas,
-} from '@/lib/designCanvasStore';
+import { useDesignCanvas } from '@/lib/designCanvasStore';
 import {
   getDesign,
   getPrice,
@@ -50,19 +47,8 @@ interface DesignPreviewScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
 }
 
-const MOCKUP_ANGLES = ['Front', 'Back', 'Folded', 'Folded 2'];
-
-// Variant modal colors (from mockup preview.html).
-const VARIANT_COLORS = [
-  { name: 'White', hex: '#ffffff' },
-  { name: 'Ash', hex: '#e5e5e5' },
-  { name: 'Sport Grey', hex: '#b0b0b0' },
-  { name: 'Graphite Heather', hex: '#555555' },
-  { name: 'Dark Heather', hex: '#444444' },
-  { name: 'Charcoal', hex: '#333333' },
-  { name: 'Black', hex: '#000000' },
-  { name: 'Antique Cherry Red', hex: '#a32b3d' },
-];
+// Angle + variant lists come from the loaded blank detail — never from
+// a hardcoded palette. A blank with no views has no angles to pick.
 
 export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPreviewScreenProps) {
   const product = useDesignCanvas((s) => s.product);
@@ -324,9 +310,16 @@ export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPrevi
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState<string>(blankDetail?.variants.sizes?.[0] ?? 'M');
   const [variantTab, setVariantTab] = useState<'color' | 'size'>('color');
-  const [selectedVariants, setSelectedVariants] = useState<Set<string>>(
-    new Set(['White'])
-  );
+  const [selectedVariants, setSelectedVariants] = useState<Set<string>>(new Set());
+  // Seed the selection from the REAL variant colors the moment the blank
+  // detail loads (the old code pre-selected a hardcoded 'White' that the
+  // product might not even offer).
+  useEffect(() => {
+    const names = blankDetail?.variants.colors?.map((c) => c.name) ?? [];
+    if (names.length > 0) {
+      setSelectedVariants((prev) => (prev.size === 0 ? new Set(names) : prev));
+    }
+  }, [blankDetail?.id]);
   const [openAcc, setOpenAcc] = useState<Record<string, boolean>>({
     cost: true,
     printArea: true,
@@ -407,7 +400,7 @@ export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPrevi
           one exists, else the product's catalog photo. */}
       <main className={styles.center}>
         {(() => {
-          const wanted = MOCKUP_ANGLES[activeAngle]?.toUpperCase() ?? 'FRONT';
+          const wanted = (blankDetail?.views ?? [])[activeAngle]?.view?.toUpperCase() ?? 'FRONT';
           const viewUrl =
             mockupsByView[wanted] ??
             Object.values(mockupsByView)[0] ??
@@ -502,17 +495,15 @@ export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPrevi
                 {v.baseUrl && <img src={v.baseUrl} alt={v.label} />}
               </button>
             ))}
-            {(blankDetail?.views ?? []).length === 0 && MOCKUP_ANGLES.map((a, i) => (
+            {(blankDetail?.views ?? []).length === 0 && product?.img && (
               <button
-                key={a}
                 type="button"
-                className={`${styles.mockupThumb} ${i === activeAngle ? styles.active : ''}`}
-                onClick={() => setActiveAngle(i)}
-                title={a}
+                className={`${styles.mockupThumb} ${styles.active}`}
+                title="Product photo"
               >
-                {product && <img src={product.img} alt={a} />}
+                <img src={product.img} alt="Product photo" />
               </button>
-            ))}
+            )}
           </div>
           <button type="button" className={`${styles.btnOutline} ${styles.btnFull}`}>
             <span className="material-symbols-outlined">add</span>
@@ -520,7 +511,7 @@ export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPrevi
           </button>
 
           <div className={styles.muted}>
-            Preview product size: L
+            Preview product size: {selectedSize}
             <br />
             Design is scaled down on smaller sizes.
           </div>
@@ -557,17 +548,20 @@ export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPrevi
             Bright/colourful (RGB)
           </label>
 
-          <div className={styles.sectionLabel}>{product?.brand ?? 'Gildan'} Colors</div>
+          <div className={styles.sectionLabel}>{product?.brand ? `${product.brand} Colors` : 'Colors'}</div>
           <div className={styles.colorDots}>
-            {SUPPLIER_COLORS.map((c) => (
+            {(blankDetail?.variants.colors ?? []).map((c) => (
               <div
                 key={c.name}
                 className={`${styles.colorDot} ${c.name === color.name ? styles.active : ''}`}
-                style={{ background: c.hex }}
+                style={{ background: c.hex || '#cccccc' }}
                 title={c.name}
                 onClick={() => selectColor(c)}
               />
             ))}
+            {(blankDetail?.variants.colors ?? []).length === 0 && (
+              <span className={styles.muted}>No colors on file for this product.</span>
+            )}
           </div>
 
           <div className={styles.sectionLabel}>Mockup background</div>
@@ -619,8 +613,7 @@ export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPrevi
       </div>
 
       {/* ── Variants bar (bottom) ── the real color × size picker.
-          Replaces the legacy hardcoded SUPPLIER_COLORS with the actual
-          variant colors from the loaded blank (blankDetail.variants.colors).
+          Variant colors come from the loaded blank (blankDetail.variants.colors).
           Clicking a color switches the mockup (the canvas's skeleton
           shell recolors). The size chips select the active size for
           the publish payload. This IS the preview page's purpose. */}
@@ -720,15 +713,22 @@ export default function DesignPreviewScreen({ onToast, onNavigate }: DesignPrevi
               <div className={styles.selectAllRow}>
                 <input
                   type="checkbox"
-                  checked={selectedVariants.size === VARIANT_COLORS.length}
+                  checked={
+                    (blankDetail?.variants.colors ?? []).length > 0 &&
+                    selectedVariants.size === (blankDetail?.variants.colors ?? []).length
+                  }
                   onChange={(e) =>
-                    setSelectedVariants(e.target.checked ? new Set(VARIANT_COLORS.map((c) => c.name)) : new Set())
+                    setSelectedVariants(
+                      e.target.checked
+                        ? new Set((blankDetail?.variants.colors ?? []).map((c) => c.name))
+                        : new Set(),
+                    )
                   }
                 />
                 <label>Select all (max 100)</label>
                 <span className={styles.muted}>{selectedVariants.size} variants selected</span>
               </div>
-              {VARIANT_COLORS.map((c) => (
+              {(blankDetail?.variants.colors ?? []).map((c) => (
                 <label key={c.name} className={styles.varRow}>
                   <input
                     type="checkbox"

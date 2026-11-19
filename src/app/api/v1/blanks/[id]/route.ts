@@ -26,6 +26,29 @@ import {
 import { storageFetchUrl } from '@/lib/ingestTrigger';
 import { blankDetailCacheGet, blankDetailCacheSet } from '@/lib/blankDetailCache';
 
+// The mirror stores care_instructions / size_guide as TEXT holding JSON
+// (the ERP transport landed them that way). Parse defensively: a plain
+// string becomes a one-item list, anything unparseable becomes empty.
+function parseJsonArray(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (Array.isArray(v)) return v.map((x) => String(x));
+    return [raw];
+  } catch {
+    return [raw];
+  }
+}
+function parseJsonObject(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * GET /api/v1/blanks/:id — one blank, fully.
  * Product row + real variant colors/sizes from supplier_catalog_variants +
@@ -48,7 +71,7 @@ export async function GET(
     const { data: product, error } = await supabaseAdmin()
       .from('supplier_catalog_products')
       .select(
-        'id,name,brand_name,supplier_id,category_id,canonical_product_id,variant_count,image_url,external_id,external_id_type',
+        'id,name,brand_name,supplier_id,category_id,canonical_product_id,variant_count,image_url,external_id,external_id_type,description,features,care_instructions,size_guide',
       )
       .eq('id', id)
       .single();
@@ -380,6 +403,26 @@ export async function GET(
       }
     }
 
+    // Stored fallback — the Unsaid/ERP enrichment transport (2026-11-15).
+    // Both live supplier calls are dead (Printful key deleted on owner
+    // order; Printify key returns 401), so without this the page shows
+    // "No description on file" for every product. The stored description
+    // is the product's own supplier description, copied from the ERP
+    // catalog — not a guess. HTML is stripped the same way as the live
+    // Printify path. descriptionSource 'stored' marks the origin.
+    if (!description && product.description) {
+      description = String(product.description)
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&nbsp;/g, ' ')
+        // Printify bullet marker ".:Item" → "• Item" (adealyric route
+        // does the same) — the page splits prose from bullets on '•'.
+        .replace(/(^|\s)\.:\s*/g, '$1• ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      descriptionSource = description ? 'stored' : '';
+    }
+
     // Every keeper printer carrying this same/similar product type:
     // same normalized name inside the same top category, one row per
     // supplier, each with its own base cost + live production time.
@@ -653,6 +696,15 @@ export async function GET(
       techniques,
       description,
       descriptionSource,
+      // Stored enrichment from the ERP transport (2026-11-15) — the
+      // product's own features, care instructions and size guide. The
+      // mirror stores care_instructions and size_guide as TEXT holding
+      // JSON (the transport landed them that way), so parse them here —
+      // the page expects arrays/objects, never JSON strings. Null/empty
+      // when the source catalog never carried them; never invented.
+      features: (product.features as unknown) ?? null,
+      careInstructions: parseJsonArray(product.care_instructions as string | null),
+      sizeGuide: parseJsonObject(product.size_guide as string | null),
       providerTitle,
       shippingCost: costRow?.shipping ?? null,
       techniquePrices,

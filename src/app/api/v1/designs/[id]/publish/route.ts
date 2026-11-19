@@ -682,6 +682,61 @@ export async function POST(
       }
     }
 
+    // Listing pin (doc 19 gap: Studio → Catalog → Channels): pin the
+    // supplier catalog product to the listing category for this product's
+    // category, and publish the node so `listing_publish` writes the
+    // `product_taxonomy_links` row. The map RPC is idempotent (ON CONFLICT
+    // updates) so re-publish resumes, never duplicates. When no listing
+    // category exists for the category yet, say so in warnings — the node
+    // is created in Catalog → Channels, never invented here.
+    let listing: { node_id: string; map_id: string } | null = null;
+    if (published && categoryId) {
+      const { data: catRow } = await supabaseAdmin()
+        .from('categories')
+        .select('id,name,slug')
+        .eq('id', categoryId)
+        .maybeSingle();
+      const catSlug = catRow?.slug as string | undefined;
+      const catName = catRow?.name as string | undefined;
+      if (catSlug) {
+        const { data: node } = await supabaseAdmin()
+          .from('taxonomy_nodes')
+          .select('id,slug')
+          .eq('tenant_id', DEFAULT_TENANT_ID)
+          .eq('slug', catSlug)
+          .eq('status', 'published')
+          .maybeSingle();
+        if (node) {
+          const { data: mapRow, error: mapErr } = await supabaseAdmin().rpc(
+            'listing_map_category',
+            {
+              p_tenant: DEFAULT_TENANT_ID,
+              p_node: node.id,
+              p_source_category: null,
+              p_source_path: null,
+              p_supplier: null,
+              p_product: productId,
+              p_rule: null,
+              p_effect: 'include',
+              p_include_descendants: true,
+              p_priority: 100,
+              p_is_primary: false,
+              p_publish: true,
+            },
+          );
+          if (mapErr) {
+            warnings.push(`Listing pin failed: ${mapErr.message}`);
+          } else if (mapRow) {
+            listing = { node_id: node.id as string, map_id: (mapRow as { id: string }).id };
+          }
+        } else {
+          warnings.push(
+            `No listing category for "${catName ?? catSlug}" — create one in Catalog → Channels to list this product.`,
+          );
+        }
+      }
+    }
+
     return NextResponse.json(
       {
         productId: productRowId,
@@ -690,6 +745,7 @@ export async function POST(
         price: userPrice,
         status,
         channels: publishedChannels,
+        listing,
         supplier: { storeProductId, status: supplierStatus, warnings },
       },
       { status: 201 },

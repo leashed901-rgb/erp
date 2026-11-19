@@ -6,7 +6,27 @@
  * Rule: configs drive the UI. Write ~10 generic components once, then
  * ~40 small ViewDef/DrawerDef/DocumentDef configs instead of 40
  * hand-built screens.
+ *
+ * The five shared entity records (Party, Item, Document, MoneyMovement,
+ * Account) are defined canonically in `@platform/shared` (the
+ * cross-package contract package — see packages/shared/index.ts). The
+ * `Party` interface below is the web app's UI-facing extension of that
+ * contract record: it carries additional display fields (balance, address,
+ * lifecycle stage, …) the screens render but the shared contract does
+ * not. `PartyCore` re-exports the canonical record so API boundaries
+ * (partyMirror.ts, /api/parties/route.ts) speak the shared contract;
+ * the local `Party` interface stays the UI shape and is unchanged.
  */
+
+import type { Party as SharedParty } from '@platform/shared';
+
+// Re-export the canonical shared Party as PartyCore — the API boundary
+// record. The local `Party` interface below extends it conceptually but
+// adds UI-only fields, so it is NOT structurally assignable to PartyCore
+// (it lacks `tenantId` and `kind`). Use PartyCore at API edges; use Party
+// inside components.
+export type { Party as PartyCore } from '@platform/shared';
+export type { Item as ItemCore, DocumentRef as DocumentRefCore, MoneyMovement as MoneyMovementCore, Account as AccountCore } from '@platform/shared';
 
 // ═══════════════════════════════════════════════════════════════
 // PART 1 — Shared entity types (the five entity families)
@@ -14,6 +34,14 @@
 
 export type PartyRole = 'Customer' | 'Vendor' | 'Supplier' | 'Contractor' | 'Seller' | 'Lead' | 'Stakeholder';
 
+/**
+ * Web UI Party — extends the canonical SharedParty with display fields the
+ * screens render. The relationship is conceptual (the UI record IS a Party
+ * in the contract sense) but not structural (the UI record omits the
+ * contract's `tenantId`/`kind` fields — those live on the Supabase row,
+ * surfaced via partyMirror.ts → toSharedParty()). Consumers that need to
+ * cross the API boundary should use `PartyCore`.
+ */
 export interface Party {
   id: string;
   name: string;
@@ -32,6 +60,19 @@ export interface Party {
   country: string | null;
   source: string;
   [key: string]: unknown;
+}
+
+/** Coerce a UI Party into the canonical SharedParty contract record. */
+export function toPartyCore(p: Party, tenantId: string, kind: 'person' | 'company' = 'company'): SharedParty {
+  return {
+    id: p.id,
+    tenantId,
+    kind,
+    displayName: p.displayName,
+    email: p.email,
+    phone: p.phone,
+    roles: p.roles.map((r) => r.toLowerCase()),
+  };
 }
 
 export type ItemType = 'Product' | 'Service' | 'Blank' | 'Bundle' | 'GiftCard' | 'Subscription' | 'DesignLinked';
@@ -66,7 +107,7 @@ export type DocumentStatus =
   | 'ForReview' | 'Approved' | 'Shipped' | 'Delivered' | 'Returned'
   | 'PartiallyReceived' | 'Received' | 'Closed' | 'Void' | 'Open'
   | 'Converted' | 'Declined' | 'Pending' | 'Requested' | 'Fulfilled'
-  | 'Printed' | 'Applied' | 'Posted';
+  | 'Printed' | 'Applied' | 'Posted' | 'Refunded' | 'Cleared';
 
 export interface DocumentLine {
   id: string;
@@ -211,7 +252,7 @@ export interface Envelope {
 // PART 5 — ViewDef (config-driven table, spec §B.5)
 // ═══════════════════════════════════════════════════════════════
 
-export type ColumnKind = 'text' | 'date' | 'money' | 'status' | 'party' | 'pill' | 'count' | 'image' | 'tag';
+export type ColumnKind = 'text' | 'date' | 'money' | 'number' | 'status' | 'party' | 'pill' | 'count' | 'image' | 'tag';
 
 export interface ViewColumn {
   id: string;
@@ -333,6 +374,53 @@ export interface DocumentDef {
   apiPath: string;
   /** Which views to show as tabs inside the document page */
   views: ('edit' | 'email' | 'payor' | 'pdf')[];
+}
+
+/** A document line as the server stores it (acct_* line tables). */
+export interface LineDef {
+  id?: string;
+  /** 1-based line position (line_no / line_number in the DB) */
+  lineNo: number;
+  description: string;
+  quantity: number;
+  /** unit price (unit_price) — unit_cost on bill lines */
+  unitPrice: number;
+  /** line subtotal before tax (line_subtotal / line_total) */
+  lineSubtotal: number;
+  taxAmount: number;
+  /** Linked catalog item, when the line came from the picker */
+  itemId?: string | null;
+  /** GL account the line posts to (revenue_account_id / expense_account_id) */
+  accountId?: string | null;
+}
+
+/** Document totals, always computed server-side from the lines
+ *  (POST /api/v1/documents) — never trusted from the client body.
+ *  open_balance is a GENERATED column in the DB (total - amount_paid -
+ *  amount_credited); it is derived, never inserted. */
+export interface DocumentTotals {
+  subtotal: number;
+  taxTotal: number;
+  discountTotal: number;
+  total: number;
+  amountPaid: number;
+  amountCredited: number;
+  /** Derived: total - amountPaid - amountCredited */
+  openBalance: number;
+}
+
+/** Compute DocumentTotals from lines + amounts already paid/credited. */
+export function totalsFromLines(
+  lines: Pick<LineDef, 'lineSubtotal' | 'taxAmount'>[],
+  opts?: { discountTotal?: number; amountPaid?: number; amountCredited?: number },
+): DocumentTotals {
+  const subtotal = lines.reduce((s, l) => s + l.lineSubtotal, 0);
+  const taxTotal = lines.reduce((s, l) => s + l.taxAmount, 0);
+  const discountTotal = opts?.discountTotal || 0;
+  const total = subtotal + taxTotal - discountTotal;
+  const amountPaid = opts?.amountPaid || 0;
+  const amountCredited = opts?.amountCredited || 0;
+  return { subtotal, taxTotal, discountTotal, total, amountPaid, amountCredited, openBalance: total - amountPaid - amountCredited };
 }
 
 // ═══════════════════════════════════════════════════════════════

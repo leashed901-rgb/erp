@@ -1,11 +1,12 @@
+/**
+ * supabaseAdmin.ts — server-side Supabase client (service role).
+ * Lazy singleton — never throws at module-eval time. Connects to the real
+ * project via env (see supabaseConfig.ts). Used by every API route + the
+ * party mirror. Writes NEVER flow from the client; this is server-only.
+ */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEFAULT_TENANT_ID } from './supabaseConfig';
 
-/**
- * Server-side Supabase client (service role). Lazy singleton — never throws
- * at module-eval time, so a misconfigured env degrades to a JSON error on
- * the request instead of a 500 HTML page that crashes client JSON parsers.
- */
 let _client: SupabaseClient | null = null;
 
 export function supabaseAdmin(): SupabaseClient {

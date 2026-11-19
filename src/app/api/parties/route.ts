@@ -1,242 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
+import { writePartySpine, spineRowToPartyListItem, type PartyListItem } from '@/lib/partySpine';
 
 /**
- * GET /api/parties — the unified party list (§1.1: one person/company record).
- * Merges crm_customers (customers), acct_vendors (vendors), suppliers
- * (fulfillment suppliers), crm_leads (leads), and sellers (marketplace
- * sellers — same party model, own table pair) into one shape.
+ * ── @platform/commands bridge — legacy direct-write ────────────────────────
+ * This route is one of three designated "anchor" routes (parties,
+ * crm/customers, products) where the data-access unification is documented.
+ *
+ * The canonical data-access path in the monorepo is:
+ *   API route → @platform/commands (defineCommand registry) → @platform/db
+ *   (typed RPC wrappers over p_* Postgres functions) → supabase
+ * The command registry is the single source of truth for what the platform
+ * does — every command is also surfaced to AI agents via apps/mcp-gateway.
+ *
+ * NEW routes should delegate to commands:
+ *   import { getCommandContext, studio } from '@/lib/commands';
+ *   const ctx = getCommandContext(reqUserId);
+ *   const r = await studio.someCommand.run({...}, ctx);
+ *   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+ *
+ * This route (and 138 others) currently calls supabaseAdmin().from('t')...
+ * directly. That works (the staff app is single-tenant, service-role), but
+ * it bypasses the registry — so the audit trail in platform_audit_log loses
+ * the command id, and AI agents can't reach this mutation via MCP. Migrating
+ * the 139 routes is a Phase 2 effort; this comment block establishes the
+ * bridge so the migration has a clear target. Until then, this route stays
+ * on the legacy direct-write path for backward compatibility.
+ *
+ * The bridge lives in apps/web/src/lib/commands.ts — `getCommandContext()`
+ * builds `{ supabase, userId, tenantId }` from supabaseAdmin + DEFAULT_TENANT_ID
+ * + the caller's user id. The studio/techpack/rfq/media command bundles are
+ * re-exported from there so consumers don't need to learn a second import.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * GET /api/parties — the unified party list, read from the spine
+ * (platform_parties). One query, not five. The metadata carries name,
+ * email, phone, company, roles — everything the list + pills need.
  * Query: ?role=customer|vendor|supplier|lead|seller & ?q=search
+ *
+ * The response items are typed as `SharedParty & { …extra UI fields }`
+ * — the @platform/shared Party contract record (id, tenantId, kind,
+ * displayName, email, phone, roles) intersected with the UI list row
+ * (source, name, company, balance, lifecycleStage, …). API consumers
+ * that import @platform/shared can read the contract fields without
+ * depending on the web app's UI shape.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const role = searchParams.get('role');
+  const idParam = searchParams.get('id');
   const q = searchParams.get('q')?.trim().toLowerCase();
 
-  const needCustomers = !role || role === 'customer' || role === 'all';
-  const needVendors = !role || role === 'vendor' || role === 'all';
-  const needSuppliers = !role || role === 'supplier' || role === 'all';
-  const needLeads = !role || role === 'lead' || role === 'all';
-  const needSellers = !role || role === 'seller' || role === 'all';
+  let query = supabaseAdmin()
+    .from('platform_parties')
+    .select('id, party_kind, metadata, created_at, updated_at')
+    .eq('tenant_id', DEFAULT_TENANT_ID)
+    .order('updated_at', { ascending: false })
+    .limit(500);
 
-  const [custRes, vendRes, supRes, leadRes, sellerRes] = await Promise.all([
-    needCustomers
-      ? supabaseAdmin().from('crm_customers')
-          .select('id, first_name, last_name, company_name, email, phone, city, state, outstanding_balance, lifetime_value, lifecycle_stage, lifecycle_status, created_at, updated_at, last_activity_at, archived_at')
-          .eq('tenant_id', DEFAULT_TENANT_ID)
-          .is('archived_at', null)
-          .order('updated_at', { ascending: false })
-          .limit(500)
-      : Promise.resolve({ data: [] as never[], error: null }),
-    needVendors
-      ? supabaseAdmin().from('acct_vendors')
-          .select('id, vendor_number, legal_name, email, phone, payment_terms_days, is_1099_vendor, is_active, w9_received_at, created_at, updated_at')
-          .eq('tenant_id', DEFAULT_TENANT_ID)
-          .eq('is_active', true)
-          .order('updated_at', { ascending: false })
-          .limit(500)
-      : Promise.resolve({ data: [] as never[], error: null }),
-    needSuppliers
-      ? supabaseAdmin().from('suppliers')
-          .select('id, name, slug, kind, ordering_status, created_at')
-          .order('created_at', { ascending: false })
-          .limit(500)
-      : Promise.resolve({ data: [] as never[], error: null }),
-    needLeads
-      ? supabaseAdmin().from('crm_leads')
-          .select('id, contact_name, email, phone, status, lead_source, created_at, updated_at')
-          .eq('tenant_id', DEFAULT_TENANT_ID)
-          .order('updated_at', { ascending: false })
-          .limit(500)
-      : Promise.resolve({ data: [] as never[], error: null }),
-    needSellers
-      ? supabaseAdmin().from('sellers')
-          .select('id, legal_name, display_name, email, phone, website, commission_rate, status, seller_type, slug, created_at, updated_at')
-          .eq('tenant_id', DEFAULT_TENANT_ID)
-          // Archived sellers (operations_paused) leave the unified list, the
-          // same way is_active=false hides vendors. The Seller relationships
-          // module still shows them — it owns the enforcement view.
-          .eq('operations_paused', false)
-          .order('updated_at', { ascending: false })
-          .limit(500)
-      : Promise.resolve({ data: [] as never[], error: null }),
-  ]);
+  if (idParam) query = query.eq('id', idParam);
 
-  if (custRes.error || vendRes.error || supRes.error || leadRes.error || sellerRes.error) {
-    const err = custRes.error || vendRes.error || supRes.error || leadRes.error || sellerRes.error;
-    return NextResponse.json({ error: { code: 'INTERNAL', message: err!.message } }, { status: 500 });
+  if (role && role !== 'all') {
+    // metadata->roles is jsonb; contains needs a JSON value, not a
+    // Postgres array literal — the old [role] form 500ed with
+    // "invalid input syntax for type json". Roles are stored lowercase.
+    query = query.contains('metadata', { roles: [role.toLowerCase()] });
   }
 
-  type Party = {
-    id: string;
-    source: string;
-    name: string;
-    email: string | null;
-    phone: string | null;
-    roles: string[];
-    company: string | null;
-    city: string | null;
-    state: string | null;
-    balance: number;
-    lifetimeValue: number;
-    lifecycleStage: string | null;
-    terms: number | null;
-    is1099: boolean;
-    w9Received: boolean;
-    isActive: boolean;
-    orderingStatus: string | null;
-    sellerType: string | null;
-    sellerStatus: string | null;
-    website: string | null;
-    commissionRate: number | null;
-    addedAt: string;
-    lastActivity: string | null;
-  };
+  const { data: spine, error } = await query;
 
-  const parties: Party[] = [];
-
-  for (const c of custRes.data || []) {
-    parties.push({
-      id: c.id,
-      source: 'crm_customers',
-      name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.company_name || c.email || 'Unnamed',
-      email: c.email,
-      phone: c.phone,
-      roles: ['customer'],
-      company: c.company_name,
-      city: c.city,
-      state: c.state,
-      balance: Number(c.outstanding_balance) || 0,
-      lifetimeValue: Number(c.lifetime_value) || 0,
-      lifecycleStage: c.lifecycle_stage,
-      terms: null,
-      is1099: false,
-      w9Received: false,
-      isActive: !c.archived_at && c.lifecycle_status !== 'inactive',
-      orderingStatus: null,
-      sellerType: null,
-      sellerStatus: null,
-      website: null,
-      commissionRate: null,
-      addedAt: c.created_at,
-      lastActivity: c.last_activity_at || c.updated_at,
-    });
+  if (error) {
+    return NextResponse.json({ error: { code: 'INTERNAL', message: error.message } }, { status: 500 });
   }
 
-  for (const v of vendRes.data || []) {
-    parties.push({
-      id: v.id,
-      source: 'acct_vendors',
-      name: v.legal_name || 'Unnamed vendor',
-      email: v.email,
-      phone: v.phone,
-      roles: ['vendor'],
-      company: v.legal_name,
-      city: null,
-      state: null,
-      balance: 0,
-      lifetimeValue: 0,
-      lifecycleStage: null,
-      terms: v.payment_terms_days,
-      is1099: v.is_1099_vendor ?? false,
-      w9Received: !!v.w9_received_at,
-      isActive: v.is_active ?? true,
-      orderingStatus: null,
-      sellerType: null,
-      sellerStatus: null,
-      website: null,
-      commissionRate: null,
-      addedAt: v.created_at,
-      lastActivity: v.updated_at,
-    });
-  }
-
-  for (const s of supRes.data || []) {
-    parties.push({
-      id: s.id,
-      source: 'suppliers',
-      name: s.name,
-      email: null,
-      phone: null,
-      roles: ['supplier'],
-      company: s.name,
-      city: null,
-      state: null,
-      balance: 0,
-      lifetimeValue: 0,
-      lifecycleStage: null,
-      terms: null,
-      is1099: false,
-      w9Received: false,
-      isActive: true,
-      orderingStatus: s.ordering_status,
-      sellerType: null,
-      sellerStatus: null,
-      website: null,
-      commissionRate: null,
-      addedAt: s.created_at,
-      lastActivity: s.created_at,
-    });
-  }
-
-  for (const l of leadRes.data || []) {
-    parties.push({
-      id: l.id,
-      source: 'crm_leads',
-      name: l.contact_name || l.email || 'Unnamed lead',
-      email: l.email,
-      phone: l.phone,
-      roles: ['lead'],
-      company: null,
-      city: null,
-      state: null,
-      balance: 0,
-      lifetimeValue: 0,
-      lifecycleStage: l.status,
-      terms: null,
-      is1099: false,
-      w9Received: false,
-      isActive: !['lost', 'converted'].includes(l.status),
-      orderingStatus: null,
-      sellerType: null,
-      sellerStatus: null,
-      website: null,
-      commissionRate: null,
-      addedAt: l.created_at,
-      lastActivity: l.updated_at,
-    });
-  }
-
-  // Sellers — marketplace sellers are a contact type: same unified list,
-  // their own table (sellers) + profile extension (seller_self_serve_profiles).
-  for (const s of sellerRes.data || []) {
-    parties.push({
-      id: s.id,
-      source: 'sellers',
-      name: s.display_name || s.legal_name || 'Unnamed seller',
-      email: s.email,
-      phone: s.phone,
-      roles: ['seller'],
-      company: s.legal_name,
-      city: null,
-      state: null,
-      balance: 0,
-      lifetimeValue: 0,
-      lifecycleStage: s.status,
-      terms: null,
-      is1099: false,
-      w9Received: false,
-      isActive: s.status !== 'declined',
-      orderingStatus: null,
-      sellerType: s.seller_type,
-      sellerStatus: s.status,
-      website: s.website,
-      // percent at the API boundary (stored as a 0–1 fraction)
-      commissionRate: s.commission_rate != null ? Number(s.commission_rate) * 100 : null,
-      addedAt: s.created_at,
-      lastActivity: s.updated_at,
-    });
-  }
+  // The Party DTO derives from the spine row (partySpine.ts) — the
+  // canonical mapper shared by every consumer of platform_parties.
+  const parties: PartyListItem[] = (spine || []).map((p) => spineRowToPartyListItem(p));
 
   const filtered = q
     ? parties.filter(p =>
@@ -246,13 +87,114 @@ export async function GET(req: NextRequest) {
         (p.phone || '').includes(q))
     : parties;
 
+  // Vendor enrichment (doc 07): open balance + YTD paid come from the
+  // bills/payments tables, and the W-9 pill comes from acct_vendors +
+  // the latest contractor invite — not from the spine metadata alone.
+  // Runs when the caller asked for a pay-side role, or when the list
+  // itself contains pay-side parties (the unified Parties screen lists
+  // every role, and its vendor columns read these fields). A pure
+  // customer list stays a single query.
+  const vendorRole = role && ['vendor', 'supplier', 'contractor'].includes(role.toLowerCase());
+  const hasPaySideParty = filtered.some((p) =>
+    p.roles.some((r) => ['vendor', 'supplier', 'contractor'].includes(r)),
+  );
+  if ((vendorRole || hasPaySideParty) && filtered.length > 0) {
+    const ids = filtered.map((p) => p.id);
+    const [vendorsRes, invitesRes, billsRes, paymentsRes] = await Promise.all([
+      supabaseAdmin()
+        .from('acct_vendors')
+        .select('id, is_1099_vendor, w9_received_at, vendor_kind, is_active')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .in('id', ids),
+      supabaseAdmin()
+        .from('acct_contractor_invites')
+        .select('vendor_id, status, sent_at')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .in('vendor_id', ids)
+        .order('sent_at', { ascending: false }),
+      supabaseAdmin()
+        .from('acct_ap_bills')
+        .select('vendor_id, open_balance')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .gt('open_balance', 0),
+      supabaseAdmin()
+        .from('acct_ap_payments')
+        .select('vendor_id, amount, payment_date')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .is('voided_at', null)
+        .gte('payment_date', `${new Date().getFullYear()}-01-01`),
+    ]);
+    const vendorById = new Map((vendorsRes.data || []).map((v: { id: string }) => [v.id, v]));
+    const latestInvite = new Map<string, { status: string }>();
+    for (const inv of invitesRes.data || []) {
+      if (!latestInvite.has(inv.vendor_id)) latestInvite.set(inv.vendor_id, inv);
+    }
+    const openByVendor = new Map<string, number>();
+    for (const b of billsRes.data || []) {
+      openByVendor.set(b.vendor_id, (openByVendor.get(b.vendor_id) || 0) + Number(b.open_balance || 0));
+    }
+    const ytdByVendor = new Map<string, number>();
+    for (const p of paymentsRes.data || []) {
+      ytdByVendor.set(p.vendor_id, (ytdByVendor.get(p.vendor_id) || 0) + Number(p.amount || 0));
+    }
+    for (const p of filtered as (PartyListItem & { contractorW9Status?: string | null; track1099?: boolean; vendorKind?: string | null; openBalance?: number; ytdPaid?: number })[]) {
+      const v = vendorById.get(p.id) as { is_1099_vendor?: boolean; w9_received_at?: string | null; vendor_kind?: string; is_active?: boolean } | undefined;
+      const invite = latestInvite.get(p.id);
+      p.track1099 = !!v?.is_1099_vendor;
+      p.is1099 = !!v?.is_1099_vendor;
+      p.w9Received = !!v?.w9_received_at;
+      p.isActive = v ? !!v.is_active : true;
+      p.vendorKind = v?.vendor_kind || null;
+      p.openBalance = openByVendor.get(p.id) || 0;
+      p.balance = p.openBalance;
+      p.ytdPaid = ytdByVendor.get(p.id) || 0;
+      p.contractorW9Status = v?.w9_received_at
+        ? 'Completed'
+        : invite && ['sent', 'opened'].includes(invite.status)
+          ? 'Invited'
+          : p.roles.includes('contractor')
+            ? 'Missing'
+            : null;
+    }
+  }
+
+  // Customer enrichment (CRM pack): the open balance is computed from
+  // the invoices themselves. The spine metadata balance is a stale
+  // mirror — it read $0 while real invoices were open. Spine ids ARE
+  // the source record ids (the vendor enrichment above relies on the
+  // same identity), so invoices join directly. Drafts are not owed
+  // yet; paid/void/written-off are closed.
+  const hasCustomerParty = filtered.some((p) => p.roles.includes('customer'));
+  if (hasCustomerParty && filtered.length > 0) {
+    const customerIds = filtered
+      .filter((p) => p.roles.includes('customer'))
+      .map((p) => p.id);
+    const { data: invRows } = await supabaseAdmin()
+      .from('acct_ar_invoices')
+      .select('customer_id, total, amount_paid, amount_credited')
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .in('customer_id', customerIds)
+      .not('status', 'in', '(paid,void,written_off,draft)');
+    const openByCustomer = new Map<string, number>();
+    for (const inv of invRows || []) {
+      const open =
+        Number(inv.total || 0) - Number(inv.amount_paid || 0) - Number(inv.amount_credited || 0);
+      if (open > 0) {
+        openByCustomer.set(inv.customer_id, (openByCustomer.get(inv.customer_id) || 0) + open);
+      }
+    }
+    for (const p of filtered) {
+      if (p.roles.includes('customer')) p.balance = openByCustomer.get(p.id) || 0;
+    }
+  }
+
   const counts = {
-    all: parties.length,
-    customer: parties.filter(p => p.roles.includes('customer')).length,
-    vendor: parties.filter(p => p.roles.includes('vendor')).length,
-    supplier: parties.filter(p => p.roles.includes('supplier')).length,
-    lead: parties.filter(p => p.roles.includes('lead')).length,
-    seller: parties.filter(p => p.roles.includes('seller')).length,
+    all: filtered.length,
+    customer: filtered.filter(p => p.roles.includes('customer')).length,
+    vendor: filtered.filter(p => p.roles.includes('vendor')).length,
+    supplier: filtered.filter(p => p.roles.includes('supplier')).length,
+    lead: filtered.filter(p => p.roles.includes('lead')).length,
+    seller: filtered.filter(p => p.roles.includes('seller')).length,
   };
 
   return NextResponse.json({ data: filtered, meta: { total: filtered.length, counts } });
@@ -306,6 +248,7 @@ export async function POST(req: NextRequest) {
       .select('id, first_name, last_name, company_name, email, phone, city, state, outstanding_balance, lifetime_value, lifecycle_stage, created_at')
       .single();
     if (error) return NextResponse.json({ error: { code: 'VALIDATION', message: error.message } }, { status: 400 });
+    await writePartySpine(data.id, 'customer', { name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.company_name || data.email, email: data.email, phone: data.phone, company: data.company_name, city: data.city, state: data.state });
     // The create-form notes box lands in crm_notes — same store the Notes
     // tab reads, so it round-trips into the profile immediately.
     if (body.notes && String(body.notes).trim()) {
@@ -370,6 +313,7 @@ export async function POST(req: NextRequest) {
       .select('id, legal_name, email, phone, payment_terms_days, is_1099_vendor, is_active, created_at')
       .single();
     if (error) return NextResponse.json({ error: { code: 'VALIDATION', message: error.message } }, { status: 400 });
+    await writePartySpine(data.id, 'vendor', { name: data.legal_name, email: data.email, phone: data.phone, terms: data.payment_terms_days, is1099: data.is_1099_vendor });
     return NextResponse.json({ data: { ...data, source: 'acct_vendors', roles: ['vendor'] } }, { status: 201 });
   }
 
@@ -400,6 +344,7 @@ export async function POST(req: NextRequest) {
       .select('id, name, kind, ordering_status, created_at')
       .single();
     if (error) return NextResponse.json({ error: { code: 'VALIDATION', message: error.message } }, { status: 400 });
+    await writePartySpine(data.id, 'supplier', { name: data.name, kind: data.kind, orderingStatus: data.ordering_status });
     return NextResponse.json({ data: { ...data, source: 'suppliers', roles: ['supplier'] } }, { status: 201 });
   }
 
@@ -423,6 +368,7 @@ export async function POST(req: NextRequest) {
       .select('id, contact_name, email, phone, status, created_at')
       .single();
     if (error) return NextResponse.json({ error: { code: 'VALIDATION', message: error.message } }, { status: 400 });
+    await writePartySpine(data.id, 'lead', { name: data.contact_name, email: data.email, phone: data.phone, status: data.status });
     return NextResponse.json({ data: { ...data, source: 'crm_leads', roles: ['lead'] } }, { status: 201 });
   }
 
@@ -503,6 +449,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: { code: 'VALIDATION', message: profileError.message } }, { status: 400 });
     }
 
+    await writePartySpine(sellerRow.id, 'seller', { name: sellerRow.display_name || sellerRow.legal_name, email: sellerRow.email, phone: sellerRow.phone, website: sellerRow.website, commissionRate: sellerRow.commission_rate });
     return NextResponse.json({ data: {
       ...sellerRow,
       // percent at the API boundary (stored as a 0–1 fraction)

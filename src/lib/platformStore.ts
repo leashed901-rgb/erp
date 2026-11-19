@@ -78,6 +78,10 @@ export interface Item {
   id: string;
   name: string;
   sku: string;
+  /** ERP SKU id (erp_product_skus) when the item is linked to stock — the
+   *  DocumentEngine line picker carries it through to the PO/sales-order
+   *  line so receiving and COGS can resolve the item. */
+  skuId?: string | null;
   type: ItemType;
   category: string;
   status: 'Draft' | 'Published' | 'Archived';
@@ -121,6 +125,11 @@ export type DocumentStatus = 'Draft' | 'Sent' | 'Unpaid' | 'Overdue' | 'Paid' | 
 export interface DocumentLine {
   id: string;
   itemId: string | null;
+  /** ERP SKU id for the picked item — persisted to the PO/sales-order line
+   *  so receiving (erp_receive_purchase_order) and COGS (acct__order_recognize)
+   *  can resolve the item. Was never sent before: UI-created POs had
+   *  sku_id NULL on every line and could not be received at all. */
+  skuId?: string | null;
   description: string;
   qty: number;
   rate: number;

@@ -141,6 +141,7 @@ export function SurfaceHost({ surfaces, onClose, children }: {
               onClose={() => onClose(instance.id)}
             >
               {/* Drawer content rendered by parent screen */}
+              {null}
             </Drawer>
           );
         }
@@ -154,6 +155,7 @@ export function SurfaceHost({ surfaces, onClose, children }: {
               onClose={() => onClose(instance.id)}
             >
               {/* Modal content rendered by parent */}
+              {null}
             </Modal>
           );
         }

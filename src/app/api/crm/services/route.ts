@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const insert = {
     tenant_id: DEFAULT_TENANT_ID,
     name: String(body.name),
-    code: String(body.code || body.name.slice(0, 5).toUpperCase()),
+    code: String(body.code || String(body.name).slice(0, 5).toUpperCase()),
     description: body.description || null,
     category: String(body.category || 'general'),
     service_category: String(body.service_category || 'general'),

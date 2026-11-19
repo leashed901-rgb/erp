@@ -1,6 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
 
+/** GET /api/crm/leads/[id] — one lead (the route shipped with only
+ *  PATCH/DELETE, so a single-lead fetch returned an empty 405). */
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const { data, error } = await supabaseAdmin()
+    .from('crm_leads')
+    .select('*')
+    .eq('id', id)
+    .eq('tenant_id', DEFAULT_TENANT_ID)
+    .maybeSingle();
+  if (error) {
+    return NextResponse.json({ error: { code: 'INTERNAL', message: error.message, requestId: crypto.randomUUID() } }, { status: 500 });
+  }
+  if (!data) {
+    return NextResponse.json({ error: { code: 'NOT_FOUND', message: 'Lead not found', requestId: crypto.randomUUID() } }, { status: 404 });
+  }
+  return NextResponse.json({ data });
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();

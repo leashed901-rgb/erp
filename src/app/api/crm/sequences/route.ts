@@ -20,12 +20,12 @@ export async function POST(req: NextRequest) {
     name: String(body.name),
     mailbox_id: body.mailbox_id || null,
     stop_on_reply: Boolean(body.stop_on_reply),
-    send_window_start: body.send_window_start || null,
-    send_window_end: body.send_window_end || null,
+    send_window_start: body.send_window_start || '09:00',
+    send_window_end: body.send_window_end || '17:00',
     timezone: String(body.timezone || 'America/Chicago'),
     weekdays_only: Boolean(body.weekdays_only ?? true),
     is_active: true,
-    purpose: body.purpose || null,
+    purpose: ['sales', 'marketing'].includes(String(body.purpose)) ? String(body.purpose) : 'marketing',
   };
   const { data, error } = await supabaseAdmin().from('crm_sequences').insert(insert).select('*').single();
   if (error) return NextResponse.json({ error: { code: 'INTERNAL', message: error.message, requestId: crypto.randomUUID() } }, { status: 500 });

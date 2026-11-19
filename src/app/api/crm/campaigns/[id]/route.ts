@@ -8,7 +8,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: { code: 'VALIDATION', message: 'Invalid JSON body', requestId: crypto.randomUUID() } }, { status: 400 });
   }
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  for (const f of ['name','status','scheduled_at','started_at','completed_at','template_id']) {
+  for (const f of ['name','status','scheduled_at','started_at','completed_at','template_id','segment_definition','channel','campaign_type']) {
     if (f in body) updates[f] = body[f];
   }
   const { data, error } = await supabaseAdmin().from('crm_campaigns').update(updates).eq('id', id).eq('tenant_id', DEFAULT_TENANT_ID).select('*').single();

@@ -19,6 +19,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (body.price === undefined || body.price === null || Number.isNaN(price) || price < 0) {
     return NextResponse.json({ error: { code: 'VALIDATION', message: 'price is required (≥ 0)' } }, { status: 400 });
   }
+  // Variance cost column — standard_cost is the cost the margin is
+  // measured against. Absent means no cost on file (0).
+  const cost = body.standard_cost == null ? 0 : Number(body.standard_cost);
+  if (Number.isNaN(cost) || cost < 0) {
+    return NextResponse.json({ error: { code: 'VALIDATION', message: 'standard_cost must be ≥ 0' } }, { status: 400 });
+  }
 
   // SKU: use the provided one, else derive from product name + size/color
   let sku = String(body.sku || '').trim();
@@ -46,6 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     size: body.size ? String(body.size) : null,
     color: body.color ? String(body.color) : null,
     price,
+    standard_cost: cost,
     compare_at_price: body.compare_at_price != null ? Number(body.compare_at_price) : null,
     is_active: body.is_active !== false,
     status: body.status || 'active',

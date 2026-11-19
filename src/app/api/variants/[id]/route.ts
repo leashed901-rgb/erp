@@ -27,6 +27,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ? null
       : Number(body.compare_at_price);
   }
+  // Variance cost column — clearing it (null / '') means no cost on
+  // file, stored as 0 (the column is NOT NULL DEFAULT 0).
+  if (body.standard_cost !== undefined) {
+    const cost = body.standard_cost === null || body.standard_cost === ''
+      ? 0
+      : Number(body.standard_cost);
+    if (Number.isNaN(cost) || cost < 0) {
+      return NextResponse.json({ error: { code: 'VALIDATION', message: 'standard_cost must be ≥ 0' } }, { status: 400 });
+    }
+    updates.standard_cost = cost;
+  }
   if (body.is_active !== undefined) updates.is_active = !!body.is_active;
   if (body.status !== undefined) {
     const allowed = ['active', 'inactive', 'discontinued'];

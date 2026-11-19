@@ -1,199 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
+import { writePartySpine } from '@/lib/partySpine';
 
-/**
- * GET /api/sellers — the seller list = UNION of
- *   (a) seller_self_serve_profiles rows, and
- *   (b) distinct seller_ids that appear in seller_violations / seller_appeals
- *       but have no profile row (labeled "from enforcement data" downstream).
- *
- * Each item carries enforcement counters (open_violations, pending_appeals)
- * computed in JS from the two enforcement tables. ?q= filters on names.
- */
-export async function GET(req: NextRequest) {
-  const q = (req.nextUrl.searchParams.get('q') || '').trim().toLowerCase();
-  const sb = supabaseAdmin();
-
-  const [profilesRes, violationsRes, appealsRes] = await Promise.all([
-    sb.from('seller_self_serve_profiles')
-      .select('*')
-      .eq('tenant_id', DEFAULT_TENANT_ID)
-      .order('created_at', { ascending: false }),
-    sb.from('seller_violations')
-      .select('seller_id, status, created_at')
-      .eq('tenant_id', DEFAULT_TENANT_ID),
-    sb.from('seller_appeals')
-      .select('seller_id, status, created_at')
-      .eq('tenant_id', DEFAULT_TENANT_ID),
-  ]);
-
-  if (profilesRes.error) {
-    return NextResponse.json({ error: { code: 'INTERNAL', message: profilesRes.error.message, requestId: crypto.randomUUID() } }, { status: 500 });
-  }
-  if (violationsRes.error) {
-    return NextResponse.json({ error: { code: 'INTERNAL', message: violationsRes.error.message, requestId: crypto.randomUUID() } }, { status: 500 });
-  }
-  if (appealsRes.error) {
-    return NextResponse.json({ error: { code: 'INTERNAL', message: appealsRes.error.message, requestId: crypto.randomUUID() } }, { status: 500 });
-  }
-
-  const profiles = profilesRes.data || [];
-  const violations = violationsRes.data || [];
-  const appeals = appealsRes.data || [];
-
-  // Per-seller enforcement aggregates
-  const openViolations = new Map<string, number>();
-  const pendingAppeals = new Map<string, number>();
-  const enforcementFirstSeen = new Map<string, string>();
-  const track = (sellerId: string, createdAt: string) => {
-    const prev = enforcementFirstSeen.get(sellerId);
-    if (!prev || createdAt < prev) enforcementFirstSeen.set(sellerId, createdAt);
-  };
-  for (const v of violations) {
-    if (v.status === 'open') openViolations.set(v.seller_id, (openViolations.get(v.seller_id) || 0) + 1);
-    track(v.seller_id, v.created_at || '');
-  }
-  for (const a of appeals) {
-    if (a.status === 'pending') pendingAppeals.set(a.seller_id, (pendingAppeals.get(a.seller_id) || 0) + 1);
-    track(a.seller_id, a.created_at || '');
-  }
-
-  const items: SellerListItem[] = [];
-  const seen = new Set<string>();
-
-  // (a) profiled sellers
-  for (const p of profiles) {
-    seen.add(p.seller_id);
-    items.push({
-      id: p.seller_id, // additive alias of seller_id — satisfies the shared useList { id } constraint
-      seller_id: p.seller_id,
-      profile_id: p.id,
-      display_name: p.display_name ?? null,
-      legal_name: p.legal_name ?? null,
-      applicant_type: p.applicant_type ?? null,
-      tax_form_status: p.tax_form_status ?? null,
-      recorded_earnings: p.recorded_earnings ?? null,
-      created_at: p.created_at ?? null,
-      open_violations: openViolations.get(p.seller_id) || 0,
-      pending_appeals: pendingAppeals.get(p.seller_id) || 0,
-      has_profile: true,
-    });
-  }
-
-  // (b) sellers that only exist in enforcement data
-  const enforcementOnly = new Set<string>([
-    ...violations.map(v => v.seller_id),
-    ...appeals.map(a => a.seller_id),
-  ]);
-  for (const sellerId of enforcementOnly) {
-    if (seen.has(sellerId)) continue;
-    items.push({
-      id: sellerId,
-      seller_id: sellerId,
-      profile_id: null,
-      display_name: null,
-      legal_name: null,
-      applicant_type: null,
-      tax_form_status: null,
-      recorded_earnings: null,
-      created_at: enforcementFirstSeen.get(sellerId) || null,
-      open_violations: openViolations.get(sellerId) || 0,
-      pending_appeals: pendingAppeals.get(sellerId) || 0,
-      has_profile: false,
-    });
-  }
-
-  const filtered = q
-    ? items.filter(i => `${i.display_name || ''} ${i.legal_name || ''}`.toLowerCase().includes(q))
-    : items;
-
-  // Profiled sellers first, then newest first
-  filtered.sort((a, b) =>
-    (Number(b.has_profile) - Number(a.has_profile)) ||
-    (b.created_at || '').localeCompare(a.created_at || ''),
+function fail(code: string, message: string, status: number) {
+  return NextResponse.json(
+    { error: { code, message, requestId: crypto.randomUUID() } },
+    { status },
   );
-
-  return NextResponse.json({ data: filtered });
 }
 
-/**
- * POST /api/sellers — create a seller (the fully working create flow).
- *
- * Real schema chain (probed against Supabase):
- *   1. `sellers` row — canonical seller record. NOT NULL: tenant_id,
- *      seller_type ('marketplace' — the table's only admitted value),
- *      legal_name, display_name, slug. status defaults to 'applied'
- *      (the onboarding queue state).
- *   2. `seller_self_serve_profiles` row — FK seller_id → sellers.id,
- *      user_id NOT NULL (fresh uuid = the applicant's app account),
- *      applicant_type CHECK ('individual_seller' | 'business_seller'),
- *      tax_form_status CHECK ('received' | 'not_required' — a brand-new
- *      seller is below the reporting threshold, so 'not_required').
- *
- * Friendly aliases are mapped: applicant_type 'individual' →
- * 'individual_seller', 'business' → 'business_seller'.
- */
-export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null) as Record<string, unknown> | null;
-  const legalName = typeof body?.legal_name === 'string' ? body.legal_name.trim() : '';
-  if (!legalName) {
-    return NextResponse.json(
-      { error: { code: 'VALIDATION', message: 'legal_name is required', requestId: crypto.randomUUID() } },
-      { status: 400 },
-    );
-  }
-  const displayName = typeof body?.display_name === 'string' && body.display_name.trim() ? body.display_name.trim() : null;
-  const applicantType =
-    body?.applicant_type === 'business' || body?.applicant_type === 'business_seller'
-      ? 'business_seller'
-      : 'individual_seller';
-
-  const sb = supabaseAdmin();
-
-  // 1. canonical sellers row (FK target for the profile and social posts)
-  const slugBase = legalName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'seller';
-  const slug = `${slugBase}-${crypto.randomUUID().slice(0, 8)}`;
-  const { data: sellerRow, error: sellerError } = await sb
-    .from('sellers')
-    .insert({
-      tenant_id: DEFAULT_TENANT_ID,
-      seller_type: 'marketplace',
-      legal_name: legalName,
-      display_name: displayName || legalName,
-      slug,
-    })
-    .select('*')
-    .single();
-
-  if (sellerError) {
-    return NextResponse.json({ error: { code: 'VALIDATION', message: sellerError.message, requestId: crypto.randomUUID() } }, { status: 400 });
-  }
-
-  // 2. self-serve profile row
-  const { data: profile, error: profileError } = await sb
-    .from('seller_self_serve_profiles')
-    .insert({
-      tenant_id: DEFAULT_TENANT_ID,
-      seller_id: sellerRow.id,
-      user_id: crypto.randomUUID(),
-      legal_name: legalName,
-      display_name: displayName,
-      applicant_type: applicantType,
-      tax_form_status: 'not_required',
-    })
-    .select('*')
-    .single();
-
-  if (profileError) {
-    // roll the canonical row back so a failed profile leaves no orphan seller
-    await sb.from('sellers').delete().eq('id', sellerRow.id);
-    return NextResponse.json({ error: { code: 'VALIDATION', message: profileError.message, requestId: crypto.randomUUID() } }, { status: 400 });
-  }
-
-  return NextResponse.json({ data: profile }, { status: 201 });
-}
-
-/** Shape returned by GET /api/sellers (the client mirror lives in useSellersApi). */
 interface SellerListItem {
   id: string;
   seller_id: string;
@@ -207,4 +22,194 @@ interface SellerListItem {
   open_violations: number;
   pending_appeals: number;
   has_profile: boolean;
+  // The seller entity itself (additive): status drives the
+  // onboarding queue lens; email/commission render on the workbench.
+  status: string | null;
+  email: string | null;
+  commission_rate: number | null;
+  operations_paused: boolean;
+}
+
+/**
+ * GET /api/sellers — the seller list. A seller is a PARTY: the
+ * canonical entity is the `sellers` row (which carries party_id into
+ * the party spine), and Sellers / Seller Feed / Onboarding Queue are
+ * lenses over that same data — this list is the shared source for
+ * all three. Enforcement counters (open violations, pending appeals)
+ * and recorded earnings (settled settlement gross) are computed from
+ * their tables. Seller ids that appear only in enforcement data are
+ * appended, labeled has_profile=false. ?q= filters on names.
+ */
+export async function GET(req: NextRequest) {
+  const q = (req.nextUrl.searchParams.get('q') || '').trim().toLowerCase();
+  const sb = supabaseAdmin();
+
+  const [sellersRes, violationsRes, appealsRes, settlementsRes] = await Promise.all([
+    sb.from('sellers')
+      .select('*')
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .order('created_at', { ascending: false }),
+    sb.from('seller_violations')
+      .select('seller_id, status, created_at')
+      .eq('tenant_id', DEFAULT_TENANT_ID),
+    sb.from('seller_appeals')
+      .select('seller_id, status, created_at')
+      .eq('tenant_id', DEFAULT_TENANT_ID),
+    sb.from('seller_settlements')
+      .select('seller_id, state, gross_cents')
+      .eq('tenant_id', DEFAULT_TENANT_ID),
+  ]);
+  for (const r of [sellersRes, violationsRes, appealsRes, settlementsRes]) {
+    if (r.error) return fail('INTERNAL', r.error.message, 500);
+  }
+
+  const openViolations = new Map<string, number>();
+  const pendingAppeals = new Map<string, number>();
+  const enforcementFirstSeen = new Map<string, string>();
+  const track = (sellerId: string, createdAt: string) => {
+    const prev = enforcementFirstSeen.get(sellerId);
+    if (!prev || createdAt < prev) enforcementFirstSeen.set(sellerId, createdAt);
+  };
+  for (const v of violationsRes.data || []) {
+    if (v.status === 'open') openViolations.set(v.seller_id, (openViolations.get(v.seller_id) || 0) + 1);
+    track(v.seller_id, v.created_at || '');
+  }
+  for (const a of appealsRes.data || []) {
+    if (a.status === 'pending') pendingAppeals.set(a.seller_id, (pendingAppeals.get(a.seller_id) || 0) + 1);
+    track(a.seller_id, a.created_at || '');
+  }
+  const earnings = new Map<string, number>();
+  for (const s of settlementsRes.data || []) {
+    if (s.state === 'settled' || s.state === 'partially_reversed') {
+      earnings.set(s.seller_id, (earnings.get(s.seller_id) || 0) + Number(s.gross_cents || 0) / 100);
+    }
+  }
+
+  const items: SellerListItem[] = [];
+  const seen = new Set<string>();
+  for (const s of sellersRes.data || []) {
+    seen.add(s.id);
+    items.push({
+      id: s.id,
+      seller_id: s.id,
+      profile_id: s.id,
+      display_name: s.display_name ?? null,
+      legal_name: s.legal_name ?? null,
+      applicant_type: s.seller_type ?? null,
+      tax_form_status: s.tax_id_last4 ? 'received' : null,
+      recorded_earnings: earnings.get(s.id) ?? 0,
+      created_at: s.created_at ?? null,
+      open_violations: openViolations.get(s.id) || 0,
+      pending_appeals: pendingAppeals.get(s.id) || 0,
+      has_profile: true,
+      status: s.status ?? null,
+      email: s.email ?? null,
+      commission_rate: s.commission_rate != null ? Number(s.commission_rate) : null,
+      operations_paused: !!s.operations_paused,
+    });
+  }
+
+  const enforcementOnly = new Set<string>([
+    ...(violationsRes.data || []).map(v => v.seller_id),
+    ...(appealsRes.data || []).map(a => a.seller_id),
+  ]);
+  for (const sellerId of enforcementOnly) {
+    if (seen.has(sellerId)) continue;
+    items.push({
+      id: sellerId,
+      seller_id: sellerId,
+      profile_id: null,
+      display_name: null,
+      legal_name: null,
+      applicant_type: null,
+      tax_form_status: null,
+      recorded_earnings: earnings.get(sellerId) ?? null,
+      created_at: enforcementFirstSeen.get(sellerId) || null,
+      open_violations: openViolations.get(sellerId) || 0,
+      pending_appeals: pendingAppeals.get(sellerId) || 0,
+      has_profile: false,
+      status: null,
+      email: null,
+      commission_rate: null,
+      operations_paused: false,
+    });
+  }
+
+  const filtered = q
+    ? items.filter(i =>
+        (i.display_name || '').toLowerCase().includes(q) ||
+        (i.legal_name || '').toLowerCase().includes(q) ||
+        (i.email || '').toLowerCase().includes(q))
+    : items;
+  return NextResponse.json({ data: filtered });
+}
+
+/**
+ * POST /api/sellers — add a seller (the workbench "Add seller").
+ * Creates the canonical `sellers` row in the onboarding queue
+ * (status 'applied') and mirrors it onto the party spine as a
+ * seller-role party — a seller is a contact, like every other party.
+ */
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body || typeof body !== 'object') return fail('VALIDATION', 'JSON body required', 400);
+  const legalName = typeof body.legal_name === 'string' ? body.legal_name.trim() : '';
+  if (!legalName) return fail('VALIDATION', 'legal_name is required', 400);
+  const displayName = typeof body.display_name === 'string' && body.display_name.trim()
+    ? body.display_name.trim()
+    : legalName;
+  const sellerType = body.applicant_type === 'first_party' || body.seller_type === 'first_party'
+    ? 'first_party'
+    : 'marketplace';
+  const slug = displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'seller';
+
+  const sb = supabaseAdmin();
+  const { data, error } = await sb
+    .from('sellers')
+    .insert({
+      tenant_id: DEFAULT_TENANT_ID,
+      seller_type: sellerType,
+      legal_name: legalName,
+      display_name: displayName,
+      slug: `${slug}-${Math.random().toString(36).slice(2, 7)}`,
+      email: typeof body.email === 'string' ? body.email : null,
+      status: 'applied',
+    })
+    .select('*')
+    .single();
+  if (error) return fail('INTERNAL', error.message, 500);
+
+  await writePartySpine(data.id, 'seller', {
+    name: displayName,
+    email: data.email,
+    company: legalName,
+    status: data.status,
+    sellerType: sellerType,
+  });
+  await sb.from('sellers').update({ party_id: data.id }).eq('id', data.id);
+
+  return NextResponse.json({
+    data: {
+      id: data.id,
+      tenant_id: data.tenant_id,
+      seller_id: data.id,
+      user_id: null,
+      case_id: null,
+      applicant_type: data.seller_type,
+      legal_name: data.legal_name,
+      display_name: data.display_name,
+      gov_id_type: null,
+      gov_id_last4: null,
+      tax_id_type: null,
+      tax_id_last4: data.tax_id_last4 ?? null,
+      tax_form_status: 'missing',
+      tax_form_prompted_at: null,
+      tax_form_received_at: null,
+      tax_form_ticket_ref: null,
+      recorded_earnings: 0,
+      completion_ticket_ref: null,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    },
+  }, { status: 201 });
 }

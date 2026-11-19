@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     dependent_type: String(body.dependent_type || 'child'),
     name: String(body.name),
     date_of_birth: body.date_of_birth || null,
-    attributes: body.attributes || null,
+    attributes: body.attributes || {},
     notes: body.notes || null,
     photo_url: body.photo_url || null,
     is_active: true,

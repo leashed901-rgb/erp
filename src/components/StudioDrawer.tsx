@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import styles from './StudioDrawer.module.css';
 import {
-  SUPPLIER_CATEGORY_DATA,
+  blankCardToCatalogProduct,
   useDesignCanvas,
 } from '@/lib/designCanvasStore';
 import {
   appendPlacementLayer,
   applyTemplate,
+  createCollection as createCollectionApi,
   enqueue,
   generateAiArt,
+  getBlank,
   getDesignDetail,
   listAssets,
+  listBlanks,
+  listCollections,
   listDesigns,
   listQueue,
   removeQueueItem,
@@ -18,6 +22,7 @@ import {
   setDesignTemplate,
   updateQueueItem,
   uploadFile,
+  type BlankCard,
   type BlankDetail,
   type DesignAsset,
   type DesignListItem,
@@ -1128,7 +1133,9 @@ function InspirationPanel({ onToast, designId, blankDetail, printArea, onPrimary
       try {
         const asset = await uploadCommonsImage(img, designId);
         await addLayer(designId, imageLayer(asset, blankDetail, printArea), onToast);
-        useDesignCanvas.getState().saveImage({
+        // The asset row already exists (uploadCommonsImage) — this refreshes
+        // the Images library from the API so the new row shows up.
+        await useDesignCanvas.getState().saveImage({
           name: img.title,
           origin: 'inspiration',
           src: img.thumbUrl,
@@ -1466,24 +1473,48 @@ function CreateActions({
   const setView = useDesignCanvas((s) => s.setView);
   const [collections, setCollections] = useState<{ id: string; name: string }[]>([]);
   const [collectionId, setCollectionId] = useState('');
+  const [newCollectionName, setNewCollectionName] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const loadCollections = useCallback(async () => {
+    try {
+      const { items } = await listCollections();
+      setCollections(items);
+      return items;
+    } catch {
+      // Collections stay empty — the select says so.
+      return [];
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const res = await fetch('/api/v1/collections');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setCollections(data.items ?? []);
-      } catch {
-        // Collections stay empty — the select says so.
-      }
+      if (cancelled) return;
+      await loadCollections();
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadCollections]);
+
+  const createCollection = async () => {
+    const name = newCollectionName.trim();
+    if (!name) return;
+    setSaving(true);
+    try {
+      const created = await createCollectionApi({ name });
+      const items = await loadCollections();
+      setCollections(items);
+      setCollectionId(created.id);
+      setNewCollectionName('');
+      onToast(`Collection "${created.name}" created.`);
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : 'Could not create the collection.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const saveToCollection = async () => {
     if (!designId || !collectionId) return;
@@ -1574,6 +1605,25 @@ function CreateActions({
           Save to My templates
         </button>
       </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8, alignItems: 'center' }}>
+        <input
+          aria-label="New collection name"
+          value={newCollectionName}
+          onChange={(e) => setNewCollectionName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void createCollection(); } }}
+          placeholder="New collection name…"
+          disabled={saving}
+          style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #dadce0', fontSize: 13, minWidth: 160 }}
+        />
+        <button
+          type="button"
+          className={styles.cancelBtn}
+          disabled={!newCollectionName.trim() || saving}
+          onClick={() => void createCollection()}
+        >
+          Create collection
+        </button>
+      </div>
       {!designId && (
         <p className={styles.subtitle} style={{ marginTop: 8 }}>
           Save actions need a saved design — save the canvas first.
@@ -1622,7 +1672,7 @@ export function StudioPanelContent({
       {kind === 'Shapes' && <ShapesPanel {...panelProps} />}
       {kind === 'Themes' && <ThemesPanel {...panelProps} />}
       {kind === 'Inspiration' && <InspirationPanel {...panelProps} />}
-      {kind === 'Supplier' && <SupplierInspector onToast={onToast} />}
+      {kind === 'Supplier' && <SupplierInspector onToast={onToast} onNavigate={onNavigate} />}
       {kind === 'Queue' && <QueueInspector onToast={onToast} />}
       {/* Create actions — Preview, View product page and My orders no
           longer live in the sidebar; they live here, in the drawers,
@@ -1714,10 +1764,61 @@ export default function StudioDrawer({ open, kind, onClose, onToast, onNavigate 
 }
 
 // ── Supplier inspector — shown when a top-bar category is clicked.
-function SupplierInspector({ onToast }: { onToast: (msg: string) => void }) {
+// Real data only: the first blank in the category (GET /api/v1/blanks)
+// + its detail (GET /api/v1/blanks/:id) for colors, sizes and views.
+// When the category has no mapped products, it says so — the old version
+// showed one invented Gildan crewneck and labeled it "Live API data".
+function SupplierInspector({ onToast, onNavigate }: { onToast: (msg: string) => void; onNavigate?: (screenId: string) => void }) {
   const supplierCategory = useDesignCanvas((s) => s.supplierCategory);
-  const loadBlank = useDesignCanvas((s) => s.loadBlank);
-  const data = SUPPLIER_CATEGORY_DATA;
+  const loadBlankDetail = useDesignCanvas((s) => s.loadBlankDetail);
+  const startDesign = useDesignCanvas((s) => s.startDesign);
+  const loadBlankFromDetail = useDesignCanvas((s) => s.loadBlankFromDetail);
+  const openProductPage = useDesignCanvas((s) => s.openProductPage);
+
+  const [card, setCard] = useState<BlankCard | null>(null);
+  const [detail, setDetail] = useState<BlankDetail | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [selectedColor, setSelectedColor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!supplierCategory) {
+      setCard(null);
+      setDetail(null);
+      setStatus('idle');
+      return;
+    }
+    let cancelled = false;
+    setStatus('loading');
+    setCard(null);
+    setDetail(null);
+    listBlanks({ category: supplierCategory.category, subcategory: supplierCategory.subcategory || undefined, limit: 1 })
+      .then(async (res) => {
+        if (cancelled) return;
+        const first = res.items[0] ?? null;
+        setCard(first);
+        if (!first) {
+          setStatus('ready');
+          return;
+        }
+        try {
+          const d = await getBlank(first.id);
+          if (!cancelled) {
+            setDetail(d);
+            setSelectedColor(d.variants.colors[0]?.name ?? null);
+          }
+        } catch {
+          if (!cancelled) setDetail(null);
+        }
+        if (!cancelled) setStatus('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supplierCategory?.category, supplierCategory?.subcategory]);
 
   if (!supplierCategory) {
     return (
@@ -1732,6 +1833,33 @@ function SupplierInspector({ onToast }: { onToast: (msg: string) => void }) {
     );
   }
 
+  if (status === 'loading') {
+    return (
+      <div className={styles.supplierEmpty}>
+        <p className={styles.supplierEmptyText}>Loading supplier data…</p>
+      </div>
+    );
+  }
+
+  if (status === 'error' || !card) {
+    return (
+      <div className={styles.supplierEmpty}>
+        <span className={`material-symbols-outlined ${styles.supplierEmptyIcon}`}>
+          inventory_2
+        </span>
+        <p className={styles.supplierEmptyText}>
+          {status === 'error'
+            ? 'Could not load supplier data for this category.'
+            : `No products in “${supplierCategory.category}” yet — the supplier catalog has no items mapped to this category.`}
+        </p>
+      </div>
+    );
+  }
+
+  const colors = detail?.variants.colors ?? [];
+  const sizes = detail?.variants.sizes ?? [];
+  const views = detail?.views ?? [];
+
   return (
     <>
       {/* Breadcrumb header */}
@@ -1739,10 +1867,13 @@ function SupplierInspector({ onToast }: { onToast: (msg: string) => void }) {
         <div className={styles.supplierBreadcrumb}>
           {supplierCategory.category} / {supplierCategory.subcategory}
         </div>
-        <h2 className={styles.supplierProductName}>{data.productName}</h2>
+        <h2 className={styles.supplierProductName}>{card.name}</h2>
         <div className={styles.supplierTags}>
-          <span className={styles.supplierTag}>Supplier: {data.supplier}</span>
-          <span className={styles.supplierTag}>SKU: {data.sku}</span>
+          <span className={styles.supplierTag}>Supplier: {card.supplier}</span>
+          {card.sku && <span className={styles.supplierTag}>SKU: {card.sku}</span>}
+          {card.baseCost != null && (
+            <span className={styles.supplierTag}>From ${card.baseCost.toFixed(2)}</span>
+          )}
         </div>
         <p className={styles.supplierHint}>
           Live API data. Select a variant to begin designing.
@@ -1751,68 +1882,103 @@ function SupplierInspector({ onToast }: { onToast: (msg: string) => void }) {
 
       {/* Available Colors */}
       <h4 className={styles.supplierSectionTitle}>
-        Available Colors ({data.colors.length})
+        Available Colors ({colors.length})
       </h4>
-      <div className={styles.supplierColorGrid}>
-        {data.colors.map((c, i) => (
-          <button
-            key={c.sku}
-            type="button"
-            className={`${styles.supplierColorBtn} ${i === 0 ? styles.supplierColorBtnActive : ''}`}
-            onClick={() => {
-              useDesignCanvas.getState().selectColor({ name: c.name, hex: c.hex, sku: c.sku });
-              onToast(`Selected color: ${c.name} (${c.sku})`);
-            }}
-          >
-            <div
-              className={styles.supplierColorSwatch}
-              style={{ background: c.hex }}
-            />
-            <span className={styles.supplierColorName}>{c.name}</span>
-            <span className={styles.supplierColorSku}>{c.sku}</span>
-          </button>
-        ))}
-      </div>
+      {colors.length === 0 ? (
+        <p className={styles.supplierEmptyText}>No colors on file for this product.</p>
+      ) : (
+        <div className={styles.supplierColorGrid}>
+          {colors.map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              className={`${styles.supplierColorBtn} ${c.name === selectedColor ? styles.supplierColorBtnActive : ''}`}
+              onClick={() => {
+                setSelectedColor(c.name);
+                useDesignCanvas.getState().selectColor({ name: c.name, hex: c.hex || '#cccccc', sku: c.sku });
+                onToast(`Selected color: ${c.name}${c.sku ? ` (${c.sku})` : ''}`);
+              }}
+            >
+              <div
+                className={styles.supplierColorSwatch}
+                style={{ background: c.hex || '#cccccc' }}
+              />
+              <span className={styles.supplierColorName}>{c.name}</span>
+              {c.sku && <span className={styles.supplierColorSku}>{c.sku}</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Available Sizes */}
       <h4 className={styles.supplierSectionTitleSpaced}>Available Sizes</h4>
-      <div className={styles.supplierSizes}>
-        {data.sizes.map((s) => (
-          <span
-            key={s}
-            className={styles.supplierSizeTag}
-            onClick={() => onToast(`Size ${s} selected`)}
-          >
-            {s}
-          </span>
-        ))}
-      </div>
+      {sizes.length === 0 ? (
+        <p className={styles.supplierEmptyText}>No sizes on file for this product.</p>
+      ) : (
+        <div className={styles.supplierSizes}>
+          {sizes.map((s) => (
+            <span
+              key={s}
+              className={styles.supplierSizeTag}
+              onClick={() => onToast(`Size ${s} selected`)}
+            >
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
 
-      {/* Available Models (Mockups) */}
+      {/* Available Models (Mockups) — the blank's real views */}
       <h4 className={styles.supplierSectionTitleSpaced}>
         Available Models (Mockups)
       </h4>
-      <div className={styles.supplierModels}>
-        {data.models.map((m, i) => (
-          <div
-            key={m}
-            className={`${styles.supplierModelThumb} ${i === 0 ? styles.supplierModelThumbActive : ''}`}
-            onClick={() => onToast(`Model: ${m}`)}
-          >
-            <span className={`material-symbols-outlined ${styles.supplierModelIcon}`}>
-              image
-            </span>
-          </div>
-        ))}
-      </div>
+      {views.length === 0 ? (
+        <p className={styles.supplierEmptyText}>No mockup views on file for this product.</p>
+      ) : (
+        <div className={styles.supplierModels}>
+          {views.map((v, i) => (
+            <div
+              key={v.view}
+              className={`${styles.supplierModelThumb} ${i === 0 ? styles.supplierModelThumbActive : ''}`}
+              onClick={() => onToast(`Model: ${v.label}`)}
+            >
+              {v.baseUrl ? (
+                <img src={v.baseUrl} alt={v.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <span className={`material-symbols-outlined ${styles.supplierModelIcon}`}>
+                  image
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Design with this SKU + View product page link */}
       <button
         type="button"
         className={styles.supplierDesignBtn}
+        disabled={busy}
         onClick={() => {
-          loadBlank('tee');
-          onToast(`${data.productName} loaded onto canvas.`);
+          if (busy) return;
+          setBusy(true);
+          void (async () => {
+            const d = await loadBlankDetail(card.id);
+            if (!d) {
+              onToast('Could not load that product — try again.');
+              setBusy(false);
+              return;
+            }
+            try {
+              await startDesign(d, selectedColor ?? undefined);
+              onToast(`${d.name} loaded onto canvas.`);
+            } catch {
+              loadBlankFromDetail(d);
+              onToast(`${d.name} loaded (draft not saved — offline).`);
+            } finally {
+              setBusy(false);
+            }
+          })();
         }}
       >
         Design with this SKU
@@ -1821,9 +1987,10 @@ function SupplierInspector({ onToast }: { onToast: (msg: string) => void }) {
         type="button"
         className={styles.supplierProductPageLink}
         onClick={() => {
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('navigate-product-page'));
-          }
+          openProductPage(
+            blankCardToCatalogProduct(card, supplierCategory.category, supplierCategory.subcategory),
+          );
+          onNavigate?.('product-page');
         }}
       >
         View product page →

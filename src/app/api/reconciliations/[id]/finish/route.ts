@@ -1,38 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, DEFAULT_TENANT_ID } from '@/lib/supabaseAdmin';
 
-/** POST /api/reconciliations/[id]/finish — finish a reconciliation.
- *  Wraps acct_reconciliation_mark RPC. Fallback: flip status to completed.
- *  Body: { difference?, note? } */
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+function err(code: string, message: string, status: number) {
+  return NextResponse.json({ error: { code, message, requestId: crypto.randomUUID() } }, { status });
+}
+
+/** POST /api/reconciliations/[id]/finish — close the period. Refuses
+ *  to finish while the Difference meter is non-zero, with the exact
+ *  difference in the error so the user knows what to adjust. */
+export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch { /* no body ok */ }
-
-  // 1. Try the RPC.
-  const { data: rpcData, error: rpcErr } = await supabaseAdmin().rpc('acct_reconciliation_mark', {
-    reconciliation_uuid: id,
-    tenant_uuid: DEFAULT_TENANT_ID,
-    action: 'finish',
-  });
-  if (!rpcErr && rpcData) {
-    return NextResponse.json({ data: { finished: true, source: 'rpc' } });
-  }
-
-  // 2. Fallback: flip status to completed + finished_at.
-  const { data: updated, error: updErr } = await supabaseAdmin()
+  const sb = supabaseAdmin();
+  const { data: rec } = await sb
     .from('acct_reconciliations')
-    .update({
-      status: 'completed',
-      finished_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .select('id, status, as_of_date')
     .eq('id', id)
     .eq('tenant_id', DEFAULT_TENANT_ID)
-    .select('id, status, finished_at')
     .single();
-  if (updErr) {
-    return NextResponse.json({ error: { code: 'INTERNAL', message: updErr.message } }, { status: 500 });
+  if (!rec) return err('NOT_FOUND', 'Reconciliation not found', 404);
+  if (rec.status === 'reconciled' || rec.status === 'closed') {
+    return err('VALIDATION', `Reconciliation is already ${rec.status}`, 400);
   }
-  return NextResponse.json({ data: { finished: true, reconciliation: updated, source: 'fallback' } });
+  const { data: summary } = await sb.rpc('acct_reconciliation_summary', {
+    p_reconciliation_id: id,
+  });
+  const difference = Number(summary?.[0]?.difference ?? 0);
+  if (Math.abs(difference) >= 0.01) {
+    return err(
+      'VALIDATION',
+      `Cannot close: difference is $${Math.abs(difference).toFixed(2)}. Clear or adjust items first.`,
+      400,
+    );
+  }
+  const { data, error } = await sb
+    .from('acct_reconciliations')
+    .update({ status: 'reconciled', completed_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('tenant_id', DEFAULT_TENANT_ID)
+    .select('id, status, completed_at')
+    .single();
+  if (error) return err('INTERNAL', error.message, 500);
+  return NextResponse.json({
+    data,
+    message: `Reconciliation complete — period ending ${rec.as_of_date} closed.`,
+  });
 }

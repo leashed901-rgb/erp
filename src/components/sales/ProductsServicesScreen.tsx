@@ -310,12 +310,20 @@ export default function ProductsServicesScreen({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <div className="flex split-btn">
+              <button
                 onClick={handleNewProduct}
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>New product
               </button>
+              <button
+                onClick={handleNewProduct}
+                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
+              >
+                <span className="material-symbols-outlined text-[16px]">expand_more</span>
+              </button>
+            </div>
             <button
               onClick={() => {
                 const cols = [
@@ -950,18 +958,28 @@ export default function ProductsServicesScreen({
               <span className="material-symbols-outlined text-[16px]">palette</span>
               Open Studio
             </button>
-            <button
+            <div className="flex split-btn">
+              <button
                 onClick={handleSaveAndNew}
-                className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low"
+                className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main"
               >
                 Save and new
               </button>
-            <button
+              <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
+                <span className="material-symbols-outlined text-[16px]">expand_more</span>
+              </button>
+            </div>
+            <div className="flex split-btn">
+              <button
                 onClick={handleSave}
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main"
               >
                 Save and close
               </button>
+              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
+                <span className="material-symbols-outlined text-[16px]">expand_more</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

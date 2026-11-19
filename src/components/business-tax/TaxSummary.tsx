@@ -1,6 +1,6 @@
 'use client';
 import './business-tax.css';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { BusinessTaxScreenProps } from './types';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -26,53 +26,67 @@ interface TaxRowData {
   category?: RowCategory;
   kind?: RowKind;
   mapping?: string;
-  excluded?: boolean;
-  flagged?: boolean;
+  accountId?: string;
 }
 
-const TOTAL_ACCOUNTS = 34;
+interface TaxCategory {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+}
 
-/* Rows in exact DOM order of the original <tbody data-tax-tbody> */
-const INITIAL_ROWS: TaxRowData[] = [
-  { id: 'sec-income', type: 'section', sectionId: 'sec-income', name: 'Income' },
-  { id: 'd-sales-apparel', type: 'data', sectionId: 'sec-income', category: 'income', kind: 'mapped', mapping: 'Gross receipts', name: 'Sales — Apparel', formLine: 'Form 1120, Line 1a · Gross receipts', amount: '$8,420.00', ytd: '$62,180.00' },
-  { id: 'd-shipping-income', type: 'data', sectionId: 'sec-income', category: 'income', kind: 'mapped', mapping: 'Gross receipts', name: 'Shipping income', formLine: 'Form 1120, Line 1a · Gross receipts', amount: '$1,204.00', ytd: '$8,204.00' },
-  { id: 'd-sales-wall-art', type: 'data', sectionId: 'sec-income', category: 'income', kind: 'mapped', mapping: 'Gross receipts', name: 'Sales — Wall Art', formLine: 'Form 1120, Line 1a · Gross receipts', amount: '$2,110.00', ytd: '$18,940.00' },
-  { id: 'd-freight', type: 'data', sectionId: 'sec-income', category: 'income', kind: 'unmapped', name: 'Freight income', formLine: 'Needs tax line mapping', amount: '$—', ytd: '$0.00' },
-  { id: 't-income', type: 'total', sectionId: 'sec-income', name: 'Total income', amount: '$11,734.00', ytd: '$89,324.00' },
+const parseMoney = (s?: string) => parseFloat(String(s || '0').replace(/[$,\s]/g, '')) || 0;
 
-  { id: 'sec-cogs', type: 'section', sectionId: 'sec-cogs', name: 'Cost of goods sold' },
-  { id: 'd-cogs-apparel', type: 'data', sectionId: 'sec-cogs', category: 'deductions', kind: 'mapped', mapping: 'COGS', name: 'COGS — Apparel', formLine: 'Form 1120, Line 2 · Cost of goods sold', amount: '$3,120.00', ytd: '$18,140.00' },
-  { id: 'd-cogs-wall-art', type: 'data', sectionId: 'sec-cogs', category: 'deductions', kind: 'mapped', mapping: 'COGS', name: 'COGS — Wall Art', formLine: 'Form 1120, Line 2 · Cost of goods sold', amount: '$870.00', ytd: '$7,240.00' },
-  { id: 't-cogs', type: 'total', sectionId: 'sec-cogs', name: 'Total COGS', amount: '$3,990.00', ytd: '$25,380.00' },
+import { exportToCsv } from '@/lib/csvExport';
+import { TAX_NAV } from './types';
 
-  { id: 'sec-operating', type: 'section', sectionId: 'sec-operating', name: 'Operating expenses' },
-  { id: 'd-office-supplies', type: 'data', sectionId: 'sec-operating', category: 'deductions', kind: 'mapped', mapping: 'Office', name: 'Office supplies', formLine: 'Form 1120, Line 18 · Office expense', amount: '$142.50', ytd: '$1,418.00' },
-  { id: 'd-software', type: 'data', sectionId: 'sec-operating', category: 'deductions', kind: 'mapped', mapping: 'Software', name: 'Software & subscriptions', formLine: 'Form 1120, Line 18 · Office expense', amount: '$59.99', ytd: '$719.88' },
-  { id: 'd-shipping-delivery', type: 'data', sectionId: 'sec-operating', category: 'deductions', kind: 'mapped', mapping: 'Shipping', name: 'Shipping & delivery', formLine: 'Form 1120, Line 18 · Office expense', amount: '$84.20', ytd: '$1,410.00' },
-  { id: 'd-advertising', type: 'data', sectionId: 'sec-operating', category: 'deductions', kind: 'mapped', mapping: 'Advertising', name: 'Advertising', formLine: 'Form 1120, Line 18 · Advertising', amount: '$1,240.00', ytd: '$9,240.00' },
-  { id: 'd-bank-fees', type: 'data', sectionId: 'sec-operating', category: 'deductions', kind: 'mapped', mapping: 'Office', name: 'Bank fees', formLine: 'Form 1120, Line 18 · Office expense', amount: '$12.00', ytd: '$124.00' },
-  { id: 'd-marketing', type: 'data', sectionId: 'sec-operating', category: 'deductions', kind: 'unmapped', name: 'Marketing — Contractors', formLine: 'Needs tax line mapping', amount: '$—', ytd: '$0.00' },
-  { id: 'd-warehouse', type: 'data', sectionId: 'sec-operating', category: 'deductions', kind: 'unmapped', name: 'Warehouse utilities', formLine: 'Needs tax line mapping', amount: '$—', ytd: '$0.00' },
-  { id: 't-operating', type: 'total', sectionId: 'sec-operating', name: 'Total operating expenses', amount: '$1,538.69', ytd: '$12,911.88' },
-
-  { id: 'sec-assets', type: 'section', sectionId: 'sec-assets', name: 'Business assets' },
-  { id: 'd-equipment', type: 'data', sectionId: 'sec-assets', category: 'assets', kind: 'mapped', mapping: '§179 asset', name: 'Equipment — Konva workstation', formLine: 'Form 4562 · §179 deduction', amount: '$2,400.00', ytd: '$2,400.00' },
-  { id: 'd-vehicle', type: 'data', sectionId: 'sec-assets', category: 'assets', kind: 'mapped', mapping: 'MACRS 5yr', name: 'Vehicle — delivery van', formLine: 'Form 4562 · MACRS 5yr', amount: '$4,800.00', ytd: '$4,800.00' },
-  { id: 't-assets', type: 'total', sectionId: 'sec-assets', name: 'Total business assets', amount: '$7,200.00', ytd: '$7,200.00' },
-
-  { id: 'f-final', type: 'final', name: 'Taxable profit (before estimated tax)', amount: '$12,195.31', ytd: '$51,032.12' },
-];
-
-export default function TaxSummary({}: BusinessTaxScreenProps) {
-  const [rows, setRows] = useState<TaxRowData[]>(INITIAL_ROWS);
+export default function TaxSummary({ onNavigate }: BusinessTaxScreenProps) {
+  // Live rows from /api/tax/summary — GL accounts with journal activity,
+  // grouped into Income / COGS / Operating / Assets with their mapping.
+  const [rows, setRows] = useState<TaxRowData[]>([]);
+  const [categories, setCategories] = useState<TaxCategory[]>([]);
+  const [meta, setMeta] = useState<{
+    mappable: number;
+    mapped: number;
+    unmappedCount: number;
+    taxableProfit: { period: number; ytd: number };
+  }>({ mappable: 0, mapped: 0, unmappedCount: 0, taxableProfit: { period: 0, ytd: 0 } });
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('all');
   const [filterText, setFilterText] = useState('');
   const [filterMapped, setFilterMapped] = useState<MappedFilter>('');
   const [year, setYear] = useState('2026');
 
-  /* Menus — position:fixed, anchored exactly like the original math */
-  const [exportMenu, setExportMenu] = useState<{ top: number; left: number } | null>(null);
+  const loadSummary = useCallback((y: string) => {
+    setLoading(true);
+    setLoadError(null);
+    fetch(`/api/tax/summary?year=${y}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.error) throw new Error(String(json.error.message || 'Failed to load tax summary'));
+        setRows((json.data || []) as TaxRowData[]);
+        setCategories(((json.meta || {}).categories || []) as TaxCategory[]);
+        setMeta({
+          mappable: Number(json.meta?.mappable ?? 0),
+          mapped: Number(json.meta?.mapped ?? 0),
+          unmappedCount: Number(json.meta?.unmappedCount ?? 0),
+          taxableProfit: {
+            period: Number(json.meta?.taxableProfit?.period ?? 0),
+            ytd: Number(json.meta?.taxableProfit?.ytd ?? 0),
+          },
+        });
+      })
+      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Could not load tax summary.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadSummary(year);
+  }, [year, loadSummary]);
+
+  /* Row menu — position:fixed, anchored exactly like the original math */
   const [rowMenu, setRowMenu] = useState<{ top: number; left: number; rowId: string } | null>(null);
 
   /* Map drawer */
@@ -94,7 +108,7 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
   const firstPass = (row: TaxRowData, q: string): boolean => {
     let visible = true;
     const nameText = (row.name + (row.formLine || '')).toLowerCase();
-    const trKind = row.type === 'data' ? (row.excluded ? 'excluded' : row.kind!) : '';
+    const trKind = row.type === 'data' ? row.kind! : '';
     const trCat = row.category || '';
     if (q && !nameText.includes(q)) visible = false;
     if (filterMapped === 'mapped' && trKind !== 'mapped') visible = false;
@@ -135,7 +149,7 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
     return { visibleIds: vis, shown: shownCount, total: totalCount };
   }, [rows, filterText, filterMapped, activeTab]);
 
-  /* ── Map drawer — port of openMapDrawer / saveMapping ───────── */
+  /* ── Map drawer — persists the mapping on the account ──────── */
   const mapRow = rows.find(r => r.id === mapRowId) || null;
   const accountType =
     mapRow?.category === 'income' ? 'Income account'
@@ -144,7 +158,8 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
 
   const openMapDrawer = (row: TaxRowData) => {
     setMapRowId(row.id);
-    setMapLine('');
+    const current = categories.find((c) => c.name === row.mapping);
+    setMapLine(current ? current.id : '');
     setMapOpen(true);
   };
   const closeMapDrawer = () => {
@@ -152,19 +167,25 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
     setMapRowId(null);
   };
 
-  const saveMapping = (andNext: boolean) => {
+  const saveMapping = async (andNext: boolean) => {
     if (!mapLine) { toast('Select a tax line'); return; }
-    let updated = rows;
     const row = rows.find(r => r.id === mapRowId);
-    if (row) {
-      updated = rows.map(r =>
-        r.id === row.id ? { ...r, kind: 'mapped' as RowKind, mapping: mapLine } : r
-      );
-      setRows(updated);
-      toast(`${row.name} mapped to "${mapLine}"`);
+    if (!row?.accountId) { toast('No account on this row'); return; }
+    const cat = categories.find((c) => c.id === mapLine);
+    const res = await fetch(`/api/accounts/${row.accountId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tax_category_id: mapLine }),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      toast(String(json?.error?.message || 'Could not save mapping'));
+      return;
     }
+    toast(`${row.name} mapped to "${cat?.name ?? mapLine}"`);
+    loadSummary(year);
     if (andNext) {
-      const next = updated.find(r => r.type === 'data' && r.kind === 'unmapped');
+      const next = rows.find(r => r.type === 'data' && r.kind === 'unmapped' && r.id !== row.id);
       if (next) { openMapDrawer(next); return; }
     }
     setMapOpen(false);
@@ -186,7 +207,7 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
     });
   };
 
-  const runRowAction = (act: string) => {
+  const runRowAction = async (act: string) => {
     const row = rows.find(r => r.id === rowMenu?.rowId);
     setRowMenu(null);
     if (!row) return;
@@ -194,51 +215,74 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
       case 'remap':
         openMapDrawer(row); break;
       case 'view-register':
-        toast(`Register → ${row.name}`); break;
-      case 'run-report':
-        toast(`Run report for ${row.name}`); break;
       case 'view-transactions':
-        toast(`Viewing transactions for ${row.name}`); break;
+        onNavigate(...TAX_NAV.coa());
+        break;
+      case 'run-report': {
+        if (!row.accountId) break;
+        const res = await fetch(`/api/accounts/${row.accountId}/register?from=${year}-01-01&to=${year}-12-31`);
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) { toast('Could not load the register'); break; }
+        exportToCsv((json.data || []) as Record<string, unknown>[], [
+          { key: 'date', label: 'Date' },
+          { key: 'source', label: 'Source' },
+          { key: 'memo', label: 'Memo' },
+          { key: 'debit', label: 'Debit' },
+          { key: 'credit', label: 'Credit' },
+          { key: 'balance', label: 'Balance' },
+        ], `register-${row.name.replace(/\W+/g, '-').toLowerCase()}`);
+        toast(`Register exported for ${row.name}`);
+        break;
+      }
       case 'export-line':
-        toast(`Exporting line: ${row.name}`); break;
-      case 'flag-review':
-        setRows(prev => prev.map(r => (r.id === row.id ? { ...r, flagged: true } : r)));
-        toast(`${row.name} flagged for accountant review`); break;
-      case 'exclude':
-        setRows(prev => prev.map(r => (r.id === row.id ? { ...r, excluded: true } : r)));
-        toast(`${row.name} excluded from tax summary`); break;
+        exportToCsv([row as unknown as Record<string, unknown>], [
+          { key: 'name', label: 'Account' },
+          { key: 'formLine', label: 'Tax line' },
+          { key: 'amount', label: 'Amount' },
+          { key: 'ytd', label: 'YTD' },
+          { key: 'mapping', label: 'Mapping' },
+        ], `tax-line-${row.name.replace(/\W+/g, '-').toLowerCase()}`);
+        toast(`Exported line: ${row.name}`);
+        break;
     }
   };
 
-  /* ── Export menu — port of data-export-split / data-export ──── */
-  const openExportMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    const r = e.currentTarget.getBoundingClientRect();
-    setExportMenu(prev =>
-      prev ? null
-      : { top: r.bottom + 4, left: Math.min(r.right - 240, window.innerWidth - 260) }
-    );
-  };
-  const runExport = (fmt: string) => {
-    setExportMenu(null);
-    toast(`Exporting as ${fmt.toUpperCase()}…`);
+  /* ── Export — CSV of the visible rows (the only export the app has) ─ */
+  const runExport = () => {
+    const visible = rows.filter((r) => visibleIds.has(r.id));
+    exportToCsv(visible as unknown as Record<string, unknown>[], [
+      { key: 'name', label: 'Account / Tax line' },
+      { key: 'formLine', label: 'Form line' },
+      { key: 'amount', label: 'Amount' },
+      { key: 'ytd', label: 'YTD' },
+      { key: 'mapping', label: 'Mapping' },
+    ], `tax-summary-${year}`);
+    toast(`Exported ${visible.length} rows to CSV`);
   };
 
-  /* ── Global click — port of the document click closer ───────── */
+  /* ── Global click — closes the row menu ─────────────────────── */
   useEffect(() => {
-    if (!exportMenu && !rowMenu) return;
+    if (!rowMenu) return;
     const onDocClick = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (exportMenu && !t.closest('#export-menu') && !t.closest('[data-export-split]')) setExportMenu(null);
       if (rowMenu && !t.closest('#row-menu')) setRowMenu(null);
     };
     document.addEventListener('click', onDocClick);
     return () => document.removeEventListener('click', onDocClick);
-  }, [exportMenu, rowMenu]);
+  }, [rowMenu]);
 
-  /* ── updateMappedCount ──────────────────────────────────────── */
-  const unmappedCount = rows.filter(r => r.type === 'data' && r.kind === 'unmapped').length;
-  const mappedCount = TOTAL_ACCOUNTS - unmappedCount;
+  /* ── Mapping counts come from the summary meta ───────────────── */
+  const unmappedCount = meta.unmappedCount;
+  const mappedCount = meta.mapped;
+  const grossIncomeYtd = useMemo(() => {
+    const t = rows.find((r) => r.id === 't-sec-income');
+    return t ? parseMoney(t.ytd) : 0;
+  }, [rows]);
+  const deductionsYtd = useMemo(() => {
+    const cogs = rows.find((r) => r.id === 't-sec-cogs');
+    const op = rows.find((r) => r.id === 't-sec-operating');
+    return (cogs ? parseMoney(cogs.ytd) : 0) + (op ? parseMoney(op.ytd) : 0);
+  }, [rows]);
 
   return (
     <div className="tax-summary-page">
@@ -267,22 +311,24 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
               <select
                 className="h-8 px-2 border border-surface-dim rounded text-body-sm bg-white"
                 value={year}
-                onChange={e => { setYear(e.target.value); toast(`Tax year changed to ${e.target.value}`); }}
+                onChange={e => setYear(e.target.value)}
               >
                 <option>2026</option>
                 <option>2025</option>
                 <option>2024</option>
               </select>
             </div>
-            <button
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
-                onClick={() => toast('Tax summary exported as PDF')}
+            <div className="flex split-btn">
+              <button
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                onClick={runExport}
               >
-                <span className="material-symbols-outlined text-[16px]">download</span>Export
+                <span className="material-symbols-outlined text-[16px]">download</span>Export CSV
               </button>
+            </div>
             <button
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
-              onClick={() => toast('Sending tax summary to print…')}
+              onClick={() => window.print()}
             >
               <span className="material-symbols-outlined text-[16px]">print</span>Print
             </button>
@@ -293,22 +339,22 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
           <div className="kpi-card">
             <div className="kpi-label">Gross income</div>
-            <div className="kpi-val">$89,324.00</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">36 invoices · accrual</div>
+            <div className="kpi-val">{loading ? '…' : `$${grossIncomeYtd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</div>
+            <div className="text-[11px] text-on-surface-variant mt-1">YTD · accrual</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-label">Deductions</div>
-            <div className="kpi-val">$38,291.88</div>
+            <div className="kpi-val">{loading ? '…' : `$${deductionsYtd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</div>
             <div className="text-[11px] text-on-surface-variant mt-1">COGS + operating</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-label">Taxable profit</div>
-            <div className="kpi-val text-qb-blue">$51,032.12</div>
+            <div className="kpi-val text-qb-blue">{loading ? '…' : `$${meta.taxableProfit.ytd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</div>
             <div className="text-[11px] text-on-surface-variant mt-1">Before estimated tax</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-label">Mapping health</div>
-            <div className="kpi-val"><span>{mappedCount}</span> / 34</div>
+            <div className="kpi-val"><span>{mappedCount}</span> / {meta.mappable}</div>
             {unmappedCount === 0 ? (
               <div className="text-[11px] text-secondary mt-1 flex items-center gap-1">
                 <span className="material-symbols-outlined text-[13px]">check_circle</span>All accounts mapped
@@ -375,6 +421,24 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
               </tr>
             </thead>
             <tbody data-tax-tbody>
+              {loading && (
+                <tr>
+                  <td colSpan={5} style={{ padding: 16 }} className="text-on-surface-variant">Loading tax summary…</td>
+                </tr>
+              )}
+              {!loading && loadError && (
+                <tr>
+                  <td colSpan={5} style={{ padding: 16 }}>
+                    {loadError}{' '}
+                    <button type="button" className="text-primary font-semibold" onClick={() => loadSummary(year)}>Retry</button>
+                  </td>
+                </tr>
+              )}
+              {!loading && !loadError && rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ padding: 16 }} className="text-on-surface-variant">No accounts with activity in {year}.</td>
+                </tr>
+              )}
               {rows.map(row => {
                 if (!visibleIds.has(row.id)) return null;
 
@@ -413,10 +477,9 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
                 return (
                   <tr
                     key={row.id}
-                    className={`clickable${unmapped ? ' unmapped' : ''}${row.flagged ? ' flagged' : ''}`}
-                    data-kind={row.excluded ? 'excluded' : row.kind}
+                    className={`clickable${unmapped ? ' unmapped' : ''}`}
+                    data-kind={row.kind}
                     data-category={row.category}
-                    style={row.excluded ? { opacity: 0.4 } : undefined}
                     onClick={e => {
                       if ((e.target as HTMLElement).closest('button, select, a')) return;
                       openMapDrawer(row);
@@ -471,20 +534,6 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
         </div>
       </main>
 
-      {/* ═══════════ EXPORT MENU ═══════════ */}
-      {exportMenu && (
-        <div id="export-menu" className="menu open" style={{ top: exportMenu.top, left: exportMenu.left }}>
-          <div className="menu-header">Export as</div>
-          <button onClick={() => runExport('pdf')}><span className="material-symbols-outlined">picture_as_pdf</span>PDF</button>
-          <button onClick={() => runExport('xlsx')}><span className="material-symbols-outlined">table_chart</span>Excel (XLSX)</button>
-          <button onClick={() => runExport('csv')}><span className="material-symbols-outlined">table_view</span>CSV</button>
-          <div className="sep"></div>
-          <div className="menu-header">Send to accountant</div>
-          <button onClick={() => runExport('email')}><span className="material-symbols-outlined">mail</span>Email with PDF</button>
-          <button onClick={() => runExport('share')}><span className="material-symbols-outlined">share</span>Share link</button>
-        </div>
-      )}
-
       {/* ═══════════ MAPPING DRAWER ═══════════ */}
       <div className={mapOpen ? 'drawer-scrim open' : 'drawer-scrim'} onClick={closeMapDrawer}></div>
       <div className={mapOpen ? 'drawer open' : 'drawer'}>
@@ -513,46 +562,21 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
             <select className="field-input" value={mapLine} onChange={e => setMapLine(e.target.value)}>
               <option value="">— Select tax line —</option>
               <optgroup label="Income">
-                <option>Gross receipts</option>
-                <option>Returns and allowances</option>
-                <option>Other income</option>
+                {categories.filter((c) => ['GROSS_RECEIPTS', 'RETURNS', 'OTHER_INCOME'].includes(c.code)).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
               </optgroup>
               <optgroup label="Deductions">
-                <option>Cost of goods sold</option>
-                <option>Compensation of officers</option>
-                <option>Contract labor</option>
-                <option>Advertising</option>
-                <option>Office expense</option>
-                <option>Utilities</option>
-                <option>Rent or lease</option>
-                <option>Shipping &amp; delivery</option>
-                <option>Software</option>
-                <option>Other deductions</option>
+                {categories.filter((c) => ['COGS', 'CONTRACT_LABOR', 'ADVERTISING', 'OFFICE', 'SHIPPING', 'UTILITIES', 'RENT', 'OTHER_DEDUCTIONS'].includes(c.code)).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
               </optgroup>
               <optgroup label="Assets">
-                <option>§179 asset</option>
-                <option>MACRS 5yr</option>
-                <option>MACRS 7yr</option>
-                <option>Bonus depreciation</option>
+                {categories.filter((c) => ['SEC179', 'MACRS5'].includes(c.code)).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
               </optgroup>
             </select>
-          </div>
-
-          <div>
-            <label className="field-label">Detail notes (optional)</label>
-            <textarea
-              className="field-input"
-              style={{ height: 64, padding: '8px 10px', fontFamily: 'inherit' }}
-              placeholder="e.g. reconciled against Q3 contractor invoices"
-            ></textarea>
-          </div>
-
-          <div>
-            <label className="field-label">Apply to similar accounts</label>
-            <div className="flex flex-col gap-2 mt-1">
-              <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" /> All accounts with same suffix pattern</label>
-              <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" className="row-check" /> All Contractor expense accounts</label>
-            </div>
           </div>
 
           <div className="bg-qb-blue/5 border border-qb-blue/30 rounded-lg p-3 text-[11px] text-qb-blue flex items-start gap-2">
@@ -564,8 +588,18 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={closeMapDrawer}>Cancel</button>
           <div className="flex items-center gap-2">
-            <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={() => saveMapping(true)}>Save and next</button>
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={() => saveMapping(false)}>Save mapping</button>
+            <div className="flex split-btn">
+              <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={() => saveMapping(true)}>Save and next</button>
+              <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
+                <span className="material-symbols-outlined text-[16px]">expand_more</span>
+              </button>
+            </div>
+            <div className="flex split-btn">
+              <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={() => saveMapping(false)}>Save mapping</button>
+              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
+                <span className="material-symbols-outlined text-[16px]">expand_more</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -581,10 +615,6 @@ export default function TaxSummary({}: BusinessTaxScreenProps) {
           <div className="menu-header">Drill down</div>
           <button onClick={() => runRowAction('view-transactions')}><span className="material-symbols-outlined">list</span>View transactions</button>
           <button onClick={() => runRowAction('export-line')}><span className="material-symbols-outlined">download</span>Export this line</button>
-          <div className="sep"></div>
-          <div className="menu-header">Flags</div>
-          <button onClick={() => runRowAction('flag-review')}><span className="material-symbols-outlined">flag</span>Flag for accountant review</button>
-          <button className="danger" onClick={() => runRowAction('exclude')}><span className="material-symbols-outlined">block</span>Exclude from tax summary</button>
         </div>
       )}
 

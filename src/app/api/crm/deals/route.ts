@@ -49,11 +49,9 @@ export async function POST(req: NextRequest) {
   if (!body.stage_id) {
     return NextResponse.json({ error: { code: 'VALIDATION', message: 'stage_id is required', requestId: crypto.randomUUID() } }, { status: 400 });
   }
-  // Only include columns that exist on crm_deals. The table does NOT have
-  // `notes`, `source`, `created_by`, or `deal_number` in the current schema
-  // (pack-defined) — strip them to avoid schema-cache errors.
-  const insert: Record<string, unknown> = {
+  const insert = {
     tenant_id: DEFAULT_TENANT_ID,
+    deal_number: body.deal_number || `DEAL-${Date.now()}`,
     name: String(body.name),
     pipeline_id: String(body.pipeline_id),
     stage_id: String(body.stage_id),
@@ -65,12 +63,13 @@ export async function POST(req: NextRequest) {
     currency: String(body.currency || 'USD'),
     probability: Number(body.probability) || 0,
     expected_close_date: body.expected_close_date || null,
+    source: body.source || null,
+    // NOTE: crm_deals has no `notes` column — including one here made
+    // every deal create fail with a schema-cache 500 (found by the
+    // 2026-11-15 CRM proof run). Deal notes live in the notes system.
     stage_entered_at: new Date().toISOString(),
+    created_by: body.created_by || null,
   };
-  // Optional columns — only include if the body sends them (the schema
-  // may add them later; this keeps the insert resilient).
-  if (body.source) insert.source = body.source;
-  if (body.notes) insert.notes = body.notes;
   const { data, error } = await supabaseAdmin()
     .from('crm_deals')
     .insert(insert)

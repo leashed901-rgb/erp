@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     .from('commerce_promotions')
     .select('*')
     .eq('tenant_id', DEFAULT_TENANT_ID)
-    .order('created_at', { ascending: false })
+    .order('code', { ascending: true })
     .limit(100);
   if (q) query = query.ilike('name', '%' + q + '%');
   const { data, error } = await query;

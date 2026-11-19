@@ -1,7 +1,9 @@
 'use client';
 import './receipts.css';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AccountingScreenProps } from './types';
+import { useReceipts, useBankAccounts, useChartOfAccounts, receiptMutations, fetchReceiptMatchCandidates } from '@/hooks/useAccountingApi';
+import type { ReceiptDto, ReceiptMatchCandidate } from '@/lib/acctTypes';
 
 /* ────────── types ────────── */
 
@@ -38,8 +40,62 @@ interface ReceiptRow {
   fileName: string;
   checked: boolean;
   hidden: boolean;
-  /** row injected by the fake OCR pipeline — mockup never adds the hover:bg class to it */
+  /** row added by intake this session — the mockup never adds the hover/bg class to it */
   dropped: boolean;
+  dto: ReceiptDto | null;
+}
+
+const fmtMoneyStr = (n: number | null) => (n == null ? '' : `$${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`);
+const fmtUsDate = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+};
+
+/* acct_document_inbox + extraction DTO → the table's row shape */
+function toReceiptRow(r: ReceiptDto, checked: boolean): ReceiptRow {
+  const reviewed = r.status === 'reviewed';
+  const action: RowAction = r.createdSpendId
+    ? 'expense-created'
+    : r.matchedBankTransactionId
+      ? 'matched'
+      : reviewed
+        ? 'reviewed'
+        : 'review';
+  const chip = r.categoryLabel
+    ? reviewed
+      ? { chipCls: 'cat-chip done', chipIcon: 'check_circle', chipLabel: r.categoryLabel }
+      : { chipCls: 'cat-chip', chipIcon: null, chipLabel: r.categoryLabel }
+    : r.amount != null
+      ? { chipCls: 'cat-chip uncat', chipIcon: 'error', chipLabel: 'Needs category' }
+      : { chipCls: 'cat-chip uncat', chipIcon: 'error', chipLabel: 'Awaiting extraction' };
+  return {
+    receiptId: r.id,
+    status: r.status,
+    vendor: r.vendorName || '',
+    amount: fmtMoneyStr(r.amount),
+    tax: fmtMoneyStr(r.taxAmount),
+    date: fmtUsDate(r.date),
+    account: r.paymentAccountLabel || '—',
+    category: r.categoryLabel || '',
+    ...chip,
+    action,
+    processing: false,
+    fileName: r.fileName || '',
+    checked,
+    hidden: false,
+    dropped: false,
+    dto: r,
+  };
+}
+
+async function sha256OfFile(file: File): Promise<string> {
+  try {
+    const buf = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return `local-${file.name}-${file.size}-${file.lastModified}`;
+  }
 }
 
 interface MenuState {
@@ -71,51 +127,6 @@ interface DrawerForm {
 
 const FWD_ADDRESS = 'receipts@unsaid.app';
 
-const FAKE_VENDORS = ['Staples', 'FedEx', 'Adobe', 'Amazon Web Services', 'Google Workspace', 'UPS'];
-
-const INITIAL_ROWS: ReceiptRow[] = [
-  { receiptId: 'R-1042', status: 'review', vendor: 'Staples', amount: '$142.50', tax: '$8.55', date: '10/30/2026', account: 'Visa •4421', category: 'Office supplies', chipCls: 'cat-chip suggested', chipIcon: 'auto_awesome', chipLabel: 'Office supplies', action: 'review', processing: false, fileName: '', checked: false, hidden: false, dropped: false },
-  { receiptId: 'R-1041', status: 'review', vendor: 'FedEx', amount: '$84.20', tax: '$5.05', date: '10/29/2026', account: 'Bank •9910', category: '', chipCls: 'cat-chip uncat', chipIcon: 'error', chipLabel: 'Needs category', action: 'review', processing: false, fileName: '', checked: false, hidden: false, dropped: false },
-  { receiptId: 'R-1040', status: 'review', vendor: 'Adobe', amount: '$59.99', tax: '$3.60', date: '10/30/2026', account: 'Visa •4421', category: 'Software', chipCls: 'cat-chip suggested', chipIcon: 'auto_awesome', chipLabel: 'Software', action: 'review', processing: false, fileName: '', checked: false, hidden: false, dropped: false },
-  { receiptId: 'R-1039', status: 'reviewed', vendor: 'UPS', amount: '$62.10', tax: '$3.73', date: '10/26/2026', account: 'Amex •2103', category: 'Shipping', chipCls: 'cat-chip done', chipIcon: 'check_circle', chipLabel: 'Shipping', action: 'reviewed', processing: false, fileName: '', checked: false, hidden: false, dropped: false },
-  { receiptId: 'R-1038', status: 'reviewed', vendor: 'Google Workspace', amount: '$144.00', tax: '$0.00', date: '10/25/2026', account: 'Visa •4421', category: 'Software', chipCls: 'cat-chip done', chipIcon: 'check_circle', chipLabel: 'Software', action: 'reviewed', processing: false, fileName: '', checked: false, hidden: false, dropped: false },
-];
-
-const PICKER_SUGGESTED: { val: string; dot: string }[] = [
-  { val: 'Office supplies', dot: '#0077c5' },
-  { val: 'Shipping', dot: '#1e5a38' },
-  { val: 'Software', dot: '#6b1e28' },
-  { val: 'Advertising', dot: '#0e5e6f' },
-];
-
-const PICKER_ALL: { val: string; dot: string }[] = [
-  { val: 'Meals & entertainment', dot: '#dad9dd' },
-  { val: 'Travel', dot: '#dad9dd' },
-  { val: 'Ask My Accountant', dot: '#ba1a1a' },
-];
-
-interface MatchItem {
-  kind: 'bank' | 'bill';
-  /** data-match-name — used verbatim in the toast */
-  name: string;
-  icon: string;
-  iconCls: string;
-  line1: string;
-  line2: string;
-  amt: string;
-  amtCls: string;
-}
-
-const MATCH_BANK: MatchItem[] = [
-  { kind: 'bank', name: 'FEDEX 001239847', icon: 'account_balance', iconCls: 'text-error', line1: 'FEDEX 001239847', line2: '10/29/2026 · Bank •9910', amt: '−$84.20', amtCls: 'text-error' },
-  { kind: 'bank', name: 'STAPLES #0412', icon: 'account_balance', iconCls: 'text-error', line1: 'STAPLES #0412', line2: '10/30/2026 · Bank •9910', amt: '−$142.50', amtCls: 'text-error' },
-  { kind: 'bank', name: 'AWS EMEA CHARGES', icon: 'account_balance', iconCls: 'text-error', line1: 'AWS EMEA CHARGES', line2: '10/27/2026 · Visa •4421', amt: '−$124.88', amtCls: 'text-error' },
-];
-
-const MATCH_BILLS: MatchItem[] = [
-  { kind: 'bill', name: 'Bill PF-9211 — Printful', icon: 'description', iconCls: 'text-qb-maroon', line1: 'Bill PF-9211 · Printful', line2: 'Due 11/10/2026', amt: '$2,880.00', amtCls: 'text-on-surface-variant' },
-];
-
 function toISO(usDate: string): string {
   const m = (usDate || '').match(/(\d+)\/(\d+)\/(\d+)/);
   return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : '';
@@ -124,7 +135,16 @@ function toISO(usDate: string): string {
 /* ═══════════════ component ═══════════════ */
 
 export default function Receipts(_props: AccountingScreenProps) {
-  const [rows, setRows] = useState<ReceiptRow[]>(INITIAL_ROWS);
+  const { receipts, refresh: refreshReceipts } = useReceipts();
+  const { bankAccounts } = useBankAccounts();
+  const { accounts: coaAccounts } = useChartOfAccounts();
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [intakeRows, setIntakeRows] = useState<ReceiptRow[]>([]);
+  const rows = useMemo(
+    () => [...intakeRows, ...receipts.map((r) => toReceiptRow(r, checkedIds.has(r.id)))],
+    [receipts, checkedIds, intakeRows],
+  );
+  const [matchCandidates, setMatchCandidates] = useState<ReceiptMatchCandidate[]>([]);
   const [viewTab, setViewTab] = useState<ViewTab>('review');
   const [filterText, setFilterText] = useState('');
   const [checkAll, setCheckAll] = useState(false);
@@ -150,7 +170,6 @@ export default function Receipts(_props: AccountingScreenProps) {
   const copyTimer = useRef<number | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const snapInputRef = useRef<HTMLInputElement>(null);
-  const fakeIdCounter = useRef(1050);
   const timeouts = useRef<Set<number>>(new Set());
 
   /* ────────── utils ────────── */
@@ -158,14 +177,6 @@ export default function Receipts(_props: AccountingScreenProps) {
     setToastMsg(m);
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToastMsg(''), 1800);
-  }, []);
-
-  const schedule = useCallback((fn: () => void, ms: number) => {
-    const id = window.setTimeout(() => {
-      timeouts.current.delete(id);
-      fn();
-    }, ms);
-    timeouts.current.add(id);
   }, []);
 
   const closeAllMenus = useCallback(() => {
@@ -196,107 +207,163 @@ export default function Receipts(_props: AccountingScreenProps) {
     return () => document.removeEventListener('click', onDocClick);
   }, [catPicker.open, rowMenu.open, matchMenu.open]);
 
-  /* derived counts (mockup's updateCounts) */
+  /* derived counts + tab/search filtering over the live rows */
   const reviewCount = rows.filter((r) => r.status === 'review').length;
-  const visibleCount = rows.filter((r) => !r.hidden).length;
-  const countText = `1–${visibleCount} of ${rows.length}`;
+  const visibleRows = rows.filter((r) => {
+    const tabOk = viewTab === 'all' || r.status === viewTab;
+    const q = filterText.trim().toLowerCase();
+    const qOk = !q || r.vendor.toLowerCase().includes(q) || r.amount.replace(/[^0-9.]/g, '').includes(q.replace(/[^0-9.]/g, '')) || r.fileName.toLowerCase().includes(q);
+    return tabOk && qOk;
+  });
+  const countText = `${visibleRows.length} of ${rows.length}`;
   const checkedCount = rows.filter((r) => r.checked).length;
+  /* Category picker = the real chart of accounts; expense accounts lead */
+  const catQuery = catSearch.trim().toLowerCase();
+  const suggestedCats = useMemo(
+    () => coaAccounts.filter((a) => a.type === 'Expense' && (!catQuery || a.name.toLowerCase().includes(catQuery))).slice(0, 4),
+    [coaAccounts, catQuery],
+  );
+  const otherCats = useMemo(
+    () => coaAccounts.filter((a) => !suggestedCats.includes(a) && (!catQuery || a.name.toLowerCase().includes(catQuery))),
+    [coaAccounts, suggestedCats, catQuery],
+  );
+  const CAT_DOTS = ['#0077c5', '#1e5a38', '#6b1e28', '#0e5e6f'];
   const menuRow = menuReceiptId !== null ? rows.find((r) => r.receiptId === menuReceiptId) ?? null : null;
   const menuReviewed = menuRow !== null && menuRow.status === 'reviewed';
 
   /* ────────── Receipt drawer ────────── */
   const openReceiptRow = (row: ReceiptRow) => {
     const vendor = row.vendor || 'Unknown';
-    const id = row.receiptId || 'R-0000';
     const status = row.status === 'review' ? 'For review' : 'Reviewed';
     setDrawerReceiptId(row.receiptId);
+    setMenuReceiptId(row.receiptId);
     setDrawerSnap({
       title: `Receipt — ${vendor}`,
-      sub: `${id} · ${status}`,
+      sub: `${row.dto?.ref || row.receiptId} · ${status}`,
       vendor,
       date: row.date || '',
       amt: (row.amount || '').replace('$', ''),
       tax: (row.tax || '').replace('$', ''),
     });
-    /* notes is never repopulated by the mockup — keep whatever is there */
     setDrawerForm((f) => ({
       ...f,
       vendor: row.vendor || '',
       date: toISO(row.date),
       amount: row.amount || '',
       tax: row.tax || '',
-      account: row.account || 'Visa •4421',
-      category: row.category || '',
+      account: row.dto?.paymentAccountId || bankAccounts[0]?.id || '',
+      category: row.dto?.categoryAccountId || '',
     }));
     setDrawerOpen(true);
   };
 
   const closeReceipt = useCallback(() => setDrawerOpen(false), []);
 
-  const handleCreateExpense = () => {
-    if (drawerReceiptId !== null) {
-      setRows((rs) => rs.map((r) => (r.receiptId === drawerReceiptId ? { ...r, status: 'reviewed', action: 'expense-created' } : r)));
+  /* Field edits in the drawer persist to the extraction row on blur */
+  const persistDrawerFields = async () => {
+    if (!drawerReceiptId) return;
+    const total = parseFloat(drawerForm.amount.replace(/[$,]/g, ''));
+    const tax = parseFloat(drawerForm.tax.replace(/[$,]/g, ''));
+    const res = await receiptMutations.update(drawerReceiptId, {
+      vendorName: drawerForm.vendor,
+      receiptDate: drawerForm.date,
+      ...(Number.isNaN(total) ? {} : { total }),
+      ...(Number.isNaN(tax) ? {} : { taxAmount: tax }),
+      categoryAccountId: drawerForm.category || null,
+    });
+    if (res.ok) void refreshReceipts();
+    else toast(res.error || 'Fields could not be saved');
+  };
+
+  const handleCreateExpense = async () => {
+    if (!drawerReceiptId) return;
+    const total = parseFloat(drawerForm.amount.replace(/[$,]/g, ''));
+    const tax = parseFloat(drawerForm.tax.replace(/[$,]/g, ''));
+    if (!drawerForm.category) {
+      toast('Pick a category first');
+      return;
     }
-    toast('Expense created from receipt');
-    closeReceipt();
+    if (!drawerForm.account) {
+      toast('Pick a payment account first');
+      return;
+    }
+    if (Number.isNaN(total) || total <= 0) {
+      toast('Enter the receipt total first');
+      return;
+    }
+    const res = await receiptMutations.createExpense(drawerReceiptId, {
+      categoryAccountId: drawerForm.category,
+      bankAccountId: drawerForm.account,
+      vendorName: drawerForm.vendor,
+      date: drawerForm.date,
+      total,
+      taxAmount: Number.isNaN(tax) ? 0 : tax,
+    });
+    if (res.ok) {
+      toast('Expense created from receipt');
+      await refreshReceipts();
+      closeReceipt();
+    } else {
+      toast(res.error || 'Expense could not be created');
+    }
+  };
+
+  const openMatchMenu = async (receiptId: string, anchor: DOMRect) => {
+    setMenuReceiptId(receiptId);
+    setMatchCandidates([]);
+    setMatchMenu({ open: true, top: anchor.bottom + 4, left: Math.min(anchor.left, window.innerWidth - 360) });
+    const res = await fetchReceiptMatchCandidates(receiptId);
+    if (res.ok && res.data) setMatchCandidates(res.data);
   };
 
   const handleMatchBtn = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     setCatPicker((m) => ({ ...m, open: false }));
     setRowMenu((m) => ({ ...m, open: false }));
-    const r = e.currentTarget.getBoundingClientRect();
-    setMatchMenu({ open: true, top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 360) });
+    if (drawerReceiptId) void openMatchMenu(drawerReceiptId, e.currentTarget.getBoundingClientRect());
   };
 
-  /* ────────── Handle dropped/picked files → fake OCR pipeline ────────── */
-  const addProcessingRow = (file: File) => {
-    const id = 'R-' + ++fakeIdCounter.current;
-    const vendorGuess = FAKE_VENDORS[Math.floor(Math.random() * FAKE_VENDORS.length)];
-    const amountGuess = '$' + (20 + Math.random() * 180).toFixed(2);
-    const dateGuess = new Date().toLocaleDateString('en-US');
-    const newRow: ReceiptRow = {
-      receiptId: id,
+  /* ────────── Intake: dropped/picked files become real
+       acct_document_inbox rows (status 'uploaded'). Extraction is
+       the platform's job — the row shows 'Awaiting extraction'
+       until acct_receipt_extractions lands; nothing is invented. ── */
+  const addIntakeRow = async (file: File, source: 'upload' | 'photo') => {
+    const tempId = `intake-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const processingRow: ReceiptRow = {
+      receiptId: tempId,
       status: 'review',
       vendor: '',
       amount: '',
       tax: '',
-      date: dateGuess,
-      account: 'Visa •4421',
+      date: new Date().toLocaleDateString('en-US'),
+      account: '',
       category: '',
       chipCls: 'cat-chip uncat',
       chipIcon: 'error',
-      chipLabel: 'Needs category',
+      chipLabel: 'Awaiting extraction',
       action: 'review',
       processing: true,
       fileName: file.name,
       checked: false,
       hidden: false,
       dropped: true,
+      dto: null,
     };
-    setRows((rs) => [newRow, ...rs]);
-
-    /* resolve after 1100ms */
-    schedule(() => {
-      const resolved: ReceiptRow = {
-        ...newRow,
-        processing: false,
-        vendor: vendorGuess,
-        amount: amountGuess,
-        tax: '$' + (parseFloat(amountGuess.slice(1)) * 0.06).toFixed(2),
-      };
-      setRows((rs) => rs.map((r) => (r.receiptId === id ? resolved : r)));
-      toast(`${vendorGuess} receipt extracted from ${file.name}`);
-      openReceiptRow(resolved); /* auto-open preview per (a)+(b) */
-    }, 1100);
+    setIntakeRows((rs) => [processingRow, ...rs]);
+    const sha256 = await sha256OfFile(file);
+    const res = await receiptMutations.intake({ fileName: file.name, sha256, source });
+    setIntakeRows((rs) => rs.filter((r) => r.receiptId !== tempId));
+    if (res.ok) {
+      toast(`Receipt received — ${file.name} is awaiting extraction`);
+      await refreshReceipts();
+    } else {
+      toast(res.error || `Could not receive ${file.name}`);
+    }
   };
 
-  const handleFiles = (fileList: FileList | null) => {
+  const handleFiles = (fileList: FileList | null, source: 'upload' | 'photo' = 'upload') => {
     const files = Array.from(fileList || []);
-    if (files.length === 0) return;
-    files.forEach((file, idx) => {
-      schedule(() => addProcessingRow(file), idx * 350);
-    });
+    files.forEach((file) => void addIntakeRow(file, source));
   };
 
   const triggerUpload = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -327,11 +394,8 @@ export default function Receipts(_props: AccountingScreenProps) {
     copyTimer.current = window.setTimeout(() => setCopyConfirm(false), 1800);
   };
 
-  /* ────────── View tabs ────────── */
-  const handleViewTab = (st: ViewTab) => {
-    setViewTab(st);
-    setRows((rs) => rs.map((r) => ({ ...r, hidden: !(st === 'all' || r.status === st) })));
-  };
+  /* ────────── View tabs (derived filtering in visibleRows) ────────── */
+  const handleViewTab = (st: ViewTab) => setViewTab(st);
 
   /* ────────── Row interactions ────────── */
   const handleRowClick = (e: React.MouseEvent<HTMLTableRowElement>, row: ReceiptRow) => {
@@ -340,25 +404,72 @@ export default function Receipts(_props: AccountingScreenProps) {
   };
 
   const toggleRowCheck = (receiptId: string) => {
-    setRows((rs) => rs.map((r) => (r.receiptId === receiptId ? { ...r, checked: !r.checked } : r)));
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(receiptId)) next.delete(receiptId);
+      else next.add(receiptId);
+      return next;
+    });
   };
 
   const handleCheckAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCheckAll(e.target.checked);
-    setRows((rs) => rs.map((r) => (r.processing ? r : { ...r, checked: e.target.checked })));
+    setCheckedIds(e.target.checked ? new Set(rows.filter((r) => !r.processing).map((r) => r.receiptId)) : new Set());
   };
 
-  /* ────────── Bulk bar ────────── */
-  const handleBulk = (act: BulkAction) => {
+  /* ────────── Bulk bar — every action runs against the API per row ────────── */
+  const handleBulk = async (act: BulkAction) => {
     if (act === 'close') {
-      setRows((rs) => rs.map((r) => ({ ...r, checked: false })));
+      setCheckedIds(new Set());
       setCheckAll(false);
       return;
     }
-    const n = rows.filter((r) => r.checked).length;
-    toast(`${act.charAt(0).toUpperCase() + act.slice(1)} on ${n} receipt${n !== 1 ? 's' : ''}`);
+    const checked = rows.filter((r) => r.checked && r.dto);
+    if (act === 'categorize') {
+      toast('Categories are set per receipt — use the category chip on a row');
+      return;
+    }
+    if (act === 'attach') {
+      toast('Attach each receipt from its Match menu');
+      return;
+    }
+    if (act === 'create') {
+      let created = 0;
+      let skipped = 0;
+      for (const r of checked) {
+        const dto = r.dto!;
+        const bankAccountId = dto.paymentAccountId || bankAccounts[0]?.id;
+        if (!dto.categoryAccountId || dto.amount == null || !bankAccountId) {
+          skipped += 1;
+          continue;
+        }
+        const res = await receiptMutations.createExpense(r.receiptId, {
+          categoryAccountId: dto.categoryAccountId,
+          bankAccountId,
+          vendorName: dto.vendorName || undefined,
+          date: dto.date,
+          total: dto.amount,
+          taxAmount: dto.taxAmount || 0,
+        });
+        if (res.ok) created += 1;
+        else skipped += 1;
+      }
+      setCheckedIds(new Set());
+      setCheckAll(false);
+      await refreshReceipts();
+      toast(`Created ${created} expense${created === 1 ? '' : 's'}${skipped ? ` · ${skipped} skipped (needs category/total)` : ''}`);
+      return;
+    }
     if (act === 'delete') {
-      setRows((rs) => rs.filter((r) => !r.checked));
+      let deleted = 0;
+      for (const r of checked) {
+        const res = await receiptMutations.remove(r.receiptId);
+        if (res.ok) deleted += 1;
+      }
+      setCheckedIds(new Set());
+      setCheckAll(false);
+      await refreshReceipts();
+      toast(`Deleted ${deleted} receipt${deleted === 1 ? '' : 's'}`);
     }
   };
 
@@ -371,13 +482,14 @@ export default function Receipts(_props: AccountingScreenProps) {
     setCatPicker({ open: true, top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 300) });
   };
 
-  const pickCategory = (val: string) => {
-    if (pickerReceiptId !== null) {
-      setRows((rs) => rs.map((r) => (r.receiptId === pickerReceiptId
-        ? { ...r, category: val, chipCls: 'cat-chip', chipIcon: null, chipLabel: val }
-        : r)));
-    }
+  const pickCategory = async (accountId: string) => {
     setCatPicker((m) => ({ ...m, open: false }));
+    if (pickerReceiptId === null) return;
+    const res = await receiptMutations.update(pickerReceiptId, { categoryAccountId: accountId });
+    if (res.ok) {
+      toast('Category saved');
+      await refreshReceipts();
+    } else toast(res.error || 'Category could not be saved');
   };
 
   /* ────────── Row ⋯ menu ────────── */
@@ -389,59 +501,112 @@ export default function Receipts(_props: AccountingScreenProps) {
     setRowMenu({ open: true, top: r.bottom + 4, left: Math.min(r.right - 250, window.innerWidth - 270) });
   };
 
-  const handleRowMenuAction = (e: React.MouseEvent<HTMLButtonElement>, action: RowMenuAction) => {
+  const handleRowMenuAction = async (e: React.MouseEvent<HTMLButtonElement>, action: RowMenuAction) => {
     e.stopPropagation();
     const id = menuReceiptId;
     setRowMenu((m) => ({ ...m, open: false }));
     if (id === null) return;
+    const row = rows.find((r) => r.receiptId === id);
+    const dto = row?.dto;
     switch (action) {
       case 'view':
       case 'edit': {
-        const row = rows.find((r) => r.receiptId === id);
         if (row) openReceiptRow(row);
         break;
       }
       case 'download':
-        toast('Download original receipt');
+        toast(dto?.hasAttachment ? 'Original files are served by the platform file service, not this build' : 'No stored original for this intake');
         break;
-      case 'create-expense':
-        setRows((rs) => rs.map((r) => (r.receiptId === id ? { ...r, status: 'reviewed', action: 'expense-created' } : r)));
-        toast('Expense created from receipt');
+      case 'create-expense': {
+        if (!dto) break;
+        const bankAccountId = dto.paymentAccountId || bankAccounts[0]?.id;
+        if (!dto.categoryAccountId || dto.amount == null) {
+          if (row) openReceiptRow(row);
+          toast('Pick a category and total in the drawer first');
+          break;
+        }
+        if (!bankAccountId) {
+          toast('No bank account exists to pay from');
+          break;
+        }
+        const res = await receiptMutations.createExpense(id, {
+          categoryAccountId: dto.categoryAccountId,
+          bankAccountId,
+          vendorName: dto.vendorName || undefined,
+          date: dto.date,
+          total: dto.amount,
+          taxAmount: dto.taxAmount || 0,
+        });
+        if (res.ok) {
+          toast('Expense created from receipt');
+          await refreshReceipts();
+        } else toast(res.error || 'Expense could not be created');
         break;
-      case 'create-bill':
-        toast('Bill created from receipt');
+      }
+      case 'create-bill': {
+        if (!dto) break;
+        if (!dto.vendorName || dto.amount == null) {
+          if (row) openReceiptRow(row);
+          toast('Set the vendor and total in the drawer first');
+          break;
+        }
+        const res = await receiptMutations.createBill(id, {
+          vendorName: dto.vendorName,
+          date: dto.date,
+          total: dto.amount,
+          taxAmount: dto.taxAmount || 0,
+        });
+        if (res.ok) {
+          toast('Bill created from receipt');
+          await refreshReceipts();
+        } else toast(res.error || 'Bill could not be created');
         break;
+      }
       case 'attach':
-        toast('Attach to existing — opens bill picker');
+        toast('Use the Match button to attach this receipt to a bank transaction');
         break;
       case 'match': {
         const r = e.currentTarget.getBoundingClientRect();
-        setMatchMenu({ open: true, top: r.bottom + 4, left: Math.min(r.left - 100, window.innerWidth - 360) });
+        void openMatchMenu(id, new DOMRect(r.left - 100, r.bottom, r.width, r.height));
         break;
       }
-      case 'mark-reviewed':
-        setRows((rs) => rs.map((r) => (r.receiptId === id ? { ...r, status: 'reviewed', action: 'reviewed' } : r)));
-        toast('Marked as reviewed');
+      case 'mark-reviewed': {
+        const res = await receiptMutations.update(id, { status: 'reviewed' });
+        if (res.ok) {
+          toast('Marked as reviewed');
+          await refreshReceipts();
+        } else toast(res.error || 'Could not mark reviewed');
         break;
-      case 'unmark-reviewed':
-        setRows((rs) => rs.map((r) => (r.receiptId === id ? { ...r, status: 'review', action: 'review' } : r)));
-        toast('Moved back to review');
+      }
+      case 'unmark-reviewed': {
+        const res = await receiptMutations.update(id, { status: 'review' });
+        if (res.ok) {
+          toast('Moved back to review');
+          await refreshReceipts();
+        } else toast(res.error || 'Could not return to review');
         break;
-      case 'delete':
-        setRows((rs) => rs.filter((r) => r.receiptId !== id));
-        toast('Receipt deleted');
+      }
+      case 'delete': {
+        const res = await receiptMutations.remove(id);
+        if (res.ok) {
+          toast('Receipt deleted');
+          await refreshReceipts();
+        } else toast(res.error || 'Receipt could not be deleted');
         break;
+      }
     }
   };
 
   /* ────────── Match menu selection ────────── */
-  const handleMatchSelect = (name: string) => {
+  const handleMatchSelect = async (candidate: ReceiptMatchCandidate) => {
     setMatchMenu((m) => ({ ...m, open: false }));
-    if (menuReceiptId !== null) {
-      setRows((rs) => rs.map((r) => (r.receiptId === menuReceiptId ? { ...r, status: 'reviewed', action: 'matched' } : r)));
-    }
-    closeReceipt();
-    toast(`Receipt matched to "${name}"`);
+    if (menuReceiptId === null) return;
+    const res = await receiptMutations.match(menuReceiptId, candidate.bankTransactionId);
+    if (res.ok) {
+      toast(`Receipt matched to "${candidate.description || 'bank transaction'}"`);
+      await refreshReceipts();
+      closeReceipt();
+    } else toast(res.error || 'Match failed');
   };
 
   /* ═══════════════ render ═══════════════ */
@@ -569,7 +734,7 @@ export default function Receipts(_props: AccountingScreenProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-dim" data-rc-tbody>
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
                 const rowCls = row.processing
                   ? 'rc-row processing-row cursor-pointer'
                   : row.dropped
@@ -587,13 +752,12 @@ export default function Receipts(_props: AccountingScreenProps) {
                     data-account={row.account}
                     data-category={row.category}
                     data-receipt-id={row.receiptId}
-                    style={row.hidden ? { display: 'none' } : undefined}
                     onClick={row.processing ? undefined : (e) => handleRowClick(e, row)}
                   >
                     <td className="px-3 py-2"><input type="checkbox" className="row-check rc-check" disabled={row.processing} checked={row.checked} onChange={() => toggleRowCheck(row.receiptId)} /></td>
                     <td className="px-3 py-2"><div className="receipt-thumb">{row.processing ? <div className="spinner"></div> : null}</div></td>
                     <td className="px-3 py-2">{row.date}</td>
-                    <td className={row.processing ? 'px-3 py-2 font-medium italic text-on-surface-variant' : 'px-3 py-2 font-medium'}>{row.processing ? 'Extracting…' : row.vendor}</td>
+                    <td className={row.processing ? 'px-3 py-2 font-medium italic text-on-surface-variant' : 'px-3 py-2 font-medium'}>{row.processing ? 'Receiving…' : row.vendor}</td>
                     <td className="px-3 py-2 text-on-surface-variant">{row.processing ? row.fileName : row.account}</td>
                     <td className={row.processing ? 'px-3 py-2 text-right tabular-nums text-on-surface-variant' : 'px-3 py-2 text-right tabular-nums'}>
                       {row.processing ? '…' : (
@@ -643,7 +807,7 @@ export default function Receipts(_props: AccountingScreenProps) {
 
       {/* Hidden inputs (real file pickers) */}
       <input type="file" id="file-input-upload" accept="image/*,application/pdf" multiple className="hidden-imp" ref={uploadInputRef} onChange={(e) => handleFiles(e.target.files)} />
-      <input type="file" id="file-input-snap" accept="image/*" capture="environment" className="hidden-imp" ref={snapInputRef} onChange={(e) => handleFiles(e.target.files)} />
+      <input type="file" id="file-input-snap" accept="image/*" capture="environment" className="hidden-imp" ref={snapInputRef} onChange={(e) => handleFiles(e.target.files, 'photo')} />
 
       {/* ═══════════ RECEIPT PREVIEW DRAWER ═══════════ */}
       <div className={`drawer-scrim${drawerOpen ? ' open' : ''}`} id="receipt-scrim" onClick={closeReceipt}></div>
@@ -657,7 +821,7 @@ export default function Receipts(_props: AccountingScreenProps) {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" title="Download original" data-dl-orig aria-label="Download original" onClick={() => toast('Download original receipt')}>
+            <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" title="Download original" data-dl-orig aria-label="Download original" onClick={() => toast('Original files are served by the platform file service, not this build')}>
               <span className="material-symbols-outlined text-[18px]">download</span></button>
             <button className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center" data-close-receipt aria-label="Close" onClick={closeReceipt}>
               <span className="material-symbols-outlined text-[18px]">close</span></button>
@@ -668,27 +832,28 @@ export default function Receipts(_props: AccountingScreenProps) {
           {/* Left: image viewer */}
           <div className="drawer-image">
             <div className="drawer-image-viewer" data-receipt-image>
-              {/* fake receipt rendered here */}
-              {drawerSnap && (
-                <div className="fake-receipt">
-                  <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>{drawerSnap.vendor.toUpperCase()}</div>
-                  <div style={{ textAlign: 'center', fontSize: '10px', color: '#5a6355' }}>Store #0412</div>
-                  <div style={{ height: '1px', background: '#1a1c1e', margin: '8px 0' }}></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Date</span><span>{drawerSnap.date}</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Time</span><span>2:42 PM</span></div>
-                  <div style={{ height: '1px', background: '#dad9dd', margin: '8px 0' }}></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Item 1</span><span>$18.44</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Item 2</span><span>$32.10</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Item 3</span><span>$44.90</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Item 4</span><span>$38.51</span></div>
-                  <div style={{ height: '1px', background: '#dad9dd', margin: '8px 0' }}></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Subtotal</span><span>${(Number(drawerSnap.amt) - Number(drawerSnap.tax)).toFixed(2)}</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Tax</span><span>${drawerSnap.tax || '0.00'}</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid #1a1c1e', paddingTop: '4px', marginTop: '4px' }}><span>TOTAL</span><span>${drawerSnap.amt}</span></div>
-                  <div style={{ height: '1px', background: '#dad9dd', margin: '8px 0' }}></div>
-                  <div style={{ fontSize: '9px', textAlign: 'center', color: '#5a6355' }}>VISA ****4421<br />Auth: 002847<br />Thank you!</div>
-                </div>
-              )}
+              {/* Intake summary — real fields only. The original file is
+                  held by the platform file service; line-item detail
+                  appears when extraction lands in acct_receipt_extractions. */}
+              {drawerSnap && (() => {
+                const dto = rows.find((r) => r.receiptId === drawerReceiptId)?.dto ?? null;
+                const subtotal = (Number(drawerSnap.amt.replace(/[$,]/g, '')) || 0) - (Number(drawerSnap.tax.replace(/[$,]/g, '')) || 0);
+                return (
+                  <div className="fake-receipt">
+                    <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>{drawerSnap.vendor.toUpperCase()}</div>
+                    <div style={{ textAlign: 'center', fontSize: '10px', color: '#5a6355' }}>{dto?.fileName || 'Intake'}</div>
+                    <div style={{ height: '1px', background: '#1a1c1e', margin: '8px 0' }}></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Date</span><span>{drawerSnap.date}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Source</span><span>{dto?.source || 'upload'}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Status</span><span>{dto?.rawStatus || '—'}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Extraction</span><span>{dto?.extractionStatus || 'awaiting'}</span></div>
+                    <div style={{ height: '1px', background: '#dad9dd', margin: '8px 0' }}></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Tax</span><span>${drawerSnap.tax || '0.00'}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid #1a1c1e', paddingTop: '4px', marginTop: '4px' }}><span>TOTAL</span><span>${drawerSnap.amt}</span></div>
+                  </div>
+                );
+              })()}
             </div>
             <div className="border-t border-surface-dim p-2 flex items-center justify-center gap-2 bg-white">
               <button className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1" aria-label="Zoom in">
@@ -707,37 +872,39 @@ export default function Receipts(_props: AccountingScreenProps) {
               <div className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold mb-3">Extracted fields</div>
               <div className="field-row">
                 <div className="field-label">Vendor</div>
-                <div className="field-value"><input data-field="vendor" value={drawerForm.vendor} onChange={(e) => setDrawerForm((f) => ({ ...f, vendor: e.target.value }))} /></div>
+                <div className="field-value"><input data-field="vendor" value={drawerForm.vendor} onChange={(e) => setDrawerForm((f) => ({ ...f, vendor: e.target.value }))} onBlur={() => void persistDrawerFields()} /></div>
               </div>
               <div className="field-row">
                 <div className="field-label">Date</div>
-                <div className="field-value"><input data-field="date" type="date" value={drawerForm.date} onChange={(e) => setDrawerForm((f) => ({ ...f, date: e.target.value }))} /></div>
+                <div className="field-value"><input data-field="date" type="date" value={drawerForm.date} onChange={(e) => setDrawerForm((f) => ({ ...f, date: e.target.value }))} onBlur={() => void persistDrawerFields()} /></div>
               </div>
               <div className="field-row">
                 <div className="field-label">Amount</div>
-                <div className="field-value"><input data-field="amount" value={drawerForm.amount} onChange={(e) => setDrawerForm((f) => ({ ...f, amount: e.target.value }))} /></div>
+                <div className="field-value"><input data-field="amount" value={drawerForm.amount} onChange={(e) => setDrawerForm((f) => ({ ...f, amount: e.target.value }))} onBlur={() => void persistDrawerFields()} /></div>
               </div>
               <div className="field-row">
                 <div className="field-label">Tax</div>
-                <div className="field-value"><input data-field="tax" value={drawerForm.tax} onChange={(e) => setDrawerForm((f) => ({ ...f, tax: e.target.value }))} /></div>
+                <div className="field-value"><input data-field="tax" value={drawerForm.tax} onChange={(e) => setDrawerForm((f) => ({ ...f, tax: e.target.value }))} onBlur={() => void persistDrawerFields()} /></div>
               </div>
               <div className="field-row">
                 <div className="field-label">Payment account</div>
                 <div className="field-value">
                   <select data-field="account" value={drawerForm.account} onChange={(e) => setDrawerForm((f) => ({ ...f, account: e.target.value }))}>
-                    <option>Visa •4421</option><option>Bank •9910</option><option>Amex •2103</option>
-                    <option>Cash</option><option>Personal funds — reimburse</option>
+                    <option value="">— Select account —</option>
+                    {bankAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
               <div className="field-row">
                 <div className="field-label">Category</div>
                 <div className="field-value">
-                  <select data-field="category" value={drawerForm.category} onChange={(e) => setDrawerForm((f) => ({ ...f, category: e.target.value }))}>
+                  <select data-field="category" value={drawerForm.category} onChange={(e) => setDrawerForm((f) => ({ ...f, category: e.target.value }))} onBlur={() => void persistDrawerFields()}>
                     <option value="">— Select category —</option>
-                    <option>Office supplies</option><option>Shipping</option><option>Software</option>
-                    <option>Advertising</option><option>Meals & entertainment</option>
-                    <option>Travel</option><option>Ask My Accountant</option>
+                    {coaAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -751,26 +918,33 @@ export default function Receipts(_props: AccountingScreenProps) {
               <div className="flex items-center gap-2">
                 <button className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low flex items-center gap-1" data-match-receipt onClick={handleMatchBtn}>
                   <span className="material-symbols-outlined text-[16px]">link</span>Match to transaction</button>
-                <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" data-create-expense onClick={handleCreateExpense}>
+                <div className="flex split-btn">
+                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" data-create-expense onClick={handleCreateExpense}>
                     Create expense</button>
+                  <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" aria-label="More create options">
+                    <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ═══════════ CATEGORY PICKER ═══════════ */}
+      {/* ═══════════ CATEGORY PICKER — real chart of accounts ═══════════ */}
       <div id="cat-picker" className={`cat-picker${catPicker.open ? ' open' : ''}`} style={{ top: catPicker.top, left: catPicker.left }}>
         <input placeholder="Search categories…" value={catSearch} onChange={(e) => setCatSearch(e.target.value)} />
         <div className="recent">Suggested</div>
-        {PICKER_SUGGESTED.map((o) => (
-          <div key={o.val} className="cat-opt" data-pick={o.val} onClick={() => pickCategory(o.val)}><span className="dot" style={{ background: o.dot }}></span>{o.val}</div>
+        {suggestedCats.map((a, i) => (
+          <div key={a.id} className="cat-opt" data-pick={a.id} onClick={() => void pickCategory(a.id)}><span className="dot" style={{ background: CAT_DOTS[i % CAT_DOTS.length] }}></span>{a.name}</div>
         ))}
         <div className="cat-sep"></div>
         <div className="recent">All categories</div>
-        {PICKER_ALL.map((o) => (
-          <div key={o.val} className="cat-opt" data-pick={o.val} onClick={() => pickCategory(o.val)}><span className="dot" style={{ background: o.dot }}></span>{o.val}</div>
+        {otherCats.map((a) => (
+          <div key={a.id} className="cat-opt" data-pick={a.id} onClick={() => void pickCategory(a.id)}><span className="dot" style={{ background: '#dad9dd' }}></span>{a.name}</div>
         ))}
+        {suggestedCats.length === 0 && otherCats.length === 0 && (
+          <div className="cat-opt" style={{ cursor: 'default' }}>No categories match</div>
+        )}
       </div>
 
       {/* ═══════════ ROW ⋯ MENU — fully defined ═══════════ */}
@@ -794,30 +968,27 @@ export default function Receipts(_props: AccountingScreenProps) {
         <button className="danger" data-action="delete" onClick={(e) => handleRowMenuAction(e, 'delete')}><span className="material-symbols-outlined">delete</span>Delete receipt</button>
       </div>
 
-      {/* ═══════════ MATCH MENU — real, positioned ═══════════ */}
+      {/* ═══════════ MATCH MENU — real candidates from acct_match_receipts ═══════════ */}
       <div id="match-menu" className={`match-menu${matchMenu.open ? ' open' : ''}`} style={{ top: matchMenu.top, left: matchMenu.left }}>
         <div className="mm-h">Unmatched bank transactions</div>
-        {MATCH_BANK.map((it) => (
-          <div key={it.name} className="mm-item" data-match-kind={it.kind} data-match-name={it.name} onClick={() => handleMatchSelect(it.name)}>
-            <span className={`material-symbols-outlined text-[16px] ${it.iconCls} mt-0.5`}>{it.icon}</span>
+        {matchCandidates.map((c) => (
+          <div key={c.bankTransactionId} className="mm-item" data-match-kind="bank" data-match-name={c.description} onClick={() => void handleMatchSelect(c)}>
+            <span className="material-symbols-outlined text-[16px] text-error mt-0.5">account_balance</span>
             <div className="min-w-0 flex-1">
-              <div className="text-body-sm font-medium truncate">{it.line1}</div>
-              <div className="mm-date">{it.line2}</div>
+              <div className="text-body-sm font-medium truncate">{c.description || 'Bank transaction'}</div>
+              <div className="mm-date">{fmtUsDate(c.date)}{c.bankAccountName ? ` · ${c.bankAccountName}` : ''}</div>
             </div>
-            <span className={`mm-amt ${it.amtCls}`}>{it.amt}</span>
+            <span className="mm-amt text-error">{c.amount < 0 ? '−' : ''}${Math.abs(c.amount).toFixed(2)}</span>
           </div>
         ))}
-        <div className="mm-h">Open bills</div>
-        {MATCH_BILLS.map((it) => (
-          <div key={it.name} className="mm-item" data-match-kind={it.kind} data-match-name={it.name} onClick={() => handleMatchSelect(it.name)}>
-            <span className={`material-symbols-outlined text-[16px] ${it.iconCls} mt-0.5`}>{it.icon}</span>
+        {matchCandidates.length === 0 && (
+          <div className="mm-item" style={{ cursor: 'default' }}>
             <div className="min-w-0 flex-1">
-              <div className="text-body-sm font-medium truncate">{it.line1}</div>
-              <div className="mm-date">{it.line2}</div>
+              <div className="text-body-sm text-on-surface-variant">No matching bank transactions found</div>
+              <div className="mm-date">Candidates match on amount within ±10 days</div>
             </div>
-            <span className={`mm-amt ${it.amtCls}`}>{it.amt}</span>
           </div>
-        ))}
+        )}
       </div>
 
       <div id="toast" className={toastMsg ? 'toast show' : 'toast'}>{toastMsg}</div>

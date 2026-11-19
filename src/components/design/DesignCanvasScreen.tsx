@@ -21,7 +21,6 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  BLANKS,
   useDesignCanvas,
 } from '@/lib/designCanvasStore';
 import {
@@ -190,7 +189,6 @@ export default function DesignCanvasScreen({ onToast, onNavigate, initialCategor
   const product = useDesignCanvas((s) => s.product);
   const printArea = useDesignCanvas((s) => s.printArea);
   const setPrintArea = useDesignCanvas((s) => s.setPrintArea);
-  const loadBlank = useDesignCanvas((s) => s.loadBlank);
   const designQueue = useDesignCanvas((s) => s.designQueue);
   const addToQueue = useDesignCanvas((s) => s.addToQueue);
   const removeFromQueue = useDesignCanvas((s) => s.removeFromQueue);
@@ -370,14 +368,13 @@ export default function DesignCanvasScreen({ onToast, onNavigate, initialCategor
   // Pills ARE the placeholders — every printable region the product
   // ACTUALLY has. When blankDetail is loaded, use its printAreas (the
   // real data from the DB). When the skeleton is loaded, use its
-  // placeholders. ONLY fall back to the hardcoded PRINT_AREAS[family]
-  // when neither has loaded yet — and even then, the pills are just
-  // placeholders for what we EXPECT, not what exists.
+  // placeholders. No fallback — show nothing until real data arrives,
+  // so the user never clicks "Back" on a product that has no back view.
   //
-  // CRITICAL: the old code always fell back to PRINT_AREAS[family] which
-  // showed "Front matter / Back matter / Binder" for every product,
-  // even ones that only have a front view. Clicking "Back" did nothing
-  // because there was no back view. Now we only show pills for views
+  // The old code fell back to a hardcoded print-area table which showed
+  // "Front matter / Back matter / Binder" for every product, even ones
+  // that only have a front view. Clicking "Back" did nothing because
+  // there was no back view. Now we only show pills for views
   // that ACTUALLY exist.
   const pills = useMemo(() => {
     if (skeleton && skeleton.placeholders.length > 0) {
@@ -982,13 +979,6 @@ export default function DesignCanvasScreen({ onToast, onNavigate, initialCategor
     e.preventDefault();
     setDragover(false);
     const svg = toSvg(e.clientX, e.clientY);
-    // Catalog thumbnails drag a blank-type + catalog-product-id.
-    const blankType = e.dataTransfer.getData('blank-type');
-    if (blankType && BLANKS[blankType]) {
-      loadBlank(blankType);
-      onToast(`${BLANKS[blankType].name} loaded onto canvas.`);
-      return;
-    }
     if (!svg) return;
     // Inspiration drop — a Wikimedia Commons image (JSON: url/title/dims).
     // Downloaded, uploaded as an asset, then placed — the same path every

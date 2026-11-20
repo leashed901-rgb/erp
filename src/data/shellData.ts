@@ -204,30 +204,14 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
     icon: 'inventory_2',
     groups: [
       {
-        name: 'Workspace',
-        icon: 'home',
-        bg: 'bg-qb-navy',
-        screens: [
-          { id: 'catalog-overview', label: 'Home', type: 'overview' },
-        ],
-      },
-      {
         name: 'Tables',
         icon: 'inventory_2',
-        bg: 'bg-qb-green',
+        bg: 'bg-qb-navy',
         screens: [
-          { id: 'products', label: 'Inventory Management', type: 'list' },
-          { id: 'listings', label: 'Product Catalog', type: 'list' },
+          { id: 'products', label: 'Inventory', type: 'list' },
+          { id: 'listings', label: 'Catalog', type: 'list' },
           { id: 'categories', label: 'Stock Updates', type: 'list' },
-          { id: 'bundles', label: 'Warehouse Management', type: 'list' },
-        ],
-      },
-      {
-        name: 'Catalog',
-        icon: 'category',
-        bg: 'bg-qb-maroon',
-        screens: [
-          { id: 'brands', label: 'Brands', type: 'list' },
+          { id: 'bundles', label: 'Warehouse', type: 'list' },
         ],
       },
     ],

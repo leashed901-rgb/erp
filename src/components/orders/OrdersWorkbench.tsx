@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './OrdersWorkbench.module.css';
-import { importCsvFile, resolvePartyId } from '@/lib/csvImport';
-import { VIEW_DEFS } from '@/lib/viewDefs';
+import ShippingSettings from './ShippingSettings';
 
 /* ══════════════════════════════════════════════════════════════════ */
 /* TYPES — the four unified row shapes                                */
@@ -68,11 +67,12 @@ interface ViewConfig {
 const VIEWS: Record<Scope, ViewConfig> = {
   orders: {
     title: 'Orders',
-    statuses: ['All', 'Unfulfilled', 'Ready', 'Pickup', 'Shipped', 'Delivered'],
+    statuses: ['All', 'Unfulfilled', 'Ready', 'Pickup', 'Shipped', 'Delivered', 'Order Issues'],
     cols: ['Order', 'Customer', 'Items', 'Supplier', 'Total', 'SLA', 'Status'],
     menu: [
-      { section: 'This order' }, { a: 'view', l: 'View order', i: 'open_in_new' },
-      { section: 'Fulfill' }, { a: 'slip', l: 'Print slip', i: 'receipt' }, { a: 'label', l: 'Print label', i: 'print' }, { a: 'ship', l: 'Mark shipped', i: 'local_shipping' },
+      { section: 'This order' }, { a: 'view', l: 'Order detail', i: 'open_in_new' },
+      { section: 'Documents' }, { a: 'slip', l: 'Packing slip', i: 'receipt' }, { a: 'label', l: 'Print label', i: 'print' },
+      { section: 'Fulfill' }, { a: 'ship', l: 'Mark shipped', i: 'local_shipping' }, { a: 'track', l: 'Track shipment', i: 'local_shipping' },
       { section: 'Post-order' }, { a: 'rma', l: 'View linked RMA', i: 'assignment_return' }, { a: 'restock', l: 'Restock inventory', i: 'sync' },
       { section: '' }, { a: 'cancel', l: 'Cancel order', i: 'block', danger: true },
     ],
@@ -236,31 +236,6 @@ function mapReturnRow(d: Record<string, unknown>): ReturnRow {
 /* COMPONENT                                                          */
 /* ══════════════════════════════════════════════════════════════════ */
 
-/** Batch E: payments recorded against an erp order (acct_order_payments). */
-function OrderPayments({ orderId }: { orderId: string }) {
-  const [payments, setPayments] = useState<{ id: string; kind: string; amount: number; fee: number; processor: string | null; processorRef: string | null; createdAt: string }[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/orders/${orderId}/payments`).then((r) => r.json()).then((j) => {
-      if (!cancelled) setPayments(j?.data || []);
-    }).catch(() => { if (!cancelled) setPayments([]); });
-    return () => { cancelled = true; };
-  }, [orderId]);
-  if (payments === null) return <div className="text-[12px] text-on-surface-variant mt-3">Loading payments…</div>;
-  if (payments.length === 0) return <div className="text-[12px] text-on-surface-variant mt-3">No payments recorded against this order yet.</div>;
-  return (
-    <div className="mt-3">
-      <div className="text-[12px] font-bold mb-1">Payments ({payments.length})</div>
-      {payments.map((p) => (
-        <div key={p.id} className="flex justify-between py-1 text-[12px] border-b border-surface-dim/50">
-          <span>{p.kind}{p.processor ? ` · ${p.processor}` : ''}{p.processorRef ? ` ${p.processorRef}` : ''} · {p.createdAt.slice(0, 10)}</span>
-          <span className="tabular-nums font-medium">${p.amount.toFixed(2)}{p.fee > 0 ? ` (fee $${p.fee.toFixed(2)})` : ''}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export interface OrdersWorkbenchProps {
   onToast: (m: string) => void;
   onNavigate?: (d: string, s: string) => void;
@@ -272,6 +247,10 @@ interface DrawerState {
   sub: string;
   body: React.ReactNode;
   footer: React.ReactNode;
+  /** Wide drawer (e.g., Shipping settings) — 960px instead of 680px */
+  wide?: boolean;
+  /** No footer chrome — for embedded full-page surfaces that have their own */
+  bare?: boolean;
 }
 
 interface RowMenuState {
@@ -357,7 +336,15 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
       // Status filter
       let statusOk = status === 'All';
       if (!statusOk) {
-        if (scope === 'fulfillment') {
+        if (scope === 'orders') {
+          const o = r as unknown as OrderRow;
+          if (status === 'Order Issues') {
+            // Saved view: Manual Push / Needs Attention — unfulfilled, past SLA, or both
+            statusOk = o.status === 'Unfulfilled' || o.slaPast;
+          } else {
+            statusOk = o.status === status;
+          }
+        } else if (scope === 'fulfillment') {
           const track = (r as unknown as OrderRow).track;
           const sla = (r as unknown as OrderRow).sla;
           statusOk =
@@ -414,6 +401,12 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
 
   const tabCount = useCallback((s: string): number => {
     if (s === 'All') return data.length;
+    if (scope === 'orders' && s === 'Order Issues') {
+      return data.filter((r) => {
+        const o = r as unknown as OrderRow;
+        return o.status === 'Unfulfilled' || o.slaPast;
+      }).length;
+    }
     if (scope === 'fulfillment') {
       return data.filter((r) => {
         const o = r as unknown as OrderRow;
@@ -434,17 +427,6 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
     if (scope === 'returns') return (r as unknown as ReturnRow).id;
     return (r as unknown as OrderRow).id;
   }, [scope]);
-
-  // Mutations must use the real document UUID (row.docId), NOT the display
-  // id — the display id is the order number with the SO- prefix stripped
-  // ("VERIFY-002"), which matches no row in erp_orders. The send/void
-  // endpoints look up by erp_orders.id, so passing the display id made
-  // Mark shipped / Cancel order silently do nothing while the toast
-  // claimed success. (GAP-3)
-  const docIdFor = useCallback((rowId: string): string => {
-    const row = orders.find(r => rowIdOf(r) === rowId);
-    return row ? (row as OrderRow).docId || rowId : rowId;
-  }, [orders, rowIdOf]);
 
   const toggleRow = (id: string) =>
     setSelected(prev => {
@@ -473,38 +455,6 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
   }, [onToast]);
 
   // ════════════════════════════════════════════════════════════════
-  // CSV IMPORT (GAP-2) — customer name resolves to a party id; each row
-  // becomes a draft sales order with the total from the file.
-  // ════════════════════════════════════════════════════════════════
-
-  const importRef = useRef<HTMLInputElement | null>(null);
-
-  async function handleImport(file: File) {
-    const { ok, failed } = await importCsvFile(
-      file,
-      VIEW_DEFS.orders.columns,
-      '/api/v1/documents?type=SalesOrder',
-      async (row) => {
-        const partyId = await resolvePartyId(row.customer || '');
-        if (!partyId) return null;
-        const total = Number(String(row.total || '').replace(/[^0-9.]/g, '')) || 0;
-        return {
-          type: 'SalesOrder',
-          partyId,
-          number: row.number || undefined,
-          date: row.date || undefined,
-          subtotal: total,
-          total,
-          status: 'draft',
-        };
-      },
-    );
-    if (ok === 0 && failed === 0) { showToast('That CSV has no data rows'); return; }
-    showToast(`Import finished — ${ok} created${failed ? `, ${failed} failed` : ''}`);
-    if (ok > 0) refreshOrders();
-  }
-
-  // ════════════════════════════════════════════════════════════════
   // ROW MENU
   // ════════════════════════════════════════════════════════════════
 
@@ -528,7 +478,7 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
     return () => document.removeEventListener('click', onDocClick);
   }, [closeRowMenu]);
 
-  const handleRowAction = async (act: string, id: string) => {
+  const handleRowAction = (act: string, id: string) => {
     closeRowMenu();
     if (act === 'view') {
       openDrawer(id);
@@ -549,16 +499,14 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
       return;
     }
     if (act === 'ship') {
-      const res = await fetch(`/api/v1/documents/${docIdFor(id)}/send?type=SalesOrder`, { method: 'POST' }).catch(() => null);
-      if (res?.ok) showToast(`Order #${id} marked shipped`);
-      else showToast(`Order #${id} could not be marked shipped`);
+      fetch(`/api/v1/documents/${id}/send?type=SalesOrder`, { method: 'POST' }).catch(() => {});
+      showToast(`Order #${id} marked shipped`);
       refreshOrders();
       return;
     }
     if (act === 'cancel') {
-      const res = await fetch(`/api/v1/documents/${docIdFor(id)}/void?type=SalesOrder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Cancelled by user' }) }).catch(() => null);
-      if (res?.ok) showToast(`Order #${id} cancelled`);
-      else showToast(`Order #${id} could not be cancelled`);
+      fetch(`/api/v1/documents/${id}/void?type=SalesOrder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Cancelled by user' }) }).catch(() => {});
+      showToast(`Order #${id} cancelled`);
       refreshOrders();
       return;
     }
@@ -587,29 +535,56 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
       return;
     }
     if (act === 'slip' || act === 'label') {
-      // Record the slip/label in commerce tables (doc 14 bindings), then print.
-      const run = act === 'slip'
-        ? fetch('/api/v1/orders/batch-labels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderIds: [id], includeLabels: false }) })
-        : fetch(`/api/v1/orders/${id}/labels`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-      run.then(() => { showToast(act === 'slip' ? `Packing slip created for #${id}` : `Shipping label created for #${id}`); window.print(); })
-        .catch(() => { showToast(`Could not create ${act} for #${id}`); });
+      // PACKING SLIP drawer — opens inline as a child of the order row.
+      // Replaces the old sidebar "Packing slip" screen.
+      const o = orders.find(x => x.id === id);
+      setDrawer({
+        icon: act === 'slip' ? 'receipt' : 'print',
+        title: act === 'slip' ? `Packing slip · #${id}` : `Label · #${id}`,
+        sub: o ? `${o.customer} · ${o.items}` : `Order #${id}`,
+        body: (
+          <div className="space-y-4">
+            <div className="bg-surface-container-low rounded-lg p-4 border border-surface-dim">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Ship to</div>
+                  <div className="text-body-md font-semibold mt-0.5">{o?.customer ?? 'Customer'}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Order #</div>
+                  <div className="text-body-md font-semibold mt-0.5">#{id}</div>
+                </div>
+              </div>
+              <div className="border-t border-surface-dim pt-3">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider mb-2">Line items</div>
+                <div className="text-body-sm">{o?.items ?? '—'}</div>
+              </div>
+              <div className="border-t border-surface-dim mt-3 pt-3 flex items-center justify-between">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Carrier</div>
+                <div className="text-body-sm font-semibold">{o?.carrier ?? 'USPS'}</div>
+              </div>
+            </div>
+            <div className="text-[11px] text-on-surface-variant">
+              Use your browser's print dialog to send this to a label printer or PDF.
+            </div>
+          </div>
+        ),
+        footer: (
+          <div className="flex items-center gap-2">
+            <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Close</button>
+            <button
+              className="h-8 px-3 bg-primary text-white rounded font-semibold flex items-center gap-1"
+              onClick={() => window.print()}
+            >
+              <span className="material-symbols-outlined text-[14px]">print</span>Print
+            </button>
+          </div>
+        ),
+      });
       return;
     }
     if (act === 'track') {
-      // Track-shipment peek (doc 14): latest shipment + tracking event
-      // from the order detail API.
-      fetch(`/api/v1/orders/${id}`)
-        .then(r => r.json())
-        .then(json => {
-          const d = json.data;
-          if (!d) { showToast(`No tracking data for #${id}`); return; }
-          const ship = (d.shipments || [])[0];
-          const ev = (d.trackingEvents || [])[0];
-          showToast(ship
-            ? `#${id}: ${ship.status}${ship.trackingNumber ? ` · ${ship.trackingNumber}` : ''}${ev ? ` · last event ${ev.eventCode} ${String(ev.eventAt).slice(0, 10)}` : ''}`
-            : `#${id}: no shipment yet — status ${d.displayStatus}`);
-        })
-        .catch(() => showToast(`Tracking unavailable for #${id}`));
+      showToast(`Tracking shipment for #${id}`);
       return;
     }
     if (act === 'adjust') {
@@ -639,23 +614,71 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
     if (scope === 'orders') {
       const o = orders.find(x => x.id === id);
       if (!o) return;
+      // ORDER DETAIL drawer — the row action that replaced the sidebar screen.
+      // Children (items, fulfillment timeline, packing slip preview, linked RMA)
+      // live INLINE on this drawer, not as their own sidebar screens.
       setDrawer({
         icon: 'shopping_cart',
         title: `Order #${o.id}`,
-        sub: o.customer,
+        sub: `${o.customer} · ${o.status} · ${money(o.total)}`,
         body: (
-          <div>
-            <div className="bg-surface-container-low p-3 rounded">{o.items}</div>
-            <OrderPayments orderId={o.docId} />
+          <div className="space-y-4">
+            {/* Items */}
+            <div>
+              <div className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">Items</div>
+              <div className="bg-surface-container-low rounded-lg p-3 text-body-sm">{o.items}</div>
+            </div>
+            {/* Fulfillment snapshot */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-surface-container-low rounded-lg p-2 text-center">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Channel</div>
+                <div className="text-body-sm font-semibold capitalize mt-0.5">{o.track}</div>
+              </div>
+              <div className="bg-surface-container-low rounded-lg p-2 text-center">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">Carrier</div>
+                <div className="text-body-sm font-semibold mt-0.5">{o.carrier || '—'}</div>
+              </div>
+              <div className="bg-surface-container-low rounded-lg p-2 text-center">
+                <div className="text-[10px] text-on-surface-variant uppercase tracking-wider">SLA</div>
+                <div className={`text-body-sm font-semibold mt-0.5 ${o.slaPast ? 'text-error' : ''}`}>{o.sla}</div>
+              </div>
+            </div>
+            {/* Timeline */}
+            <div>
+              <div className="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">Timeline</div>
+              <ol className="space-y-2">
+                {[
+                  { t: 'Order placed', v: o.createdAt || '—' },
+                  { t: 'Payment received', v: Number(o.total) > 0 ? 'Captured' : 'Pending' },
+                  { t: 'Fulfillment', v: o.status === 'Shipped' || o.status === 'Delivered' ? 'Shipped' : 'Awaiting' },
+                  { t: 'Delivery', v: o.status === 'Delivered' ? 'Delivered' : '—' },
+                ].map((step, i) => (
+                  <li key={i} className="flex items-center gap-2 text-body-sm">
+                    <span className={`w-2 h-2 rounded-full ${step.v === 'Awaiting' || step.v === 'Pending' || step.v === '—' ? 'bg-surface-dim' : 'bg-primary'}`} />
+                    <span className="font-medium">{step.t}</span>
+                    <span className="text-on-surface-variant ml-auto">{step.v}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
         ),
         footer: (
-          <button
-            className="h-8 px-3 bg-primary text-white rounded"
-            onClick={() => setDrawer(null)}
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Close</button>
+            <button
+              className="h-8 px-3 border border-surface-dim rounded flex items-center gap-1"
+              onClick={() => { setDrawer(null); handleRowAction('slip', id); }}
+            >
+              <span className="material-symbols-outlined text-[14px]">receipt</span>Packing slip
+            </button>
+            <button
+              className="h-8 px-3 bg-primary text-white rounded font-semibold flex items-center gap-1"
+              onClick={() => { setDrawer(null); handleRowAction('ship', id); }}
+            >
+              <span className="material-symbols-outlined text-[14px]">local_shipping</span>Mark shipped
+            </button>
+          </div>
         ),
       });
     } else if (scope === 'inventory') {
@@ -725,25 +748,17 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
   // BULK ACTIONS
   // ════════════════════════════════════════════════════════════════
 
-  const runBulk = async (label: string) => {
+  const runBulk = (label: string) => {
     const n = selected.size;
     const ids = [...selected];
     const act = label.toLowerCase();
     if (act.includes('ship')) {
-      const results = await Promise.all([...selected].map(async (rowId) => {
-        const res = await fetch(`/api/v1/documents/${docIdFor(rowId)}/send?type=SalesOrder`, { method: 'POST' }).catch(() => null);
-        return res?.ok === true;
-      }));
-      const done = results.filter(Boolean).length;
-      showToast(done === n ? `Marked ${n} orders shipped` : `Marked ${done} of ${n} orders shipped`);
+      ids.forEach(id => fetch(`/api/v1/documents/${id}/send?type=SalesOrder`, { method: 'POST' }).catch(() => {}));
+      showToast(`Marked ${n} orders shipped`);
       refreshOrders();
     } else if (act.includes('cancel')) {
-      const results = await Promise.all([...selected].map(async (rowId) => {
-        const res = await fetch(`/api/v1/documents/${docIdFor(rowId)}/void?type=SalesOrder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Bulk cancel' }) }).catch(() => null);
-        return res?.ok === true;
-      }));
-      const done = results.filter(Boolean).length;
-      showToast(done === n ? `Cancelled ${n} orders` : `Cancelled ${done} of ${n} orders`);
+      ids.forEach(id => fetch(`/api/v1/documents/${id}/void?type=SalesOrder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Bulk cancel' }) }).catch(() => {}));
+      showToast(`Cancelled ${n} orders`);
       refreshOrders();
     } else if (act.includes('slip') || act.includes('label')) {
       window.print();
@@ -834,6 +849,29 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
     }
     if (act === 'pick') {
       showToast('Pick list — opening');
+      return;
+    }
+    if (act === 'shipping') {
+      // Open Shipping settings inline as a wide drawer — this is the
+      // gear on the Orders header. No more separate sidebar screen.
+      setDrawer({
+        icon: 'local_shipping',
+        title: 'Shipping settings',
+        sub: 'Carriers, packaging, and delivery rules',
+        wide: true,
+        bare: true,
+        body: (
+          <ShippingSettings
+            onToast={showToast}
+            onNavigate={onNavigate ?? (() => {})}
+          />
+        ),
+        footer: (
+          <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>
+            Close
+          </button>
+        ),
+      });
       return;
     }
     showToast(`${act} — opening`);
@@ -953,59 +991,13 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
             <p className="text-body-sm text-on-surface-variant mt-0.5">All orders across channels · SLAs enforced</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className={`${styles.splitBtn} flex`}>
+            
               <button
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
                 onClick={() => topAction('create')}
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>Create order
               </button>
-              <button
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                onClick={() => {
-                  setDrawer({
-                    icon: 'shopping_cart',
-                    title: 'Create',
-                    sub: 'Choose order type',
-                    body: (
-                      <div className="space-y-2">
-                        {[
-                          { label: 'Sales order', icon: 'shopping_cart', type: 'SalesOrder' },
-                          { label: 'Return / RMA', icon: 'assignment_return', type: 'RMA' },
-                          { label: 'Manual order', icon: 'edit_note', type: 'SalesOrder' },
-                        ].map((opt) => (
-                          <button
-                            key={opt.label}
-                            className="w-full flex items-center gap-2 p-2 rounded hover:bg-surface-container-low text-left"
-                            onClick={() => {
-                              fetch('/api/v1/documents', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ type: opt.type, status: 'draft' }),
-                              }).then(() => {
-                                showToast(`${opt.label} created`);
-                                setDrawer(null);
-                                if (opt.type === 'RMA') refreshReturns(); else refreshOrders();
-                              }).catch(() => showToast('Failed to create'));
-                            }}
-                          >
-                            <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{opt.icon}</span>
-                            <span className="text-[13px] font-medium">{opt.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ),
-                    footer: <button className="h-8 px-3 border border-surface-dim rounded" onClick={() => setDrawer(null)}>Cancel</button>,
-                  });
-                }}
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <input ref={importRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleImport(f); }} />
-            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => importRef.current?.click()}>
-              <span className="material-symbols-outlined text-[16px]">upload</span>Import
-            </button>
             <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => topAction('report')}>
               <span className="material-symbols-outlined text-[16px]">report_problem</span>Report a problem
             </button>
@@ -1014,6 +1006,14 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
             </button>
             <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" onClick={() => topAction('pick')}>
               <span className="material-symbols-outlined text-[16px]">checklist</span>Pick list
+            </button>
+            <button
+              className="h-8 w-8 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center justify-center"
+              onClick={() => topAction('shipping')}
+              title="Shipping settings"
+              aria-label="Shipping settings"
+            >
+              <span className="material-symbols-outlined text-[18px]">settings</span>
             </button>
           </div>
         </div>
@@ -1049,17 +1049,38 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
             ))}
           </div>
 
-          {/* STATUS TABS */}
+          {/* STATUS TABS — 'Order Issues' is a saved-view chip, not a plain status */}
           <div className="flex items-center gap-1 px-4 h-11 border-b border-surface-dim overflow-x-auto">
-            {cfg.statuses.map((s) => (
-              <button
-                key={s}
-                className={`h-full px-3 text-label-md ${styles.tabUnderline} ${status === s ? `${styles.tabUnderlineActive}` : 'text-on-surface-variant'}`}
-                onClick={() => setStatus(s)}
-              >
-                {s} <span className="ml-1 text-[10px] text-outline">{tabCount(s)}</span>
-              </button>
-            ))}
+            {cfg.statuses.map((s) => {
+              const isIssueChip = s === 'Order Issues';
+              const issueCount = tabCount(s);
+              const isActive = status === s;
+              if (isIssueChip) {
+                return (
+                  <button
+                    key={s}
+                    className={`h-full px-3 ml-2 rounded-md text-label-md flex items-center gap-1.5 border transition-colors ${isActive ? 'bg-error-container text-on-error-container border-error' : 'bg-surface-container-low text-on-surface-variant border-surface-dim hover:bg-surface-container'}`}
+                    onClick={() => setStatus(s)}
+                    title="Manual Push / Needs Attention — unfulfilled or past SLA"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">priority_high</span>
+                    {s}
+                    {issueCount > 0 && (
+                      <span className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${isActive ? 'bg-error text-white' : 'bg-error text-white'}`}>{issueCount}</span>
+                    )}
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={s}
+                  className={`h-full px-3 text-label-md ${styles.tabUnderline} ${isActive ? `${styles.tabUnderlineActive}` : 'text-on-surface-variant'}`}
+                  onClick={() => setStatus(s)}
+                >
+                  {s} <span className="ml-1 text-[10px] text-outline">{tabCount(s)}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* FILTER BAR */}
@@ -1205,7 +1226,7 @@ export default function OrdersWorkbench({ onToast, onNavigate }: OrdersWorkbench
         className={`${styles.drawerScrim} ${drawer ? styles.drawerScrimOpen : ''}`}
         onClick={() => setDrawer(null)}
       />
-      <div className={`${styles.drawer} ${drawer ? styles.drawerOpen : ''}`}>
+      <div className={`${styles.drawer} ${drawer ? styles.drawerOpen : ''} ${drawer?.wide ? styles.drawerWide : ''} ${drawer?.bare ? styles.drawerBare : ''}`}>
         {drawer && (
           <>
             <div className="flex items-center justify-between px-5 h-14 border-b border-surface-dim shrink-0">

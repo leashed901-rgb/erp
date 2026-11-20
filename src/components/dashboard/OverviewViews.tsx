@@ -641,6 +641,14 @@ export function OperationsVitalsView({
   }, []);
 
   const now = new Date();
+  // Hydration fix: render the date label client-side only (SSR runs in UTC,
+  // client runs in local timezone — the date can differ by a day).
+  const [todayLabel, setTodayLabel] = useState<string>('');
+  useEffect(() => {
+    setTodayLabel(now.toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    }));
+  }, []);
   const windowFrom =
     windowMode === 'Today'
       ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -826,9 +834,7 @@ export function OperationsVitalsView({
     return styles.fillPrimary;
   };
 
-  const todayLabel = now.toLocaleDateString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-  });
+  // todayLabel is set via useState + useEffect above (hydration-safe)
 
   return (
     <div className={styles.container}>

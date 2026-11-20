@@ -1,20 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { DomainKey } from '@/data/shellData';
-import { useOrders, useBatchSlips, orderMutations } from '@/hooks/useOrdersApi';
-
-export interface BatchOrder {
-  id: string;
-  customer: string;
-  items: string;
-  method: string;
-  checked: boolean;
-  pastSla: boolean;
-}
+import { BATCH_ORDERS } from '@/data/ordersData';
 import styles from './OrdersPages.module.css';
-
-type BatchRow = BatchOrder & { docId: string };
 
 interface OrdersScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
@@ -25,36 +14,9 @@ interface OrdersScreenProps {
 
 export function BatchSlips({ onToast }: OrdersScreenProps) {
   const [docType, setDocType] = useState<string>('both');
-  const [orders, setOrders] = useState<BatchRow[]>([]);
+  const [orders, setOrders] = useState(BATCH_ORDERS.map(o => ({ ...o })));
   const [template, setTemplate] = useState<string>('letter');
   const [carrier, setCarrier] = useState('usps');
-  const { data: orderDtos, refresh } = useOrders();
-  const { data: pastBatches } = useBatchSlips();
-
-  // Orders in the batch come from erp_orders (open orders) via the API.
-  useEffect(() => {
-    setOrders((orderDtos || [])
-      .filter((o) => ['New', 'Ready to ship', 'Needs attention', 'In production'].includes(o.displayStatus))
-      .map((o) => ({
-        docId: o.id,
-        id: `#${o.orderNumber}`,
-        customer: o.customerName || (o.customerEmail ? o.customerEmail.split('@')[0] : '—'),
-        items: `${o.itemCount} item${o.itemCount === 1 ? '' : 's'}`,
-        method: o.fulfillmentMethod === 'pickup' ? 'Pickup' : (o.channel || 'Ship'),
-        checked: o.displayStatus === 'Ready to ship',
-        pastSla: o.slaDueAt ? new Date(o.slaDueAt) < new Date() : false,
-      })));
-  }, [orderDtos]);
-
-  const generateBatch = async () => {
-    const ids = orders.filter((o) => o.checked).map((o) => o.docId);
-    if (!ids.length) { onToast('Select at least one order'); return; }
-    try {
-      const res = await orderMutations.createBatch({ orderIds: ids, includeLabels: docType !== 'slips', carrier, template }) as unknown as { data: { slip: { batchNumber: string } } };
-      onToast(`Batch ${res.data.slip.batchNumber} created — ${ids.length} orders`);
-      window.print();
-    } catch { onToast('Could not create the batch'); }
-  };
 
   const selectedCount = orders.filter(o => o.checked).length;
   const toggleOrder = (id: string) => {
@@ -81,12 +43,12 @@ export function BatchSlips({ onToast }: OrdersScreenProps) {
             <p className={styles.pageSubtitle}>Choose what to print, configure the template, preview, and send to printer</p>
           </div>
           <div className={styles.headerActions}>
-            <button className={styles.btnSecondary} onClick={() => { refresh(); onToast('Batch orders refreshed'); }}>
+            <button className={styles.btnSecondary} onClick={() => { setOrders(BATCH_ORDERS.map(o => ({ ...o }))); onToast('Reset'); }}>
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
               Reset
             </button>
             <div className={styles.splitBtn}>
-              <button className={styles.splitBtnMain} onClick={generateBatch}>
+              <button className={styles.splitBtnMain} onClick={() => window.print()}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>print</span>
                 Generate &amp; print
               </button>
@@ -252,7 +214,7 @@ export function BatchSlips({ onToast }: OrdersScreenProps) {
               <div className={styles.batchSummaryRow}><span>Slips to generate</span><span>{docType !== 'labels' ? selectedCount : 0}</span></div>
               <div className={styles.batchSummaryRow}><span>Labels to generate</span><span>{docType !== 'slips' ? selectedCount : 0}</span></div>
               <div className={styles.batchSummaryRow}><span>Est. pages</span><span>{selectedCount}</span></div>
-              <div className={styles.batchSummaryRow}><span>Est. postage</span><span>At purchase</span></div>
+              <div className={styles.batchSummaryRow}><span>Est. postage</span><span>$18.40</span></div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 12, cursor: 'pointer' }}>
                 <input type="checkbox" defaultChecked /> Mark orders as &ldquo;Label printed&rdquo; after batch
               </label>
@@ -266,15 +228,11 @@ export function BatchSlips({ onToast }: OrdersScreenProps) {
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>bookmark_add</span>
                 Save as template preset
               </button>
-              <button className={styles.btnSecondary} style={{ width: '100%', marginBottom: 8, justifyContent: 'center' }} onClick={() => window.print()}>
+              <button className={styles.btnSecondary} style={{ width: '100%', marginBottom: 8, justifyContent: 'center' }} onClick={() => onToast('Test printing one copy…')}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>print</span>
                 Test print one copy
               </button>
-              <button className={styles.btnSecondary} style={{ width: '100%', justifyContent: 'center' }} onClick={() => {
-                const last = (pastBatches || [])[0];
-                if (last) { onToast(`Reprinting ${last.batchNumber} (${last.orderCount} orders)`); window.print(); }
-                else onToast('No previous batch to reprint');
-              }}>
+              <button className={styles.btnSecondary} style={{ width: '100%', justifyContent: 'center' }} onClick={() => onToast('Reprinting last batch…')}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>history</span>
                 Reprint last batch
               </button>

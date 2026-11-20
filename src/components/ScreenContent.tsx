@@ -51,6 +51,7 @@ import SalesTransactions from './sales/SalesTransactions';
 import InvoicesScreen from './sales/InvoicesScreen';
 import PaymentLinksScreen from './sales/PaymentLinksScreen';
 import CatalogProductsScreen from './catalog/CatalogProductsScreen';
+import EtnologicCatalog from './catalog/EtnologicCatalog';
 import CatalogOverviewPage from './catalog/CatalogOverviewPage';
 import ProductsPage from './catalog/ProductsPage';
 import ListingsPage from './catalog/ListingsPage';
@@ -3336,7 +3337,7 @@ function TabScreenRenderer({
   }
 
   if (screenId === 'catalog-overview') {
-    return <CatalogOverviewPage onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
+    return <EtnologicCatalog onToast={onToast} onNavigate={onNavigate as (d: string, s: string) => void} />;
   }
 
   if (screenId === 'listings') {

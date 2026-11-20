@@ -3,9 +3,7 @@
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useEffect, useMemo, useState } from 'react';
-import { useSocialPosts, useSocialAccounts, useOversightRules, socialMutations } from '@/hooks/useSocialApi';
-import type { SocialPost } from '@/lib/socialTypes';
+import { useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -61,7 +59,22 @@ interface DecisionEntry {
   note: string;
 }
 
+const INITIAL_ITEMS: ReviewItem[] = [
+  { id: 'rv-001', title: 'October product spotlight', caption: "A closer look at what's new this month.", channel: 'Instagram', author: 'Sarah A.', scheduled: '2026-11-01T15:30', reason: 'policy', reviewer: '—', state: 'awaiting', flag: 'blocked_word', note: "Contains 'guaranteed' — policy rule." },
+  { id: 'rv-002', title: 'Behind the scenes', caption: 'A little look behind the scenes.', channel: 'TikTok', author: 'Marcus L.', scheduled: '2026-11-01T10:00', reason: 'quality', reviewer: 'Jordan A.', state: 'awaiting', flag: 'missing_media', note: 'No media attached.' },
+  { id: 'rv-003', title: 'Weekly company update', caption: "This week's updates from our team.", channel: 'LinkedIn', author: 'Priya N.', scheduled: '2026-11-03T09:00', reason: 'brand', reviewer: '—', state: 'awaiting', flag: 'new_author', note: 'First post from new author.' },
+  { id: 'rv-004', title: 'Holiday capsule teaser', caption: 'Something cozy is coming.', channel: 'Instagram', author: 'Sarah A.', scheduled: '2026-11-04T12:00', reason: 'spam', reviewer: 'Jordan A.', state: 'awaiting', flag: 'duplicate', note: 'Near-duplicate caption of ORD-1052 post.' },
+  { id: 'rv-005', title: 'Team spotlight — Dana', caption: 'Meet Dana, our VP Engineering.', channel: 'LinkedIn', author: 'Priya N.', scheduled: '2026-11-05T09:00', reason: 'brand', reviewer: '—', state: 'awaiting', flag: 'brand_voice', note: 'Needs tone check.' },
+  { id: 'rv-006', title: 'Canvas tote drop', caption: 'New canvas totes are here.', channel: 'Facebook', author: 'Marcus L.', scheduled: '2026-11-06T11:00', reason: 'policy', reviewer: 'Sarah A.', state: 'awaiting', flag: 'channel_not_connected', note: 'Facebook not connected for this author.' },
+  { id: 'rv-007', title: 'Mug restock', caption: 'Our 11oz mug is back.', channel: 'Instagram', author: 'Sarah A.', scheduled: '2026-11-07T10:00', reason: 'quality', reviewer: '—', state: 'awaiting', flag: 'missing_media', note: 'No media attached.' },
+];
 
+const INITIAL_DECISIONS: DecisionEntry[] = [
+  { when: '2026-11-01T09:12', title: 'October product spotlight', decision: 'approved', reviewer: 'Jordan A.', reason: 'brand', note: 'Good to go.' },
+  { when: '2026-11-01T09:20', title: 'Behind the scenes', decision: 'changes', reviewer: 'Jordan A.', reason: 'quality', note: 'Add media.' },
+  { when: '2026-10-31T16:40', title: 'Weekly company update', decision: 'approved', reviewer: 'Sarah A.', reason: 'brand', note: '—' },
+  { when: '2026-10-31T15:05', title: 'Holiday capsule teaser', decision: 'rejected', reviewer: 'Jordan A.', reason: 'spam', note: 'Duplicate of prior post.' },
+];
 
 interface Rule {
   id: string;
@@ -70,8 +83,6 @@ interface Rule {
   enabled: boolean;
 }
 
-/* Pre-load defaults — identical to the API's catalog defaults; the
-   saved tenant choices replace them as soon as the rules load. */
 const INITIAL_RULES: Rule[] = [
   { id: 'blocked_words', name: 'Blocked words', category: 'Policy / compliance', enabled: true },
   { id: 'duplicate', name: 'Duplicate caption check', category: 'Spam / duplication', enabled: true },
@@ -141,63 +152,8 @@ interface Chip {
 export default function OversightScreen({ onToast, onNavigate }: MarketingScreenProps) {
   /* ─── STATE ─── */
   const [view, setView] = useState<View>('queue');
-  const { posts: apiPosts, setPosts: setApiPosts } = useSocialPosts();
-  const { accounts: apiAccounts } = useSocialAccounts();
-
-  // Oversight rules — enabled state persists server-side
-  // (policy_settings via /api/social/oversight-rules) and gates the
-  // flagging in the items effect below.
-  const { rules: savedRules } = useOversightRules();
-  const [rules, setRules] = useState<Rule[]>(INITIAL_RULES);
-  useEffect(() => {
-    if (savedRules.length) setRules(savedRules.map(r => ({ id: r.id, name: r.name, category: r.category, enabled: r.enabled })));
-  }, [savedRules]);
-  const [items, setItems] = useState<ReviewItem[]>([]);
-  const [decisions, setDecisions] = useState<DecisionEntry[]>([]);
-
-  /* The review queue is the tenant's draft posts; flags are computed
-     from the enabled rules below against real post/account data.
-     Decisions derive from posts: approved_by stamps approvals,
-     cancelled posts with a review note are rejections. */
-  useEffect(() => {
-    const connectedNetworks = new Set(apiAccounts.filter(a => a.status === 'connected').map(a => a.network));
-    const captions = new Map<string, number>();
-    for (const p of apiPosts) captions.set(p.caption.trim().toLowerCase(), (captions.get(p.caption.trim().toLowerCase()) || 0) + 1);
-    const enabledRules = new Set(rules.filter(r => r.enabled).map(r => r.id));
-    const flagFor = (p: SocialPost): { flag: string; reason: Reason; note: string } => {
-      if (enabledRules.has('missing_media') && !p.mediaUrls.length) return { flag: 'missing_media', reason: 'quality', note: 'No media attached.' };
-      if (enabledRules.has('channel_not_connected') && p.channels.some(c => !connectedNetworks.has(c))) return { flag: 'channel_not_connected', reason: 'policy', note: 'A target channel is not connected.' };
-      if (enabledRules.has('duplicate') && (captions.get(p.caption.trim().toLowerCase()) || 0) > 1) return { flag: 'duplicate', reason: 'spam', note: 'Near-duplicate caption of another post.' };
-      if (enabledRules.has('new_author')) return { flag: 'new_author', reason: 'brand', note: 'Awaiting a brand-voice check.' };
-      return { flag: 'manual', reason: 'brand', note: 'No enabled rule flagged this post — manual review.' };
-    };
-    const netLabel = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
-    setItems(apiPosts.filter(p => p.status === 'draft').map(p => {
-      const f = flagFor(p);
-      return {
-        id: p.id,
-        title: p.title || p.caption.slice(0, 42) || 'Untitled post',
-        caption: p.caption,
-        channel: p.channels.map(netLabel).join(', ') || '—',
-        author: '—',
-        scheduled: p.scheduledAt || '',
-        reason: f.reason,
-        reviewer: '—',
-        state: 'awaiting' as State,
-        flag: f.flag,
-        note: p.error || f.note,
-      };
-    }));
-    const derived: DecisionEntry[] = [];
-    for (const p of apiPosts) {
-      if (p.approvedBy && p.status !== 'cancelled') {
-        derived.push({ when: p.updatedAt, title: p.title || p.caption.slice(0, 42), decision: 'approved', reviewer: 'Staff', reason: 'brand', note: '—' });
-      } else if (p.status === 'cancelled') {
-        derived.push({ when: p.updatedAt, title: p.title || p.caption.slice(0, 42), decision: 'rejected', reviewer: 'Staff', reason: 'brand', note: p.error || '—' });
-      }
-    }
-    setDecisions(derived.sort((a, b) => (a.when < b.when ? 1 : -1)));
-  }, [apiPosts, apiAccounts, rules]);
+  const [items, setItems] = useState<ReviewItem[]>(INITIAL_ITEMS);
+  const [decisions, setDecisions] = useState<DecisionEntry[]>(INITIAL_DECISIONS);
   const [decTab, setDecTab] = useState<DecTab>('all');
 
   // Filters
@@ -227,6 +183,7 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
 
   // Rules modal
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [rules, setRules] = useState<Rule[]>(INITIAL_RULES);
 
   // Row menu
   const [rowMenuForId, setRowMenuForId] = useState<string | null>(null);
@@ -237,7 +194,7 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
       const ql = q.toLowerCase();
       const textOK = !ql || (it.title + ' ' + it.caption + ' ' + it.channel + ' ' + it.author).toLowerCase().includes(ql);
       const reasonOK = reasons.has(it.reason);
-      const channelOK = it.channel === '—' || it.channel.split(', ').some(c => channels.has(c) || !(CHANNELS as readonly string[]).includes(c));
+      const channelOK = channels.has(it.channel);
       const stateOK = !awaitingOnly || it.state === 'awaiting';
       return textOK && reasonOK && channelOK && stateOK;
     });
@@ -266,7 +223,7 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
 
   /* ─── HANDLERS ─── */
   function navigateTo(key: string) {
-    if (onNavigate) onNavigate('marketing', key);
+    if (onNavigate) onNavigate('social', key);
     onToast(`Navigate → ${key}`);
   }
 
@@ -346,7 +303,7 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
     setDecisionAction(null);
     setDecisionIds([]);
   }
-  async function confirmDecision() {
+  function confirmDecision() {
     if (!decisionAction) return;
     if (decisionAction !== 'assign' && !decisionReason) {
       onToast('Pick a reason before confirming');
@@ -354,7 +311,7 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
     }
     const action = decisionAction;
     const ids = decisionIds.slice();
-    const reviewer = decisionReviewer.replace(/ \(me\)$/, '');
+    const reviewer = decisionReviewer;
     const reason = (decisionReason || 'brand') as Reason;
     const note = decisionNote;
 
@@ -363,20 +320,6 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
       setItems(prev => prev.map(it => idSet.has(it.id) ? { ...it, reviewer } : it));
       onToast('Assigned to ' + reviewer);
     } else {
-      /* Persist each decision: approve stamps approved_by (and
-         schedules), reject cancels the post with the review note,
-         changes keeps the draft and stores the note on it. */
-      let working = apiPosts.slice();
-      for (const id of ids) {
-        const res = action === 'approve'
-          ? await socialMutations.updatePost(id, { approve: true, approvedBy: reviewer })
-          : action === 'reject'
-            ? await socialMutations.updatePost(id, { status: 'cancelled', note: note || 'Rejected in review' })
-            : await socialMutations.updatePost(id, { note: note || 'Changes requested' });
-        if (!res.ok) { onToast('Decision failed for one post: ' + (res.error || '')); return; }
-        if (res.data) working = working.map(p => p.id === id ? res.data! : p);
-      }
-      setApiPosts(working);
       const state: State = action === 'approve' ? 'approved' : action === 'changes' ? 'changes' : 'rejected';
       const idSet = new Set(ids);
       const newDecs: DecisionEntry[] = ids.map(id => {
@@ -413,15 +356,8 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
     else if (act === 'assign') openDecision('assign', [id]);
   }
 
-  async function revertDecision(d: DecisionEntry) {
-    const post = apiPosts.find(p => (p.title || p.caption.slice(0, 42)) === d.title);
-    if (post) {
-      const res = d.decision === 'approved'
-        ? await socialMutations.updatePost(post.id, { approve: false })
-        : await socialMutations.updatePost(post.id, { status: 'draft', note: null });
-      if (!res.ok) { onToast('Revert failed: ' + (res.error || '')); return; }
-      if (res.data) setApiPosts(apiPosts.map(p => p.id === post.id ? res.data! : p));
-    }
+  function revertDecision(d: DecisionEntry) {
+    setItems(prev => prev.map(it => it.title === d.title ? { ...it, state: 'awaiting' } : it));
     setDecisions(prev => prev.filter(x => !(x.when === d.when && x.title === d.title)));
     onToast(`Reverted "${d.title}"`);
   }
@@ -456,9 +392,7 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
     onToast(`Exported ${rows.length} oversight items`);
   }
 
-  async function saveRules() {
-    const res = await socialMutations.saveOversightRules(rules.map(r => ({ id: r.id, enabled: r.enabled })));
-    if (!res.ok) { onToast(res.error || 'Could not save oversight rules'); return; }
+  function saveRules() {
     setRulesOpen(false);
     onToast('Oversight rules saved');
   }
@@ -504,22 +438,22 @@ export default function OversightScreen({ onToast, onNavigate }: MarketingScreen
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Awaiting review</span>
           <div className="text-headline-lg mt-1">{statAwaiting}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">{items.filter(i => i.flag !== 'manual').length} flagged by rules · {items.filter(i => i.flag === 'manual').length} manual</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">3 flagged by rules · 4 manual</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Approved this week</span>
-          <div className="text-headline-lg mt-1">{decisions.filter(d => d.decision === 'approved' && Date.now() - new Date(d.when).getTime() < 7 * 86400000).length}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">From the decisions log</div>
+          <div className="text-headline-lg mt-1">23</div>
+          <div className="text-[11px] text-secondary mt-1">+6 vs last week</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Rejected / changes</span>
-          <div className="text-headline-lg mt-1">{decisions.filter(d => d.decision !== 'approved' && Date.now() - new Date(d.when).getTime() < 7 * 86400000).length}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">This week, from the decisions log</div>
+          <div className="text-headline-lg mt-1">4</div>
+          <div className="text-[11px] text-error mt-1">2 in revision</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Avg. review time</span>
-          <div className="text-headline-lg mt-1">—</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">Review duration is not tracked</div>
+          <div className="text-headline-lg mt-1">2.1h</div>
+          <div className="text-[11px] text-secondary mt-1">−0.4h vs last week</div>
         </div>
       </div>
 

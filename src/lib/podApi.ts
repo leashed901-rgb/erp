@@ -15,9 +15,6 @@
 
 export type BlankFamily = 'tops' | 'books' | 'drinkware';
 
-import type { Design } from './designTypes';
-export type { Design } from './designTypes';
-
 export interface PrintAreaPx {
   placement: string;
   widthPx: number;
@@ -114,22 +111,8 @@ export interface BlankDetail extends BlankCard {
    *  verbatim text from the supplier's catalog API. Empty string when the
    *  supplier has none. */
   description: string;
-  /** Which supplier's API filled the description ('printful' | 'printify' | 'stored' | ''). */
+  /** Which supplier's API filled the description ('printful' | 'printify' | ''). */
   descriptionSource: string;
-  /** The product's OWN features from the DB mirror
-   *  (supplier_catalog_products.features) — name + supplier icon +
-   *  description per feature. Empty when the mirror has none. */
-  features: { name: string; image?: string | null; description?: string | null }[];
-  /** The product's OWN care instructions from the DB mirror
-   *  (supplier_catalog_products.care_instructions). Empty when none. */
-  careInstructions: string[];
-  /** The product's OWN size guide from the DB mirror
-   *  (supplier_catalog_products.size_guide): sizes + measurement types
-   *  with per-size ranges (mm). Null when the mirror has none. */
-  sizeGuide: {
-    sizes?: string[];
-    types?: { name: string; units: string; ranges: { from: string; to: string }[] }[];
-  } | null;
   /** The print provider's own name (e.g. "Fulfill Engine", "Imagine Your
    *  Photos") when the supplier exposes it. Null when unknown — Printful
    *  has no separate provider concept (Printful IS the printer). */
@@ -180,8 +163,6 @@ export interface PlacementLayer {
   kind: 'image' | 'text' | 'shape';
   assetId?: string;
   text?: { value: string; fontId: string; sizeIn: number; fill: string };
-  /** Freehand draw stroke: points in inches RELATIVE to (xIn, yIn). */
-  pointsIn?: { x: number; y: number }[];
   view: string;
   xIn: number;
   yIn: number;
@@ -420,11 +401,6 @@ export async function createDesign(input: {
   supplierCatalogProductId?: string;
   garmentColor?: string;
   productType?: string;
-  /** Create it as a reusable template (canvas_state.is_template + column). */
-  isTemplate?: boolean;
-  /** Canvas state to store with the design (merged with is_template). */
-  canvasState?: Record<string, unknown>;
-  collectionId?: string | null;
 }): Promise<DesignSummary> {
   return podFetch<DesignSummary>('/api/v1/designs', {
     method: 'POST',
@@ -443,22 +419,6 @@ export async function getDesign(id: string): Promise<{
 export async function saveDesign(
   id: string,
   patch: { placementSpec?: PlacementSpec; name?: string },
-): Promise<DesignSummary> {
-  return podFetch<DesignSummary>(`/api/v1/designs/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  });
-}
-
-/** PATCH /api/v1/designs/:id — generic design update (collection, template flag, name, status). */
-export async function updateDesign(
-  id: string,
-  patch: {
-    collectionId?: string | null;
-    isTemplate?: boolean;
-    name?: string;
-    status?: string;
-  },
 ): Promise<DesignSummary> {
   return podFetch<DesignSummary>(`/api/v1/designs/${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -635,9 +595,25 @@ export async function generateAiArt(input: {
   });
 }
 
-// `Design` lives in designTypes (the consolidated home); the list API
-// returns exactly that shape.
-export type DesignListItem = Design;
+export interface DesignListItem {
+  id: string;
+  name: string;
+  status: string;
+  supplier_catalog_product_id: string | null;
+  garment_color: string | null;
+  product_type: string | null;
+  retail_price: number | null;
+  is_template: boolean;
+  collection_id: string | null;
+  publications: {
+    id: string;
+    status: string;
+    mockup_url: string | null;
+    product_variant_id: string | null;
+  }[];
+  created_at: string;
+  updated_at: string;
+}
 
 /** GET /api/v1/designs — saved designs; template=true lists reusable templates (B6). */
 export async function listDesigns(opts?: {
@@ -706,62 +682,6 @@ export async function setDesignTemplate(
   return podFetch<DesignSummary>(`/api/v1/designs/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify({ isTemplate }),
-  });
-}
-
-/** One collection row (GET/POST /api/v1/collections). */
-export interface CollectionRow {
-  id: string;
-  name: string;
-  slug: string;
-  active: boolean;
-}
-
-/** GET /api/v1/collections — the collections a design can be saved to. */
-export async function listCollections(): Promise<{ items: CollectionRow[] }> {
-  return podFetch<{ items: CollectionRow[] }>('/api/v1/collections');
-}
-
-/** POST /api/v1/collections — create a collection (type defaults evergreen). */
-export async function createCollection(input: {
-  name: string;
-  type?: 'holiday' | 'relationship' | 'theme' | 'evergreen';
-}): Promise<CollectionRow> {
-  return podFetch<CollectionRow>('/api/v1/collections', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-}
-
-/** DELETE /api/v1/collections/:id — delete a collection (unlinks designs). */
-export async function deleteCollection(id: string): Promise<{
-  deleted: string;
-  unlinkedDesigns: number;
-  unlinkedPublications: number;
-}> {
-  return podFetch(`/api/v1/collections/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-}
-
-/** DELETE /api/v1/files?id= — delete a library asset (row + stored object). */
-export async function deleteAsset(id: string): Promise<{
-  deleted: string;
-  storageRemoved: boolean;
-}> {
-  return podFetch(`/api/v1/files?id=${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-}
-
-/** POST /api/v1/designs/:id/unpublish — archive publications, back to draft. */
-export async function unpublishDesign(id: string): Promise<{
-  id: string;
-  status: string;
-  archivedPublications: number;
-}> {
-  return podFetch(`/api/v1/designs/${encodeURIComponent(id)}/unpublish`, {
-    method: 'POST',
   });
 }
 

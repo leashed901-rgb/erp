@@ -6,44 +6,7 @@
    - AccountPicker: typeahead with account type grouping, +Add account opens CoA drawer */
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import type { PartyRole, Party, Item, Account, AccountType } from '@/lib/platformStore';
-
-/** Map a live catalog product (GET /api/v1/items) to the picker's Item
- *  shape. Price is the lowest variant price; cost is the lowest supplier
- *  route cost — both real, never invented. Catalog products are not
- *  inventory-tracked, so no stock pill renders. */
-export function mapCatalogItemToItem(p: Record<string, unknown>): Item {
-  const variants = (p.variants as Array<Record<string, unknown>> | undefined) ?? [];
-  const firstSku = String(variants.find((v) => v.sku)?.sku ?? '');
-  const costs = variants
-    .flatMap((v) => ((v.routes as Array<Record<string, unknown>> | undefined) ?? []).map((r) => r.costSnapshot))
-    .filter((c): c is number => typeof c === 'number');
-  const statusRaw = String(p.status || '').toLowerCase();
-  return {
-    id: String(p.id),
-    name: String(p.name || ''),
-    sku: firstSku,
-    type: 'Product',
-    category: String(p.supplier || ''),
-    status: statusRaw === 'published' ? 'Published' : statusRaw === 'archived' ? 'Archived' : 'Draft',
-    price: typeof p.price === 'number' ? p.price : 0,
-    cost: costs.length > 0 ? Math.min(...costs) : 0,
-    description: String(p.name || ''),
-    incomeAccount: '',
-    expenseAccount: '',
-    taxable: false,
-    trackInventory: false,
-    fulfillmentType: String(p.fulfillmentType || '') === 'stocked' ? 'Stock' : 'POD',
-    stockOnHand: 0,
-    reorderPoint: 0,
-    supplierId: null,
-    designId: null,
-    channels: [],
-    image: '',
-    tags: [],
-    updated: String(p.createdAt || ''),
-  };
-}
+import { usePlatformStore, type PartyRole, type Party, type Item, type Account, type AccountType } from '@/lib/platformStore';
 
 /* ═══════════════════════════════════════════════════
    PARTY PICKER
@@ -62,31 +25,7 @@ interface PartyPickerProps {
 }
 
 export function PartyPicker({ value, onChange, role, label = 'Party', placeholder, required, onAddNew }: PartyPickerProps) {
-  // LIVE parties from /api/parties — never the seed store. The seed holds
-  // three customers and no vendor at all (its "Printful" is a Supplier-role
-  // seed row), so the picker found no vendor and a bill could not be saved.
-  // Role vocabulary is inconsistent (engine passes 'Vendor', the API and the
-  // stored roles are lowercase 'vendor') — normalize to lowercase everywhere.
-  const roleLower = (role || '').toLowerCase();
-  const [parties, setParties] = useState<Array<{ id: string; name: string; email: string; phone: string; roles: string[]; balance: number }>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/parties?role=${roleLower || 'all'}`)
-      .then((r) => r.json())
-      .then((json) => {
-        if (cancelled) return;
-        setParties((json.data || []).map((p: Record<string, unknown>) => ({
-          id: String(p.id),
-          name: String((p as Record<string, unknown>).displayName || (p as Record<string, unknown>).name || 'Unnamed'),
-          email: String((p as Record<string, unknown>).email || ''),
-          phone: String((p as Record<string, unknown>).phone || ''),
-          roles: ((p as Record<string, unknown>).roles as string[]) || [],
-          balance: Number((p as Record<string, unknown>).balance || 0),
-        })));
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [roleLower]);
+  const parties = usePlatformStore(s => s.parties);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -101,10 +40,10 @@ export function PartyPicker({ value, onChange, role, label = 'Party', placeholde
   const selected = value ? parties.find(p => p.id === value) : null;
   const filtered = useMemo(() => {
     let list = parties;
-    if (roleLower) list = list.filter(p => p.roles.some(r => r.toLowerCase() === roleLower));
+    if (role) list = list.filter(p => p.roles.includes(role));
     if (query) list = list.filter(p => (p.name + ' ' + p.email + ' ' + p.phone).toLowerCase().includes(query.toLowerCase()));
     return list.slice(0, 20);
-  }, [parties, roleLower, query]);
+  }, [parties, role, query]);
 
   return (
     <div ref={ref} className="relative">
@@ -183,8 +122,7 @@ interface ItemPickerProps {
 }
 
 export function ItemPicker({ value, onChange, label = 'Item', placeholder, onAddNew }: ItemPickerProps) {
-  // LIVE catalog items from /api/v1/items — never the seed store (3 rows).
-  const [items, setItems] = useState<Item[]>([]);
+  const items = usePlatformStore(s => s.items);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -196,44 +134,11 @@ export function ItemPicker({ value, onChange, label = 'Item', placeholder, onAdd
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
-  // Search the live catalog as the user types (debounced); an empty query
-  // lists the most recent items.
-  useEffect(() => {
-    let cancelled = false;
-    const t = setTimeout(() => {
-      fetch(`/api/v1/items?q=${encodeURIComponent(query)}&limit=20`)
-        .then((r) => r.json())
-        .then((json) => {
-          if (cancelled) return;
-          setItems(((json.items ?? []) as Array<Record<string, unknown>>).map(mapCatalogItemToItem));
-        })
-        .catch(() => { if (!cancelled) setItems([]); });
-    }, 300);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [query]);
-
-  // Resolve the selected item by id — it may not sit in the current search page.
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-  const resolvedFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (!value) { setSelectedItem(null); resolvedFor.current = null; return; }
-    if (resolvedFor.current === value) return;
-    const found = items.find((i) => i.id === value);
-    if (found) { setSelectedItem(found); resolvedFor.current = value; return; }
-    let cancelled = false;
-    fetch(`/api/v1/items?id=${value}`)
-      .then((r) => r.json())
-      .then((json) => {
-        if (cancelled) return;
-        const row = ((json.items ?? []) as Array<Record<string, unknown>>)[0];
-        if (row) { setSelectedItem(mapCatalogItemToItem(row)); resolvedFor.current = value; }
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [value, items]);
-
-  const selected = value ? selectedItem : null;
-  const filtered = useMemo(() => items.slice(0, 20), [items]);
+  const selected = value ? items.find(i => i.id === value) : null;
+  const filtered = useMemo(() => {
+    if (!query) return items.slice(0, 20);
+    return items.filter(i => (i.name + ' ' + i.sku + ' ' + i.category).toLowerCase().includes(query.toLowerCase())).slice(0, 20);
+  }, [items, query]);
 
   return (
     <div ref={ref} className="relative">
@@ -298,56 +203,7 @@ interface AccountPickerProps {
 }
 
 export function AccountPicker({ value, onChange, label = 'Account', filterType, placeholder, onAddNew }: AccountPickerProps) {
-  // LIVE accounts — the chart of accounts for general types, the real bank
-  // accounts when filterType is 'Bank'. Never the seed store.
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    if (filterType === 'Bank') {
-      fetch('/api/v1/finance/bank-accounts')
-        .then((r) => r.json())
-        .then((json) => {
-          if (cancelled) return;
-          setAccounts(((json.data ?? []) as Array<Record<string, unknown>>)
-            .filter((a) => a.is_active !== false)
-            .map((a) => ({
-              id: String(a.id),
-              number: String(a.gl_code || ''),
-              name: String(a.name || ''),
-              type: 'Bank' as AccountType,
-              detailType: '',
-              balance: 0,
-              bankBalance: 0,
-              active: true,
-              parent: null,
-              description: '',
-            })));
-        })
-        .catch(() => { if (!cancelled) setAccounts([]); });
-    } else {
-      fetch('/api/v1/finance/chart-of-accounts')
-        .then((r) => r.json())
-        .then((json) => {
-          if (cancelled) return;
-          setAccounts(((json.data ?? []) as Array<Record<string, unknown>>)
-            .filter((a) => a.is_active !== false)
-            .map((a) => ({
-              id: String(a.id),
-              number: String(a.code || a.number || ''),
-              name: String(a.name || ''),
-              type: String(a.type || 'Asset') as AccountType,
-              detailType: String(a.detail || a.detail_type || ''),
-              balance: Number(a.balance) || 0,
-              bankBalance: 0,
-              active: true,
-              parent: (a.parent_account_id as string) || null,
-              description: String(a.description || ''),
-            })));
-        })
-        .catch(() => { if (!cancelled) setAccounts([]); });
-    }
-    return () => { cancelled = true; };
-  }, [filterType]);
+  const accounts = usePlatformStore(s => s.accounts);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);

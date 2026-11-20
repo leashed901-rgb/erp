@@ -1,13 +1,10 @@
-/* eslint-disable react-hooks/rules-of-hooks, react-hooks/refs, react-hooks/immutability */
 'use client';
 /* CampaignsScreen — 1:1 port of upload/marketing_extracted/Marketing/caimpaigns.html
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
-import { adMutations, useAdCampaigns, useAdCreatives } from '@/hooks/useAdvertisingApi';
-import type { AdCampaign as AdCampaignDto, AdCreative as AdCreativeDto } from '@/lib/adTypes';
 
 interface MarketingScreenProps {
   onToast: (msg: string) => void;
@@ -26,12 +23,8 @@ interface Campaign {
   budget: number;
   budgetType: string;
   spend: number;
-  /* Revenue / ROAS are null — unknown, not zero. No attribution exists:
-     orders carry no campaign reference and ad_analytics is orphaned
-     (campaign_id uuid vs ad_campaigns.id bigint, 0 rows). A 0 here
-     would be a fake number; the tiles show '—' instead. */
-  revenue: number | null;
-  roas: number | null;
+  revenue: number;
+  roas: number;
   ctr: number;
   schedule: string;
   start: string | null;
@@ -39,10 +32,16 @@ interface Campaign {
   status: string;
   adSets: number;
   creatives: string[];
-  /* Over-budget flag from the API (module 6, USER-GUIDE row 2). */
-  overBudget: boolean;
 }
 
+const CAMPAIGNS: Campaign[] = [
+  { id: 'CMP-3001', name: 'Fall launch — Prospecting', network: 'Meta', objective: 'Conversions', budget: 250, budgetType: 'Daily', spend: 8620, revenue: 36720, roas: 4.26, ctr: 2.1, schedule: '2026-10-15 → 2026-11-30', start: '2026-10-15T00:00', end: '2026-11-30T23:59', status: 'Active', adSets: 3, creatives: ['CR-001', 'CR-002'] },
+  { id: 'CMP-3002', name: 'TikTok creator drop', network: 'TikTok', objective: 'Engagement', budget: 180, budgetType: 'Daily', spend: 4210, revenue: 12890, roas: 3.06, ctr: 3.4, schedule: '2026-10-20 → 2026-11-20', start: '2026-10-20T00:00', end: '2026-11-20T23:59', status: 'Active', adSets: 2, creatives: ['CR-003'] },
+  { id: 'CMP-3003', name: 'Brand search — Non-brand', network: 'Google', objective: 'Traffic', budget: 120, budgetType: 'Daily', spend: 2310, revenue: 9280, roas: 4.02, ctr: 5.2, schedule: '2026-10-01 → 2026-12-31', start: '2026-10-01T00:00', end: '2026-12-31T23:59', status: 'Active', adSets: 1, creatives: ['CR-004'] },
+  { id: 'CMP-3004', name: 'Holiday capsule lookalike', network: 'Meta', objective: 'Conversions', budget: 300, budgetType: 'Daily', spend: 3280, revenue: 14840, roas: 4.53, ctr: 2.8, schedule: '2026-11-05 → 2026-12-24', start: '2026-11-05T00:00', end: '2026-12-24T23:59', status: 'In review', adSets: 2, creatives: ['CR-005'] },
+  { id: 'CMP-3005', name: 'Pinterest — Evergreen inspo', network: 'Pinterest', objective: 'Awareness', budget: 80, budgetType: 'Daily', spend: 0, revenue: 0, roas: 0, ctr: 0, schedule: '—', start: null, end: null, status: 'Draft', adSets: 0, creatives: [] },
+  { id: 'CMP-3006', name: 'Summer clearance (ended)', network: 'Meta', objective: 'Conversions', budget: 200, budgetType: 'Daily', spend: 12400, revenue: 38210, roas: 3.08, ctr: 1.9, schedule: '2026-08-01 → 2026-09-15', start: '2026-08-01T00:00', end: '2026-09-15T23:59', status: 'Ended', adSets: 4, creatives: ['CR-006', 'CR-007'] },
+];
 
 interface Creative {
   id: string;
@@ -51,44 +50,20 @@ interface Creative {
   dimensions: string;
 }
 
+const CREATIVES: Creative[] = [
+  { id: 'CR-001', name: 'Fall hero — 1x1', type: 'Image', dimensions: '1080x1080' },
+  { id: 'CR-002', name: 'Fall hero — 4x5', type: 'Image', dimensions: '1080x1350' },
+  { id: 'CR-003', name: 'TikTok drop — vertical', type: 'Video', dimensions: '1080x1920 · 15s' },
+  { id: 'CR-004', name: 'Search text — brand', type: 'Image', dimensions: '1200x628' },
+  { id: 'CR-005', name: 'Holiday capsule teaser', type: 'Video', dimensions: '1080x1080 · 6s' },
+  { id: 'CR-006', name: 'Summer CTA', type: 'Image', dimensions: '1080x1080' },
+  { id: 'CR-007', name: 'Summer carousel', type: 'Carousel', dimensions: '1080x1080 x3' },
+  { id: 'CR-008', name: 'Evergreen tote', type: 'Image', dimensions: '1080x1350' },
+];
 
 const AUDIENCES = ['Site visitors 30d', 'Abandoned cart 7d', 'Lookalike — VIPs', 'New customers'];
 
 /* ─── helpers (from HTML <script>) ─── */
-const STATUS_TO_DB: Record<string, string> = { Draft: 'draft', Scheduled: 'scheduled', 'In review': 'preflight', Approved: 'approved', Active: 'active', Paused: 'paused', Ended: 'ended' };
-const STATUS_FROM_DB: Record<string, string> = Object.fromEntries(Object.entries(STATUS_TO_DB).map(([k, v]) => [v, k]));
-
-function toScreenCampaign(dto: AdCampaignDto): Campaign {
-  return {
-    id: dto.id,
-    name: dto.name,
-    network: '',
-    objective: '',
-    budget: dto.dailyBudget ?? dto.lifetimeBudget ?? 0,
-    budgetType: dto.dailyBudget != null ? 'Daily' : 'Lifetime',
-    spend: dto.analyticsSpend || dto.lifetimeSpend,
-    revenue: null,
-    roas: null,
-    ctr: dto.ctr,
-    schedule: dto.startsAt ? `${dto.startsAt.slice(0, 10)} → ${dto.endsAt ? dto.endsAt.slice(0, 10) : 'ongoing'}` : '—',
-    start: dto.startsAt,
-    end: dto.endsAt,
-    status: STATUS_FROM_DB[dto.status] || 'Draft',
-    adSets: dto.adSetCount,
-    creatives: dto.creativeIds,
-    overBudget: dto.overBudget ?? false,
-  };
-}
-
-function toScreenCreative(dto: AdCreativeDto): Creative {
-  return {
-    id: dto.id,
-    name: dto.name || dto.headline || 'Creative',
-    type: 'Image',
-    dimensions: dto.width && dto.height ? `${dto.width}x${dto.height}` : '—',
-  };
-}
-
 function pillFor(status: string) {
   const cls = status === 'Active' ? 'active' : status === 'Paused' ? 'paused' : status === 'In review' ? 'review' : status === 'Draft' ? 'draft' : status === 'Ended' ? 'ended' : 'rejected';
   return <span className={`stat ${cls}`}>{status}</span>;
@@ -104,18 +79,7 @@ const EMPTY_ADSET: AdSetDraft = { name: '', audience: AUDIENCES[0], placement: '
 
 export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's `filters`, `editing`, `peekId`, etc.) ─── */
-  const [items, setItems] = useState<Campaign[]>([]);
-  const { campaigns: apiCampaigns, refresh: refreshCampaigns } = useAdCampaigns();
-  const { creatives: apiCreatives } = useAdCreatives();
-  const [creativeItems, setCreativeItems] = useState<Creative[]>([]);
-  useEffect(() => { setCreativeItems(apiCreatives.map(toScreenCreative)); }, [apiCreatives]);
-  useEffect(() => {
-    setItems(apiCampaigns.map(toScreenCampaign));
-    // API campaigns carry no network/objective (not columns in
-    // ad_campaigns) — keep them visible under the filter sets.
-    setNetworks(prev => (prev.has('') ? prev : new Set([...prev, ''])));
-    setObjectives(prev => (prev.has('') ? prev : new Set([...prev, ''])));
-  }, [apiCampaigns]);
+  const [items, setItems] = useState<Campaign[]>(CAMPAIGNS);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('All');
   const [networks, setNetworks] = useState<Set<string>>(new Set(NETWORKS as readonly string[]));
@@ -163,10 +127,8 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
 
   const activeCount = items.filter(c => c.status === 'Active').length;
   const totalSpend = items.reduce((s, c) => s + c.spend, 0);
-  // Revenue is unknown (no attribution) — null, not 0.
-  const totalRevenue = items.some((c) => c.revenue != null)
-    ? items.reduce((s, c) => s + (c.revenue ?? 0), 0) : null;
-  const blendedRoas = totalRevenue != null && totalSpend ? totalRevenue / totalSpend : null;
+  const totalRevenue = items.reduce((s, c) => s + c.revenue, 0);
+  const blendedRoas = totalSpend ? totalRevenue / totalSpend : 0;
 
   const filtersActive = !!q || tab !== 'All' || networks.size !== NETWORKS.length || objectives.size !== OBJECTIVES.length;
   const allChecked = rows.length > 0 && rows.every(c => selected.has(c.id));
@@ -245,52 +207,31 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
       budget: formBudget,
       budgetType: formBudgetType,
       spend: editing ? editing.spend : 0,
-      revenue: editing ? editing.revenue : null,
-      roas: editing ? editing.roas : null,
+      revenue: editing ? editing.revenue : 0,
+      roas: editing ? editing.roas : 0,
       ctr: editing ? editing.ctr : 0,
       schedule: start ? (end ? `${start.slice(0, 10)} → ${end.slice(0, 10)}` : start.slice(0, 10) + ' → ongoing') : '—',
       start, end,
       status: editing ? editing.status : 'Draft',
       adSets: draftAdSets.length,
       creatives: [...pickedCreatives],
-      overBudget: editing ? editing.overBudget : false,
     };
   }
-  async function persistCampaign(): Promise<string | null> {
-    const c = collectCampaign(); if (!c) return null;
-    const payload: Record<string, unknown> = {
-      name: c.name,
-      startsAt: c.start ? new Date(c.start).toISOString() : null,
-      endsAt: c.end ? new Date(c.end).toISOString() : null,
-      dailyBudget: c.budgetType === 'Daily' ? c.budget : null,
-      lifetimeBudget: c.budgetType === 'Lifetime' ? c.budget : null,
-    };
-    try {
-      if (editingId) {
-        await adMutations.updateCampaign(editingId, payload);
-        return editingId;
-      }
-      const created = await adMutations.createCampaign({ ...payload, status: 'draft' }) as unknown as { data: { id: string } };
-      const newId = created.data.id;
-      // The drawer's ad sets persist as ad_campaign_groups rows.
-      for (const s of draftAdSets) {
-        if (s.name.trim()) await adMutations.createAdSet({ campaignId: newId, name: s.name.trim(), status: 'draft' });
-      }
-      return newId;
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not save the campaign');
-      return null;
-    }
-  }
-  async function save() {
-    const id = await persistCampaign(); if (!id) return;
-    refreshCampaigns();
+  function save() {
+    const c = collectCampaign(); if (!c) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = c; return n; } return prev; }
+      return [c, ...prev];
+    });
     closeCampDrawer();
     onToast(editingId ? 'Campaign updated' : 'Campaign created');
   }
-  async function saveAndNew() {
-    const id = await persistCampaign(); if (!id) return;
-    refreshCampaigns();
+  function saveAndNew() {
+    const c = collectCampaign(); if (!c) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = c; return n; } return prev; }
+      return [c, ...prev];
+    });
     setEditingId(null);
     setFormName('');
     setDraftAdSets([]);
@@ -305,46 +246,40 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
       case 'edit': openCampDrawer(c.id); break;
       case 'view': openPeek(c.id); break;
       case 'duplicate':
-        adMutations.createCampaign({ name: c.name + ' (copy)', status: 'draft', dailyBudget: c.budgetType === 'Daily' ? c.budget : null, lifetimeBudget: c.budgetType === 'Lifetime' ? c.budget : null })
-          .then(() => { refreshCampaigns(); onToast(`Duplicated: ${c.name}`); })
-          .catch((e) => onToast(e instanceof Error ? e.message : 'Could not duplicate'));
+        setItems(prev => [{ ...c, id: 'CMP-' + (3000 + prev.length + 1), name: c.name + ' (copy)', status: 'Draft', spend: 0, revenue: 0, roas: 0, ctr: 0, schedule: '—' }, ...prev]);
+        onToast(`Duplicated: ${c.name}`);
         break;
-      case 'pause': setStatusViaApi(c, 'paused', 'Paused'); break;
-      case 'resume': setStatusViaApi(c, 'active', 'Resumed'); break;
-      case 'archive': setStatusViaApi(c, 'ended', 'Archived'); break;
+      case 'pause': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'Paused' } : x)); onToast(`Paused: ${c.name}`); break;
+      case 'resume': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'Active' } : x)); onToast(`Resumed: ${c.name}`); break;
+      case 'archive': setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: 'Ended' } : x)); onToast(`Archived: ${c.name}`); break;
       case 'delete':
-        // No delete exists in the ad schema — ending is the terminal state.
-        if (confirm(`Delete campaign "${c.name}"? It will be ended.`)) setStatusViaApi(c, 'ended', 'Deleted');
+        if (confirm(`Delete campaign "${c.name}"?`)) {
+          setItems(prev => prev.filter(x => x.id !== c.id));
+          onToast(`Deleted: ${c.name}`);
+        }
         break;
     }
   }
 
-  function setStatusViaApi(c: Campaign, dbStatus: string, verb: string) {
-    adMutations.updateCampaign(c.id, { status: dbStatus })
-      .then(() => { setItems(prev => prev.map(x => x.id === c.id ? { ...x, status: STATUS_FROM_DB[dbStatus] || x.status } : x)); onToast(`${verb}: ${c.name}`); })
-      .catch((e) => onToast(e instanceof Error ? e.message : `Could not update ${c.name}`));
-  }
-
-  async function bulkAction(act: string) {
+  function bulkAction(act: string) {
     if (act === 'close') { setSelected(new Set()); return; }
     const sel = [...selected];
     const n = sel.length;
-    const statusFor: Record<string, string> = { pause: 'paused', resume: 'active', archive: 'ended', delete: 'ended' };
-    try {
-      if (act === 'duplicate') {
-        for (const id of sel) {
-          const c = items.find(x => x.id === id);
-          if (c) await adMutations.createCampaign({ name: c.name + ' (copy)', status: 'draft' });
-        }
-        onToast(`Duplicated ${n} campaign(s)`);
-      } else if (statusFor[act]) {
-        if (act === 'delete' && !confirm(`Delete ${n} campaign(s)? They will be ended.`)) { setSelected(new Set()); return; }
-        for (const id of sel) await adMutations.updateCampaign(id, { status: statusFor[act] });
-        onToast(`${act === 'pause' ? 'Paused' : act === 'resume' ? 'Resumed' : act === 'archive' ? 'Archived' : 'Deleted'} ${n} campaign(s)`);
+    if (act === 'pause') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'Paused' } : c)); onToast(`Paused ${n} campaign(s)`); }
+    else if (act === 'resume') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'Active' } : c)); onToast(`Resumed ${n} campaign(s)`); }
+    else if (act === 'duplicate') {
+      setItems(prev => {
+        const copies = sel.map(id => { const c = prev.find(x => x.id === id); return c ? { ...c, id: 'CMP-' + (3000 + prev.length + 1), name: c.name + ' (copy)', status: 'Draft', spend: 0, revenue: 0, roas: 0, ctr: 0, schedule: '—' } : null; }).filter(Boolean) as Campaign[];
+        return [...copies, ...prev];
+      });
+      onToast(`Duplicated ${n} campaign(s)`);
+    }
+    else if (act === 'archive') { setItems(prev => prev.map(c => sel.includes(c.id) ? { ...c, status: 'Ended' } : c)); onToast(`Archived ${n} campaign(s)`); }
+    else if (act === 'delete') {
+      if (confirm(`Delete ${n} campaign(s)?`)) {
+        setItems(prev => prev.filter(c => !sel.includes(c.id)));
+        onToast(`Deleted ${n} campaign(s)`);
       }
-      refreshCampaigns();
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Bulk action failed');
     }
     setSelected(new Set());
   }
@@ -400,11 +335,8 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
             <span className="material-symbols-outlined text-[16px]">tune</span>Customize
           </button>
           <div className="flex">
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" onClick={() => openCampDrawer(null)}>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={() => openCampDrawer(null)}>
               <span className="material-symbols-outlined text-[16px]">add</span>New campaign
-            </button>
-            <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={() => setCreateMenuOpen(v => !v)}>
-              <span className="material-symbols-outlined text-[16px]">expand_more</span>
             </button>
           </div>
         </div>
@@ -424,12 +356,12 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-3">
           <div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Attributed revenue</div>
-          <div className="text-headline-sm mt-1 tabular-nums">{totalRevenue == null ? '—' : '$' + fmt(totalRevenue)}</div>
-          <div className="text-[11px] text-on-surface-variant mt-0.5">No attribution on file</div>
+          <div className="text-headline-sm mt-1 tabular-nums">${fmt(totalRevenue)}</div>
+          <div className="text-[11px] text-on-surface-variant mt-0.5">Across all networks</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-3">
           <div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Blended ROAS</div>
-          <div className="text-headline-sm mt-1 tabular-nums">{blendedRoas == null ? '—' : blendedRoas.toFixed(2) + '×'}</div>
+          <div className="text-headline-sm mt-1 tabular-nums">{blendedRoas.toFixed(2)}×</div>
           <div className="text-[11px] text-on-surface-variant mt-0.5">Target 3.50×</div>
         </div>
       </div>
@@ -556,7 +488,7 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
                   <td className="px-3 py-2 text-right tabular-nums">${fmt(c.spend)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{c.roas ? c.roas.toFixed(2) + '×' : '—'}</td>
                   <td className="px-3 py-2 text-[11px]">{c.schedule}</td>
-                  <td className="px-3 py-2"><span className="inline-flex items-center gap-1">{pillFor(c.status)}{c.overBudget && <span className="stat rejected">Over budget</span>}</span></td>
+                  <td className="px-3 py-2">{pillFor(c.status)}</td>
                   <td className="px-2 py-2 text-right relative">
                     <button className="w-6 h-6 rounded hover:bg-surface-container flex items-center justify-center" onClick={e => { e.stopPropagation(); setRowMenuForId(rowMenuForId === c.id ? null : c.id); }}><span className="material-symbols-outlined text-[16px] text-on-surface-variant">more_horiz</span></button>
                     {rowMenuForId === c.id && (
@@ -624,10 +556,10 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-5 text-body-sm">
-              <div className="mb-3 flex items-center gap-2">{pillFor(peek.status)}{peek.overBudget && <span className="stat rejected">Over budget</span>}{netChip(peek.network)}</div>
+              <div className="mb-3 flex items-center gap-2">{pillFor(peek.status)}{netChip(peek.network)}</div>
               <div className="bg-surface-container-low rounded-lg p-3 mb-3 grid grid-cols-3 gap-2 text-center">
                 <div><div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Spend</div><div className="text-body-md font-semibold tabular-nums">${fmt(peek.spend)}</div></div>
-                <div><div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Revenue</div><div className="text-body-md font-semibold tabular-nums">{peek.revenue == null ? '—' : '$' + fmt(peek.revenue)}</div></div>
+                <div><div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">Revenue</div><div className="text-body-md font-semibold tabular-nums">${fmt(peek.revenue)}</div></div>
                 <div><div className="text-[10px] text-on-surface-variant uppercase tracking-wider font-bold">ROAS</div><div className="text-body-md font-semibold tabular-nums">{peek.roas ? peek.roas.toFixed(2) + '×' : '—'}</div></div>
               </div>
               <dl className="text-body-sm">
@@ -757,7 +689,7 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
                   {pickedCreatives.length === 0 ? (
                     <div className="text-[11px] text-on-surface-variant">No creatives selected.</div>
                   ) : pickedCreatives.map(id => {
-                    const c = creativeItems.find(x => x.id === id); if (!c) return null;
+                    const c = CREATIVES.find(x => x.id === id); if (!c) return null;
                     return (
                       <div key={id} className="flex items-center gap-2 px-2.5 py-1.5 rounded border border-outline-variant bg-surface-container-low text-body-sm">
                         <span className="material-symbols-outlined text-[16px] text-primary">{c.type === 'Video' ? 'movie' : c.type === 'Carousel' ? 'view_carousel' : 'image'}</span>
@@ -777,12 +709,10 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
               <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={closeCampDrawer}>Cancel</button>
               <div className="flex items-center gap-2">
                 <div className="flex">
-                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={saveAndNew}>Save and new</button>
-                  <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={saveAndNew}>Save and new</button>
                 </div>
                 <div className="flex">
-                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={save}>Save and close</button>
-                  <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={save}>Save and close</button>
                 </div>
               </div>
             </div>
@@ -798,7 +728,7 @@ export default function CampaignsScreen({ onToast }: MarketingScreenProps) {
             <p className="text-body-sm text-on-surface-variant mb-3">Select one or more creatives from the Content Library.</p>
             <input className="field-input mb-2" placeholder="Search creatives…" value={creativeSearch} onChange={e => setCreativeSearch(e.target.value)} />
             <div className="max-h-[300px] overflow-y-auto border border-surface-dim rounded">
-              {creativeItems.filter(c => c.name.toLowerCase().includes(creativeSearch.toLowerCase())).map(c => (
+              {CREATIVES.filter(c => c.name.toLowerCase().includes(creativeSearch.toLowerCase())).map(c => (
                 <label key={c.id} className="flex items-center gap-3 px-3 py-2 border-b border-surface-dim last:border-b-0 cursor-pointer hover:bg-surface-container-low">
                   <input type="checkbox" checked={creativeDraft.has(c.id)} style={{ accentColor: '#0077c5' }} onChange={() => { const next = new Set(creativeDraft); if (next.has(c.id)) next.delete(c.id); else next.add(c.id); setCreativeDraft(next); }} />
                   <div className="min-w-0 flex-1">

@@ -4,7 +4,6 @@ import './expenses-bills.css';
 import React, { useState, useEffect } from 'react';
 import type { ExpensesBillsScreenProps } from './types';
 import { EBL_NAV } from './types';
-import type { Party as StoreParty, PartyRole } from '@/lib/platformStore';
 
 /* ════════════════════════════════════════════════════════════════
    Vendors screen — rewired to platformStore.parties (§1.1).
@@ -112,41 +111,6 @@ const EMPTY_FORM: VendorForm = {
   achAccount: '', achRouting: '', achEnabled: false, taxid: '', type: 'LLC', is1099: false, w9: false, notes: '',
 };
 
-/* Row shape returned by GET /api/parties (the party DTO). */
-interface ApiVendorParty {
-  id: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  roles: string[];
-  source: string;
-  balance: number;
-}
-
-/* Party DTO → the screen's row shape (same derivations as partyToRow;
-   W-9 / 1099 fields are not carried by the DTO, so contractors read
-   'missing' and is1099 stays false until the API exposes them). */
-function dtoToRow(p: ApiVendorParty): VendorRow {
-  const role: VendorRole = p.roles.includes('Supplier')
-    ? 'Supplier'
-    : p.roles.includes('Contractor')
-    ? 'Contractor'
-    : 'Vendor';
-  const openBills = Math.max(0, -p.balance); // AP balance is negative
-  return {
-    partyId: p.id,
-    name: p.name,
-    email: p.email || '—',
-    role,
-    w9: role === 'Contractor' ? 'missing' : 'na',
-    is1099: false,
-    openBills: `$${openBills.toFixed(2)}`,
-    ytdPaid: '$0.00',
-    avatarColor: AVATAR_COLORS[role] || 'bg-qb-navy',
-    initial: (p.name[0] || '?').toUpperCase(),
-  };
-}
-
 export default function Vendors({
   onNavigate,
   onToast,
@@ -154,19 +118,33 @@ export default function Vendors({
   onOpenCreateFlyout,
 }: ExpensesBillsScreenProps) {
   const [vendors, setVendors] = useState<VendorRow[]>([]);
-  const [rawParties, setRawParties] = useState<ApiVendorParty[]>([]);
 
   // REAL data from /api/parties (vendors/suppliers/contractors)
   useEffect(() => {
     let cancelled = false;
     fetch('/api/parties')
       .then(r => r.json())
-      .then((json: { data?: ApiVendorParty[] }) => {
+      .then(json => {
         if (cancelled) return;
-        const parties = (json.data || []).filter(p =>
-          p.roles.includes('Vendor') || p.roles.includes('Supplier') || p.roles.includes('Contractor') || p.source === 'acct_vendors' || p.source === 'suppliers');
-        setRawParties(parties);
-        setVendors(parties.map(dtoToRow));
+        const parties = (json.data || []).filter((p: Record<string, unknown>) => {
+          const roles = p.roles as string[] || [];
+          const source = String(p.source || '');
+          return roles.includes('Vendor') || roles.includes('Supplier') || roles.includes('Contractor') || source === 'acct_vendors' || source === 'suppliers';
+        });
+        const rows: VendorRow[] = parties.map((p: Record<string, unknown>) => ({
+          partyId: String(p.id),
+          name: String(p.name || p.displayName || 'Unnamed'),
+          company: String(p.company || ''),
+          email: String(p.email || ''),
+          phone: String(p.phone || ''),
+          roles: (p.roles as string[]) || ['Vendor'],
+          balance: Number(p.balance || 0),
+          ytdPaid: '$0.00',
+          is1099: Boolean(p.track1099 || p.is_1099_vendor),
+          w9Status: String(p.contractorW9Status || '—'),
+          segment: '—',
+        }));
+        setVendors(rows);
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -232,21 +210,37 @@ export default function Vendors({
 
   const openVendorDrawer = (row: VendorRow | null, role?: string) => {
     if (row) {
-      /* Edit existing — load the party DTO fetched from /api/parties.
-         Address/terms/tax fields are not carried by the DTO, so the
-         form starts them from its defaults. */
-      const party = rawParties.find(p => p.id === row.partyId);
+      /* Edit existing — load real party data from store */
+      const party = vendors.find(v => v.partyId === row.partyId);
       if (party) {
         setForm({
           ...EMPTY_FORM,
           company: party.name,
-          display: party.name,
-          email: party.email || '',
-          phone: party.phone || '',
+          display: party.displayName || party.name,
+          first: party.firstName || '',
+          last: party.lastName || '',
+          email: party.email,
+          phone: party.phone,
+          website: party.supplierUrl || '',
           checkname: party.name,
+          street: party.address,
+          city: party.city,
+          state: party.state,
+          zip: party.zip,
+          terms: party.terms || 'Net 30',
+          account: party.vendorDefaultAccount || 'Office supplies',
+          method: 'Check',
+          achAccount: party.supplierAccountNo || '',
+          achRouting: '',
+          achEnabled: !!(party.supplierAccountNo),
+          taxid: party.taxId,
+          type: 'LLC',
+          is1099: party.track1099,
+          w9: party.contractorW9Status === 'Completed',
+          notes: party.notes,
         });
         setDrawerVendor(row.partyId);
-        const roles = new Set<string>(party.roles);
+        const roles = new Set<string>(party.roles.map(r => r));
         if (roles.size === 0) roles.add(role || 'Vendor');
         setActiveRoles(roles);
       }
@@ -320,6 +314,24 @@ export default function Vendors({
         }),
       }).catch(() => {});
       showToast(`"${display}" added`);
+    }
+
+    // If this is a Contractor with an email + W-9 requested, fire the invite RPC.
+    // Wraps acct_invite_contractor via POST /api/contractors/invite.
+    if (primaryRole === 'Contractor' && form.w9 && email) {
+      fetch('/api/contractors/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          name: display,
+          party_id: drawerVendor || undefined,
+        }),
+      }).then((r) => r.json()).then((json) => {
+        if (json?.data?.invited) {
+          showToast(`W-9 invite sent to ${email}`);
+        }
+      }).catch(() => {});
     }
 
     if (andNew) {
@@ -496,7 +508,7 @@ export default function Vendors({
       document.removeEventListener('click', onDocClick);
       document.removeEventListener('keydown', onKey);
     };
-  }, [newMenuOpen, drawerOpen, rowMenuOpen]);
+  }, [poMenuOpen, newMenuOpen, drawerOpen, rowMenuId]);
 
   /* ═══════════ Render helpers ═══════════ */
 
@@ -587,24 +599,14 @@ export default function Vendors({
             <p className="text-body-sm text-on-surface-variant mt-0.5">Party list · role=Vendor / Supplier / Contractor · §B2</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button
+            <button
                 type="button"
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
                 data-new-vendor
                 onClick={() => openVendorDrawer(null, 'Vendor')}
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>New vendor
               </button>
-              <button
-                type="button"
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                data-new-split
-                onClick={handleNewSplit}
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
             <button
               type="button"
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
@@ -1179,32 +1181,22 @@ export default function Vendors({
             Cancel
           </button>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button
+            <button
                 type="button"
-                className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main"
+                className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low"
                 data-save-new
                 onClick={() => saveVendor(true)}
               >
                 Save and new
               </button>
-              <button type="button" className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <div className="flex split-btn">
-              <button
+            <button
                 type="button"
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container"
                 data-save-vendor
                 onClick={() => saveVendor(false)}
               >
                 Save and close
               </button>
-              <button type="button" className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
           </div>
         </div>
       </div>

@@ -64,7 +64,7 @@ export default function SellersScreen({ onToast, onNavigate }: SellersScreenProp
   function openDetail(s: SellerSummary) {
     setSelectedSellerId(s.seller_id);
     setRowMenuForId(null);
-    onNavigate?.('contacts', 'seller-detail');
+    onNavigate?.('contacts', 'seller-profile');
   }
 
   function viewFeed(s: SellerSummary) {

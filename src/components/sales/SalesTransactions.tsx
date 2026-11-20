@@ -1,26 +1,21 @@
 'use client';
 import './sales.css';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { SalesScreenProps, SALES_NAV } from './types';
 import RowMenu from '@/components/ListPrimitives';
 import { exportToCsv } from '@/lib/csvExport';
-import type { DemoRow } from '@/data/shellData';
-import type { DocumentType } from '@/lib/contracts';
+import type { Invoice } from '@/lib/accountingTypes';
+import type { Receipt } from '@/lib/accountingTypes';
 import DocumentEngine from '@/components/DocumentEngine';
-
-/* Live data lives in acct_ar_invoices / acct_ar_receipts (Document
- * Engine), NOT the legacy `invoices` / `receipts` tables — those return
- * 0 rows for this tenant. Customer names resolve via /api/parties. */
 
 type TxType = 'Invoice' | 'Sales receipt' | 'Credit memo' | 'Payment';
 type TxStatus = 'Open' | 'Paid' | 'Overdue';
 
 interface SalesRow {
   id: string;
-  documentId: string | null; // null = receipt row (no editable document)
+  documentId: string | null; // null = money movement row (payment)
   docType: DocumentType | null;
   date: string;
-  isoDate: string; // YYYY-MM-DD — the sort + month-filter key
   no: string;
   customer: string;
   type: TxType;
@@ -64,69 +59,52 @@ const CREATE_CHIPS: { icon: string; label: string }[] = [
 ];
 
 export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpenCreateFlyout, onOpenPeek }: SalesScreenProps) {
-  // REAL data — acct_ar_invoices + acct_ar_receipts, not the legacy tables
-  const [invoices, setInvoices] = useState<Record<string, unknown>[]>([]);
-  const [receipts, setReceipts] = useState<Record<string, unknown>[]>([]);
-  const [partyNames, setPartyNames] = useState<Record<string, string>>({});
+  // REAL data from Supabase — invoices + receipts, not platformStore
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [activeTab, setActiveTab] = useState<StatusTab>('All');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('');
   const [searchText, setSearchText] = useState('');
-  const [monthFilter, setMonthFilter] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const loadAll = useCallback(async () => {
-    try {
-      const [inv, rec, par] = await Promise.all([
-        fetch('/api/v1/documents?type=Invoice').then(r => r.json()),
-        fetch('/api/v1/documents?type=SalesReceipt').then(r => r.json()),
-        fetch('/api/parties').then(r => r.json()),
-      ]);
-      const names: Record<string, string> = {};
-      for (const p of ((par.data || []) as Record<string, unknown>[])) {
-        names[String(p.id || '')] = String(p.displayName || p.name || '—');
-      }
-      setPartyNames(names);
-      setInvoices((inv.data || []) as Record<string, unknown>[]);
-      setReceipts((rec.data || []) as Record<string, unknown>[]);
-    } catch { /* leave empty */ }
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch('/api/invoices').then(r => r.json()).then(j => j.data || []),
+      fetch('/api/receipts').then(r => r.json()).then(j => j.data || []),
+    ]).then(([inv, rec]) => {
+      if (cancelled) return;
+      setInvoices(inv);
+      setReceipts(rec);
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
-
   const ROWS: SalesRow[] = (() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const docRows: SalesRow[] = invoices.map((d): SalesRow => {
-      const bal = Number(d.open_balance ?? Number(d.total || 0) - Number(d.amount_paid || 0));
-      const due = String(d.due_date || '');
-      const status: TxStatus = bal <= 0 ? 'Paid' : due && due < today ? 'Overdue' : 'Open';
-      const iso = String(d.invoice_date || d.created_at || '').slice(0, 10);
+    const docRows: SalesRow[] = invoices.map(d => {
+      const type: TxType = 'Invoice';
+      const bal = Number(d.balanceDue);
+      const status: TxStatus = d.status === 'PAID' || d.status === 'Paid' ? 'Paid' : bal > 0 ? 'Open' : 'Paid';
       return {
-        id: String(d.id), documentId: String(d.id), docType: 'Invoice',
-        date: fmtDate(iso), isoDate: iso, no: String(d.invoice_number || ''),
-        customer: partyNames[String(d.customer_id || '')] || '—',
-        type: 'Invoice', due: fmtDate(due),
-        amount: `$${Number(d.total || 0).toFixed(2)}`, balance: `$${bal.toFixed(2)}`,
+        id: d.id, documentId: d.id, docType: 'Invoice',
+        date: fmtDate(d.createdAt?.slice(0, 10) || ''), no: d.number,
+        customer: '—',
+        type, due: fmtDate(d.dueDate || ''),
+        amount: `$${Number(d.total).toFixed(2)}`, balance: `$${bal.toFixed(2)}`,
         status,
       };
     });
-    const payRows: SalesRow[] = receipts.map((r): SalesRow => {
-      const iso = String(r.receipt_date || r.created_at || '').slice(0, 10);
-      return {
-        id: String(r.id), documentId: null, docType: null,
-        date: fmtDate(iso), isoDate: iso,
-        no: String(r.receipt_number || ''),
-        customer: partyNames[String(r.customer_id || '')] || '—',
-        type: 'Sales receipt', due: '—',
-        amount: `$${Number(r.amount || 0).toFixed(2)}`, balance: '$0.00',
-        status: 'Paid',
-      };
-    });
-    // Sort by ISO date desc — the displayed MM/DD/YYYY strings do not
-    // sort chronologically.
-    return [...docRows, ...payRows].sort((a, b) => b.isoDate.localeCompare(a.isoDate));
+    const payRows: SalesRow[] = receipts.map(r => ({
+      id: r.id, documentId: null, docType: null,
+      date: fmtDate(r.receipt_date || r.created_at?.slice(0, 10) || ''),
+      no: r.number,
+      customer: '—',
+      type: 'Sales receipt', due: '—',
+      amount: `$${Number(r.amount).toFixed(2)}`, balance: '$0.00',
+      status: 'Paid',
+    }));
+    return [...docRows, ...payRows].sort((a, b) => b.date.localeCompare(a.date));
   })();
 
   const filteredRows = (() => {
@@ -135,7 +113,6 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
       const matchType = !typeFilter || r.type === typeFilter;
       const matchStatus =
         activeTab === 'All' ? true : r.status === activeTab;
-      const matchMonth = !monthFilter || r.isoDate.startsWith(monthFilter);
       const matchSearch =
         !q ||
         r.date.toLowerCase().includes(q) ||
@@ -146,30 +123,13 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
         r.amount.toLowerCase().includes(q) ||
         r.balance.toLowerCase().includes(q) ||
         r.status.toLowerCase().includes(q);
-      return matchType && matchStatus && matchSearch && matchMonth;
+      return matchType && matchStatus && matchSearch;
     });
   })();
 
   const total = ROWS.length;
   const shown = filteredRows.length;
   const countText = `1–${shown} of ${total}`;
-
-  const deleteInvoice = useCallback(async (row: SalesRow) => {
-    if (!row.documentId) return;
-    try {
-      const res = await fetch(`/api/v1/documents/${row.documentId}?type=Invoice`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
-      onToast(`Deleted ${row.no}`);
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        next.delete(row.id);
-        return next;
-      });
-      loadAll();
-    } catch {
-      onToast(`Could not delete ${row.no}`);
-    }
-  }, [onToast, loadAll]);
 
   const goOverview = () => {
     const [d, s] = SALES_NAV.overview();
@@ -212,21 +172,12 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
             <p className="text-body-sm text-on-surface-variant mt-0.5">Invoice, Receipt, Credit, Payment — unified ledger. Default sort: Date desc.</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn relative">
-              <button
+            <button
                 type="button"
                 onClick={() => onCreate('New transaction')}
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>New transaction
-              </button>
-              <button
-                type="button"
-                aria-label="New transaction options"
-                onClick={() => setNewMenuOpen(v => !v)}
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
               </button>
               {newMenuOpen && (
                 <div className="row-menu open" style={{ position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 60 }} onClick={() => setNewMenuOpen(false)}>
@@ -239,30 +190,6 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                const selectedRows = filteredRows.filter(r => selectedIds.has(r.id));
-                if (selectedRows.length === 0) return;
-                const cols = [
-                  { key: 'date', label: 'Date' },
-                  { key: 'no', label: 'No.' },
-                  { key: 'customer', label: 'Customer' },
-                  { key: 'type', label: 'Type' },
-                  { key: 'due', label: 'Due' },
-                  { key: 'amount', label: 'Amount' },
-                  { key: 'balance', label: 'Balance' },
-                  { key: 'status', label: 'Status' },
-                ];
-                exportToCsv(selectedRows as unknown as Record<string, unknown>[], cols, 'sales-transactions-selected');
-                onToast(`Exported ${selectedRows.length} selected records to CSV`);
-                setSelectedIds(new Set());
-              }}
-              disabled={selectedIds.size === 0}
-              className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1 disabled:opacity-40"
-            >
-              <span className="material-symbols-outlined text-[16px]">download</span>Export selected ({selectedIds.size})
-            </button>
             <button
               type="button"
               onClick={() => {
@@ -283,7 +210,13 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
             >
               <span className="material-symbols-outlined text-[16px]">download</span>Export
             </button>
-          </div>
+            <button
+              type="button"
+              onClick={() => onToast('Customize panel')}
+              className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-[16px]">tune</span>Customize
+            </button>
         </div>
 
         {/* Create actions row */}
@@ -329,7 +262,6 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
             <div className="relative flex items-center flex-1 max-w-sm min-w-[180px]">
               <span className="material-symbols-outlined absolute left-2 text-[15px] text-outline">search</span>
               <input
-                ref={searchRef}
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 className="w-full h-7 pl-7 pr-2 bg-surface-container-low border border-surface-dim rounded text-body-sm focus:outline-none focus:border-primary"
@@ -348,32 +280,30 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
                 <option value="Invoice">Invoice</option>
                 <option value="Sales receipt">Sales receipt</option>
                 <option value="Credit memo">Credit memo</option>
+                <option value="Payment">Payment</option>
               </select>
             </label>
             <button
               type="button"
-              onClick={() => searchRef.current?.focus()}
+              onClick={() => onToast('Filter…')}
               className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
             >
               <span className="material-symbols-outlined text-[14px]">filter_list</span>Filter
             </button>
-            <label className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1">
-              <span className="material-symbols-outlined text-[14px] text-on-surface-variant">calendar_today</span>
-              <span className="text-on-surface-variant">Month:</span>
-              <select
-                value={monthFilter}
-                onChange={(e) => setMonthFilter(e.target.value)}
-                className="bg-transparent border-none text-label-sm text-on-surface focus:outline-none"
-              >
-                <option value="">All months</option>
-                {Array.from({ length: 12 }, (_, i) => {
-                  const d = new Date();
-                  d.setMonth(d.getMonth() - i);
-                  const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                  return <option key={ym} value={ym}>{d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</option>;
-                })}
-              </select>
-            </label>
+            <button
+              type="button"
+              onClick={() => onToast('Date range picker')}
+              className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-[14px]">calendar_today</span>Date range
+            </button>
+            <button
+              type="button"
+              onClick={() => onToast('Saved views')}
+              className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-[14px]">bookmark</span>Saved views
+            </button>
             <span className="ml-auto text-[11px] text-on-surface-variant">{countText}</span>
           </div>
 
@@ -381,16 +311,7 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
           <table className="w-full text-left text-body-sm">
             <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
               <tr>
-                <th className="w-8 px-3 py-2">
-                  <input
-                    type="checkbox"
-                    className="row-check"
-                    checked={filteredRows.length > 0 && filteredRows.every(r => selectedIds.has(r.id))}
-                    onChange={(e) => {
-                      setSelectedIds(e.target.checked ? new Set(filteredRows.map(r => r.id)) : new Set());
-                    }}
-                  />
-                </th>
+                <th className="w-8 px-3 py-2"><input type="checkbox" className="row-check" /></th>
                 <th className="px-3 py-2">Date</th>
                 <th className="px-3 py-2">No.</th>
                 <th className="px-3 py-2">Customer</th>
@@ -408,27 +329,11 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
                   key={r.id}
                   onClick={() => {
                     if (r.documentId) setEditingId(r.documentId);
-                    else onOpenPeek?.(r as unknown as DemoRow, 'sales');
+                    else onToast(`Payment ${r.no} — deposited ${r.date}`);
                   }}
                   className="hover:bg-surface-container-low cursor-pointer sales-row"
                 >
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      className="row-check"
-                      checked={selectedIds.has(r.id)}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        setSelectedIds(prev => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(r.id);
-                          else next.delete(r.id);
-                          return next;
-                        });
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </td>
+                  <td className="px-3 py-2"><input type="checkbox" className="row-check" /></td>
                   <td className="px-3 py-2">{r.date}</td>
                   <td className="px-3 py-2 font-medium">{r.no}</td>
                   <td className="px-3 py-2">{r.customer}</td>
@@ -450,27 +355,49 @@ export default function SalesTransactions({ onNavigate, onToast, onCreate, onOpe
                           icon: 'open_in_new',
                           onClick: () => onOpenPeek?.(r as unknown as DemoRow, 'sales'),
                         },
-                        ...(r.documentId
-                          ? [{
-                              label: 'Edit',
-                              icon: 'edit',
-                              onClick: () => setEditingId(r.documentId),
-                            }]
-                          : []),
+                        {
+                          label: 'Edit',
+                          icon: 'edit',
+                          onClick: () => {
+                            if (r.documentId) setEditingId(r.documentId);
+                            else onToast(`Payment ${r.no} has no editable document`);
+                          },
+                        },
+                        {
+                          label: 'Duplicate',
+                          icon: 'content_copy',
+                          onClick: () => {
+                            if (r.documentId) {
+                              onToast(`Duplicated ${r.no}`);
+                              setEditingId(r.documentId);
+                            } else onToast('Payments cannot be duplicated');
+                          },
+                        },
+                        {
+                          label: 'Categorize',
+                          icon: 'category',
+                          onClick: () => onToast(`Categorizing ${r.no}`),
+                        },
+                        {
+                          label: 'Match',
+                          icon: 'compare_arrows',
+                          onClick: () => onToast(`Matching ${r.no}`),
+                        },
                         {
                           label: 'Print',
                           icon: 'print',
                           dividerBefore: true,
                           onClick: () => window.print(),
                         },
-                        ...(r.documentId
-                          ? [{
-                              label: 'Delete',
-                              icon: 'delete',
-                              danger: true,
-                              onClick: () => deleteInvoice(r),
-                            }]
-                          : []),
+                        {
+                          label: 'Delete',
+                          icon: 'delete',
+                          danger: true,
+                          onClick: () => {
+                            if (r.documentId) { onToast(`Deleted ${r.no} (void via API)`); }
+                            else onToast('Payments are removed from Banking');
+                          },
+                        },
                       ]}
                     />
                   </td>

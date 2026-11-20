@@ -50,6 +50,14 @@ export default function Header({
   onToast,
   hideTabs = false,
 }: HeaderProps) {
+  // Hydration fix: render date client-side only (SSR=UTC, client=local TZ)
+  const [todayLabel, setTodayLabel] = useState('');
+  useEffect(() => {
+    const fmt = () => new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+    setTodayLabel(fmt());
+    const t = setInterval(() => setTodayLabel(fmt()), 60_000);
+    return () => clearInterval(t);
+  }, []);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tab: WorkspaceTab } | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
@@ -207,7 +215,7 @@ export default function Header({
           >
             <span className={`material-symbols-outlined ${styles.iconCirclePlus}`}>add_circle</span>
           </button>
-          <span className={styles.dateText}>Sun, Nov 1, 2026</span>
+          <span className={styles.dateText}>{todayLabel}</span>
           <button
             ref={avatarBtnRef}
             type="button"

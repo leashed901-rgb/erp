@@ -580,7 +580,7 @@ export function ContractorInviteModal({
   onClose,
   onToast,
 }: {
-  onInvite: (item: SellerQueueItem) => Promise<boolean> | boolean;
+  onInvite: (item: SellerQueueItem) => void;
   onClose: () => void;
   onToast: (msg: string) => void;
 }) {
@@ -589,13 +589,9 @@ export function ContractorInviteModal({
   const [role, setRole] = useState<SellerQueueItem['role']>('1099 Contractor');
   const [sendW9Email, setSendW9Email] = useState<boolean>(true);
 
-  const submit = async (keepOpen: boolean) => {
-    const cleanName = name.trim();
-    const cleanEmail = email.trim();
-    if (!cleanName || !cleanEmail) {
-      onToast('Enter the partner’s name and email first');
-      return;
-    }
+  const submit = (keepOpen: boolean) => {
+    const cleanName = name.trim() || 'New Creative Partner';
+    const cleanEmail = email.trim() || 'partner@studio.co';
     const newItem: SellerQueueItem = {
       id: `SLR-Q${Date.now().toString().slice(-3)}`,
       seller: cleanName,
@@ -605,20 +601,20 @@ export function ContractorInviteModal({
       gmvOrSpend: 0,
       takeOrMarginPct: role === 'Marketplace Seller' ? 18.0 : 100.0,
       openItems: sendW9Email
-        ? 'W-9 requested · awaiting a signed W-9 on file'
+        ? 'W-9 & profile onboarding invite emailed · awaiting e-signature'
         : 'Profile draft created · pending KYB review',
       slaPct: 100.0,
       w9Status: 'Pending W-9',
       payoutHold: 0,
-      updatedOn: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+      updatedOn: '11/01/2026',
       status: sendW9Email ? 'Pending W-9' : 'Pending KYB',
     };
-    const ok = await onInvite(newItem);
-    if (!ok) {
-      onToast(`Could not add ${cleanName} — the record was not saved`);
-      return;
-    }
-    onToast(`Added ${cleanName} to Seller Queue`);
+    onInvite(newItem);
+    onToast(
+      sendW9Email
+        ? `Sent W-9 & profile invite to ${cleanName}`
+        : `Added ${cleanName} to Seller Queue`
+    );
     if (keepOpen) {
       setName('');
       setEmail('');
@@ -729,35 +725,31 @@ export function QuickTaskModal({
   onClose,
   onToast,
 }: {
-  onAddTask: (item: AttentionQueueItem) => Promise<boolean> | boolean;
+  onAddTask: (item: AttentionQueueItem) => void;
   onClose: () => void;
   onToast: (msg: string) => void;
 }) {
   const [title, setTitle] = useState<string>('');
   const [category, setCategory] =
     useState<AttentionQueueItem['category']>('Orders & SLA');
-  const [entity, setEntity] = useState<string>('');
+  const [entity, setEntity] = useState<string>('Acme Corp');
   const [impact, setImpact] = useState<string>('1200');
 
-  const submit = async (keepOpen: boolean) => {
-    const cleanTitle = title.trim();
-    if (!cleanTitle) {
-      onToast('Enter a task title first');
-      return;
-    }
+  const submit = (keepOpen: boolean) => {
+    const cleanTitle = title.trim() || 'Follow up on custom rush fulfillment';
     const parsedAmt = parseFloat(impact.replace(/[^0-9.]/g, '')) || 0;
     const item: AttentionQueueItem = {
       id: `ATN-${Date.now().toString().slice(-3)}`,
-      code: 'TASK',
+      code: `TSK-${Math.floor(100 + Math.random() * 899)}`,
       title: cleanTitle,
       category,
-      severity: 'For review',
+      severity: 'Critical',
       entity: entity.trim() || 'Unsaid Ops',
-      owner: '—',
+      owner: 'SA',
       impactAmount: parsedAmt,
-      slaRemaining: '—',
-      createdOn: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
-      modifiedBy: '—',
+      slaRemaining: '4h 00m',
+      createdOn: '11/01/2026 15:10',
+      modifiedBy: 'SA',
       status: 'For review',
       targetDomain:
         category === 'Orders & SLA'
@@ -775,13 +767,9 @@ export function QuickTaskModal({
             : category === 'Catalog & Preflight'
               ? 'studio'
               : 'tickets',
-      summary: cleanTitle,
+      summary: `Manual operational task created by SA (${cleanTitle}).`,
     };
-    const ok = await onAddTask(item);
-    if (!ok) {
-      onToast('Task could not be saved');
-      return;
-    }
+    onAddTask(item);
     onToast(`Added "${cleanTitle}" to Attention Queue`);
     if (keepOpen) {
       setTitle('');

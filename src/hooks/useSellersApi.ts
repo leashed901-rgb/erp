@@ -9,7 +9,6 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useList, fetchJson } from '@/hooks/useCrmApi';
-import type { SellerSettlement, SellerSettlementReversal } from '@/lib/sellerTypes';
 
 /* ────────────────────────────────────────────────────────────
    Types (mirror the /api/sellers responses)
@@ -19,7 +18,8 @@ import type { SellerSettlement, SellerSettlementReversal } from '@/lib/sellerTyp
 export interface SellerSummary {
   /** Alias of seller_id — lets the shared useList<{ id }> hook consume the list. */
   id: string;
-  seller_id: string;
+  /** May be null for enforcement-only sellers (no profile row). */
+  seller_id: string | null;
   profile_id: string | null;
   display_name: string | null;
   legal_name: string | null;
@@ -30,10 +30,6 @@ export interface SellerSummary {
   open_violations: number;
   pending_appeals: number;
   has_profile: boolean;
-  status?: string | null;
-  email?: string | null;
-  commission_rate?: number | null;
-  operations_paused?: boolean;
 }
 
 /** A seller_self_serve_profiles row. */
@@ -56,7 +52,6 @@ export interface SellerProfile {
   tax_form_ticket_ref: string | null;
   recorded_earnings: number;
   completion_ticket_ref: string | null;
-  stripe_account_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,44 +114,6 @@ export interface SellerDetail {
   violations: SellerViolation[];
   appeals: SellerAppeal[];
   posts: SellerPost[];
-  /** The canonical sellers row (the party entity) + its settlements. */
-  seller?: SellerEntity | null;
-  settlements?: SellerSettlement[];
-  form1099k?: SellerForm1099k[];
-}
-
-/** A seller_1099k_generations row. */
-export interface SellerForm1099k {
-  id: string;
-  tax_year: number;
-  gross_amount: number;
-  transaction_count: number;
-  basis: string | null;
-  filing_status: string | null;
-  generated_at?: string | null;
-}
-
-/** The canonical `sellers` row — the seller as a party. */
-export interface SellerEntity {
-  id: string;
-  tenant_id: string;
-  seller_type: string;
-  legal_name: string;
-  display_name: string | null;
-  slug: string | null;
-  email: string | null;
-  phone: string | null;
-  website: string | null;
-  tax_id_last4: string | null;
-  commission_rate: number | null;
-  status: string;
-  approved_at: string | null;
-  approved_by: string | null;
-  operations_paused: boolean;
-  operations_pause_note: string | null;
-  party_id: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -219,45 +176,6 @@ export function useSellerDetail(sellerId: string | null): {
    Mutations — fetchJson-based, { ok, error }, never toast
    ──────────────────────────────────────────────────────────── */
 
-/* ── Settlements (doc 21) ─────────────────────────────────── */
-
-export function useSellerSettlements(sellerId?: string) {
-  const url = sellerId ? `/api/sellers/settlements?sellerId=${sellerId}` : '/api/sellers/settlements';
-  const { data, loaded, error, refresh } = useList<SellerSettlement>('sellerSettlements:' + (sellerId || 'all'), url, (raw) =>
-    ((raw as { data?: SellerSettlement[] })?.data ?? []) as SellerSettlement[]);
-  return { settlements: data, loading: !loaded, error, refresh };
-}
-
-/** Approve (settle) a pending settlement. */
-export async function approveSettlement(id: string): Promise<MutationResult<SellerSettlement>> {
-  const res = await fetchJson<{ data: SellerSettlement }>(`/api/sellers/settlements/${id}/approve`, { method: 'POST' });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
-/** Hold a pending settlement (reason required) or release a hold. */
-export async function holdSettlement(
-  id: string,
-  input: { reason?: string; executeAfter?: string; release?: boolean },
-): Promise<MutationResult<SellerSettlement>> {
-  const res = await fetchJson<{ data: SellerSettlement }>(`/api/sellers/settlements/${id}/hold`, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
-/** Reverse a settlement (full by default; pass amount for partial). */
-export async function reverseSettlement(
-  id: string,
-  input: { stripeRefundId: string; amount?: number; commissionReversed?: number; stripeReversalId?: string; state?: string },
-): Promise<MutationResult<{ settlement: SellerSettlement; reversal: SellerSettlementReversal }>> {
-  const res = await fetchJson<{ data: { settlement: SellerSettlement; reversal: SellerSettlementReversal } }>(`/api/sellers/settlements/${id}/reverse`, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
 export interface MutationResult<T = unknown> {
   ok: boolean;
   error?: string;
@@ -278,71 +196,6 @@ export async function createSeller(input: {
 }
 
 /** Update profile fields for a seller_id (display_name, applicant_type, tax_form_status, …). */
-/** Decide a seller application from the onboarding queue:
- *  'approved' activates the seller (stamps approved_at/by server-side);
- *  'closed' rejects the application. */
-export async function decideSellerApplication(
-  sellerId: string,
-  decision: 'approved' | 'closed',
-): Promise<MutationResult<SellerEntity>> {
-  const res = await fetchJson<{ data: SellerEntity }>(`/api/sellers/${sellerId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: decision }),
-  });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
-/** Pause or resume a seller's operations (profile quick action). */
-export async function setSellerOperationsPaused(
-  sellerId: string,
-  paused: boolean,
-  note?: string,
-): Promise<MutationResult<SellerEntity>> {
-  const res = await fetchJson<{ data: SellerEntity }>(`/api/sellers/${sellerId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ operations_paused: paused, operations_pause_note: note }),
-  });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
-/** Suspend or close a seller (profile quick actions / danger zone). */
-export async function setSellerStatus(
-  sellerId: string,
-  status: 'suspended' | 'closed' | 'approved',
-): Promise<MutationResult<SellerEntity>> {
-  const res = await fetchJson<{ data: SellerEntity }>(`/api/sellers/${sellerId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
-/** Record a violation against a seller (profile quick action). */
-export async function recordViolation(input: {
-  seller_id: string;
-  violation_type: string;
-  severity?: string;
-  description?: string;
-}): Promise<MutationResult<SellerViolation>> {
-  const res = await fetchJson<{ data: SellerViolation }>('/api/sellers/violations', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
-/** Generic entity patch (commission, contact fields) on the sellers row. */
-export async function patchSeller(
-  sellerId: string,
-  updates: Partial<Pick<SellerEntity, 'display_name' | 'legal_name' | 'email' | 'phone' | 'website' | 'commission_rate' | 'tax_id_last4'>>,
-): Promise<MutationResult<SellerEntity>> {
-  const res = await fetchJson<{ data: SellerEntity }>(`/api/sellers/${sellerId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(updates),
-  });
-  return res.ok ? { ok: true, data: res.data.data } : { ok: false, error: res.error };
-}
-
 export async function updateSellerProfile(
   sellerId: string,
   updates: Partial<Pick<SellerProfile, 'display_name' | 'applicant_type' | 'tax_form_status' | 'legal_name' | 'tax_form_prompted_at' | 'tax_form_received_at'>>,
@@ -399,8 +252,8 @@ export async function resolveViolation(
    ──────────────────────────────────────────────────────────── */
 
 /** Display label for any seller row — profile name, or an honest enforcement fallback. */
-export function sellerDisplayName(s: { display_name?: string | null; legal_name?: string | null; seller_id: string }): string {
-  return s.display_name || s.legal_name || `Seller ${s.seller_id.slice(0, 8)}`;
+export function sellerDisplayName(s: { display_name?: string | null; legal_name?: string | null; seller_id?: string | null }): string {
+  return s.display_name || s.legal_name || (s.seller_id ? `Seller ${s.seller_id.slice(0, 8)}` : 'Unknown seller');
 }
 
 export function initials(name: string): string {

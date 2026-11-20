@@ -331,14 +331,7 @@
    whole screen — built for scale (30k fonts, 50k images must
    scroll freely inside it). */
 .slideTool {
-  /* Absolute overlay against .root, starting BELOW the toolbar: the
-     workspace begins at root offset 92 (topNav 44 + topToolbar 48).
-     As a full-height fixed panel it covered Save + Publish in the
-     toolbar whenever a panel was open. As an in-flow child it landed
-     below the canvas, cut off by overflow. Absolute at top 92 keeps
-     the intended temporary-overlay behavior — over the canvas only,
-     never over the toolbar. */
-  position: absolute; top: 92px; bottom: 0; width: 520px; background: #fff;
+  position: fixed; top: 0; bottom: 0; width: 520px; background: #fff;
   display: flex; flex-direction: column;
   transition: transform 0.3s cubic-bezier(0.4,0,0.2,1); z-index: 200;
 }
@@ -610,33 +603,3 @@
 @media (max-width: 900px) {
   .slideTool { width: 100%; }
 }
-
-/* Floating canvas tool strip — the draw tools (Select / Text / Rect /
-   Ellipse / Draw / Arrow / Line / Triangle + Upload / AI / Images). */
-.toolStrip {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 5;
-  display: flex;
-  gap: 2px;
-  background: #fff;
-  border: 1px solid #dad9dd;
-  border-radius: 10px;
-  padding: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-.toolStripBtn {
-  width: 34px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: #1a1c1e;
-  cursor: pointer;
-}
-.toolStripBtn:hover { background: #f4f3f7; }
-.toolStripBtnActive { background: #1a1c1e; color: #fff; }

@@ -1,12 +1,9 @@
-/* eslint-disable react-hooks/rules-of-hooks, react-hooks/refs, react-hooks/immutability */
 'use client';
 /* AdSetsScreen — 1:1 port of upload/marketing_extracted/Marketing/adsets.html
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useEffect, useMemo, useState } from 'react';
-import { adMutations, useAdCampaigns, useAdSets } from '@/hooks/useAdvertisingApi';
-import type { AdSet as AdSetDto } from '@/lib/adTypes';
+import { useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -19,12 +16,6 @@ const PLACEMENTS = ['Auto', 'Feed', 'Stories / Reels', 'Search'] as const;
 const BIDS = ['Lowest cost', 'Cost cap', 'ROAS goal'] as const;
 const AUDIENCES = ['Site visitors 30d', 'Abandoned cart 7d', 'Lookalike — VIPs', 'TikTok engagement 90d', 'New customers'] as const;
 const STATUSES = ['Active', 'Paused', 'Draft', 'In review', 'Ended'] as const;
-// The DB CHECK allows only active/paused/archived — Draft / In review /
-// Ended have no DB state, so they map to the closest live state:
-// not-yet-live → paused, finished → archived.
-const statusToDb = (s: string) =>
-  s === 'Active' ? 'active' : s === 'Paused' ? 'paused' : s === 'Ended' ? 'archived' : 'paused';
-const statusFromDb = (s: string) => { const v = s.replace('_', ' '); return v.charAt(0).toUpperCase() + v.slice(1); };
 const AGES = ['All ages', '18-24', '25-34', '35-44', '45-54', '55+'] as const;
 const GENDERS = ['All', 'Women', 'Men'] as const;
 
@@ -34,6 +25,14 @@ interface CampaignRef {
   network: string;
 }
 
+const CAMPAIGNS: CampaignRef[] = [
+  { id: 'CMP-3001', name: 'Fall launch — Prospecting', network: 'Meta' },
+  { id: 'CMP-3002', name: 'TikTok creator drop', network: 'TikTok' },
+  { id: 'CMP-3003', name: 'Brand search — Non-brand', network: 'Google' },
+  { id: 'CMP-3004', name: 'Holiday capsule lookalike', network: 'Meta' },
+  { id: 'CMP-3005', name: 'Pinterest — Evergreen inspo', network: 'Pinterest' },
+  { id: 'CMP-3006', name: 'Summer clearance (ended)', network: 'Meta' },
+];
 
 interface AdSet {
   id: string;
@@ -54,6 +53,15 @@ interface AdSet {
   end: string | null;
 }
 
+const ADSETS: AdSet[] = [
+  { id: 'AS-5001', name: 'Fall — Retargeting 30d', campaignId: 'CMP-3001', campaignName: 'Fall launch — Prospecting', network: 'Meta', audience: 'Site visitors 30d', placement: 'Feed', bid: 'Lowest cost', budget: 120, spend: 4210, revenue: 18240, roas: 4.33, frequency: 2.1, status: 'Active', start: '2026-10-15T00:00', end: '2026-11-30T23:59' },
+  { id: 'AS-5002', name: 'Fall — Lookalike 2%', campaignId: 'CMP-3001', campaignName: 'Fall launch — Prospecting', network: 'Meta', audience: 'Lookalike — VIPs', placement: 'Auto', bid: 'ROAS goal', budget: 130, spend: 4410, revenue: 18480, roas: 4.19, frequency: 2.8, status: 'Active', start: '2026-10-15T00:00', end: '2026-11-30T23:59' },
+  { id: 'AS-5003', name: 'TikTok — Spark ads 25-44', campaignId: 'CMP-3002', campaignName: 'TikTok creator drop', network: 'TikTok', audience: 'TikTok engagement 90d', placement: 'Stories / Reels', bid: 'Lowest cost', budget: 180, spend: 4210, revenue: 12890, roas: 3.06, frequency: 3.4, status: 'Active', start: '2026-10-20T00:00', end: '2026-11-20T23:59' },
+  { id: 'AS-5004', name: 'Search — Non-brand exact', campaignId: 'CMP-3003', campaignName: 'Brand search — Non-brand', network: 'Google', audience: 'New customers', placement: 'Search', bid: 'Cost cap', budget: 120, spend: 2310, revenue: 9280, roas: 4.02, frequency: 1.4, status: 'Active', start: '2026-10-01T00:00', end: '2026-12-31T23:59' },
+  { id: 'AS-5005', name: 'Holiday — Lookalike 1%', campaignId: 'CMP-3004', campaignName: 'Holiday capsule lookalike', network: 'Meta', audience: 'Lookalike — VIPs', placement: 'Auto', bid: 'Lowest cost', budget: 300, spend: 3280, revenue: 14840, roas: 4.53, frequency: 2.4, status: 'In review', start: '2026-11-05T00:00', end: '2026-12-24T23:59' },
+  { id: 'AS-5006', name: 'Pinterest — Evergreen', campaignId: 'CMP-3005', campaignName: 'Pinterest — Evergreen inspo', network: 'Pinterest', audience: 'Site visitors 30d', placement: 'Feed', bid: 'Lowest cost', budget: 80, spend: 0, revenue: 0, roas: 0, frequency: 0, status: 'Draft', start: null, end: null },
+  { id: 'AS-5007', name: 'Summer — Retargeting cart', campaignId: 'CMP-3006', campaignName: 'Summer clearance (ended)', network: 'Meta', audience: 'Abandoned cart 7d', placement: 'Feed', bid: 'Lowest cost', budget: 200, spend: 12400, revenue: 38210, roas: 3.08, frequency: 5.8, status: 'Ended', start: '2026-08-01T00:00', end: '2026-09-15T23:59' },
+];
 
 /* ─── helpers (from HTML <script>) ─── */
 function pillFor(status: string) {
@@ -71,40 +79,10 @@ function fmtDate(iso: string | null) {
 
 export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's `filters`, `editing`, `peekId`, etc.) ─── */
-  const [items, setItems] = useState<AdSet[]>([]);
-  const { adSets: apiAdSets, refresh: refreshAdSets } = useAdSets();
-  const { campaigns: apiCampaigns } = useAdCampaigns();
-  const [campaignRefs, setCampaignRefs] = useState<CampaignRef[]>([]);
-  useEffect(() => {
-    const refs = apiCampaigns.map(c => ({ id: c.id, name: c.name, network: '' }));
-    setCampaignRefs(refs);
-    setCampaigns(prev => (prev.size ? prev : new Set(refs.map(r => r.id))));
-    setDraftCampaigns(prev => (prev.size ? prev : new Set(refs.map(r => r.id))));
-  }, [apiCampaigns]);
-  useEffect(() => {
-    const byId = new Map(apiCampaigns.map(c => [c.id, c.name]));
-    setItems(apiAdSets.map((d: AdSetDto) => ({
-      id: d.id,
-      name: d.name,
-      campaignId: d.campaignId,
-      campaignName: byId.get(d.campaignId) || '—',
-      network: '',
-      audience: '',
-      placement: '',
-      bid: '',
-      budget: 0,
-      spend: 0,
-      revenue: 0,
-      roas: 0,
-      frequency: 0,
-      status: statusFromDb(d.status),
-      start: null,
-      end: null,
-    })));
-  }, [apiAdSets, apiCampaigns]);
+  const [items, setItems] = useState<AdSet[]>(ADSETS);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('All');
-  const [campaigns, setCampaigns] = useState<Set<string>>(new Set());
+  const [campaigns, setCampaigns] = useState<Set<string>>(new Set(CAMPAIGNS.map(c => c.id)));
   const [placements, setPlacements] = useState<Set<string>>(new Set(PLACEMENTS as readonly string[]));
   const [bids, setBids] = useState<Set<string>>(new Set(BIDS as readonly string[]));
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -115,16 +93,16 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
   const [popCampaignOpen, setPopCampaignOpen] = useState(false);
   const [popPlacementOpen, setPopPlacementOpen] = useState(false);
   const [popBidOpen, setPopBidOpen] = useState(false);
-  const [draftCampaigns, setDraftCampaigns] = useState<Set<string>>(new Set());
+  const [draftCampaigns, setDraftCampaigns] = useState<Set<string>>(new Set(CAMPAIGNS.map(c => c.id)));
   const [draftPlacements, setDraftPlacements] = useState<Set<string>>(new Set(PLACEMENTS as readonly string[]));
   const [draftBids, setDraftBids] = useState<Set<string>>(new Set(BIDS as readonly string[]));
 
   // drawer form state (mirrors HTML's openAdsetDrawer() field assignments)
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [formName, setFormName] = useState('');
-  const [formCampaignId, setFormCampaignId] = useState('');
+  const [formCampaignId, setFormCampaignId] = useState(CAMPAIGNS[0].id);
   const [formStatus, setFormStatus] = useState('Draft');
-  const [formAudience, setFormAudience] = useState<string>(AUDIENCES[0]);
+  const [formAudience, setFormAudience] = useState(AUDIENCES[0]);
   const [formAge, setFormAge] = useState('All ages');
   const [formGender, setFormGender] = useState('All');
   const [formLocations, setFormLocations] = useState('United States');
@@ -151,7 +129,7 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
   const avgRoas = activeList.length ? activeList.reduce((s, a) => s + a.roas, 0) / activeList.length : 0;
   const maxFreq = items.reduce((m, a) => Math.max(m, a.frequency || 0), 0);
 
-  const filtersActive = !!q || tab !== 'All' || campaigns.size !== campaignRefs.length || placements.size !== PLACEMENTS.length || bids.size !== BIDS.length;
+  const filtersActive = !!q || tab !== 'All' || campaigns.size !== CAMPAIGNS.length || placements.size !== PLACEMENTS.length || bids.size !== BIDS.length;
   const allChecked = rows.length > 0 && rows.every(a => selected.has(a.id));
   const someChecked = rows.some(a => selected.has(a.id));
 
@@ -162,7 +140,7 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
     const editing = id ? items.find(a => a.id === id) : null;
     setEditingId(id);
     setFormName(editing ? editing.name : '');
-    setFormCampaignId(editing ? editing.campaignId : (campaignRefs[0]?.id || ''));
+    setFormCampaignId(editing ? editing.campaignId : CAMPAIGNS[0].id);
     setFormStatus(editing ? editing.status : 'Draft');
     setFormAudience(editing ? editing.audience : AUDIENCES[0]);
     setFormPlacement(editing ? editing.placement : 'Auto');
@@ -187,14 +165,14 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
   function collectAdset(): AdSet | null {
     const name = formName.trim();
     if (!name) { onToast('Ad set name is required'); return null; }
-    const campaign = campaignRefs.find(c => c.id === formCampaignId);
+    const campaign = CAMPAIGNS.find(c => c.id === formCampaignId);
     const editing = editingId ? items.find(a => a.id === editingId) : null;
     return {
       id: editing ? editing.id : 'AS-' + (5000 + items.length + 1),
       name,
       campaignId: formCampaignId,
       campaignName: campaign ? campaign.name : '—',
-      network: campaign ? campaign.network : '',
+      network: campaign ? campaign.network : 'Meta',
       audience: formAudience,
       placement: formPlacement,
       bid: formBid,
@@ -208,34 +186,24 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
       end: formEnd || null,
     };
   }
-  async function persistAdset(): Promise<boolean> {
-    const a = collectAdset(); if (!a) return false;
-    try {
-      if (editingId) await adMutations.updateAdSet(editingId, { name: a.name, status: statusToDb(a.status) });
-      else await adMutations.createAdSet({ campaignId: a.campaignId, name: a.name, status: statusToDb(a.status) });
-      refreshAdSets();
-      return true;
-    } catch (e) {
-      onToast(e instanceof Error ? e.message : 'Could not save the ad set');
-      return false;
-    }
-  }
-  async function save() {
-    if (!(await persistAdset())) return;
+  function save() {
+    const a = collectAdset(); if (!a) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = a; return n; } return prev; }
+      return [a, ...prev];
+    });
     closeAdsetDrawer();
     onToast(editingId ? 'Ad set updated' : 'Ad set created');
   }
-  async function saveAndNew() {
-    if (!(await persistAdset())) return;
+  function saveAndNew() {
+    const a = collectAdset(); if (!a) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = a; return n; } return prev; }
+      return [a, ...prev];
+    });
     setEditingId(null);
     setFormName('');
     onToast('Saved. New ad set form ready.');
-  }
-
-  function setStatusViaApi(a: AdSet, display: string) {
-    adMutations.updateAdSet(a.id, { status: statusToDb(display) })
-      .then(() => { setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: display } : x)); onToast(`${display}: ${a.name}`); })
-      .catch((e) => onToast(e instanceof Error ? e.message : 'Could not update the ad set'));
   }
 
   function rowAction(act: string, a: AdSet) {
@@ -244,16 +212,17 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
       case 'edit': openAdsetDrawer(a.id); break;
       case 'view': openPeek(a.id); break;
       case 'duplicate':
-        adMutations.createAdSet({ campaignId: a.campaignId, name: a.name + ' (copy)', status: 'paused' })
-          .then(() => { refreshAdSets(); onToast(`Duplicated: ${a.name}`); })
-          .catch((e) => onToast(e instanceof Error ? e.message : 'Could not duplicate'));
+        setItems(prev => [{ ...a, id: 'AS-' + (5000 + prev.length + 1), name: a.name + ' (copy)', status: 'Draft', spend: 0, revenue: 0, roas: 0, frequency: 0 }, ...prev]);
+        onToast(`Duplicated: ${a.name}`);
         break;
-      case 'pause': setStatusViaApi(a, 'Paused'); break;
-      case 'resume': setStatusViaApi(a, 'Active'); break;
-      case 'archive': setStatusViaApi(a, 'Ended'); break;
+      case 'pause': setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: 'Paused' } : x)); onToast(`Paused: ${a.name}`); break;
+      case 'resume': setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: 'Active' } : x)); onToast(`Resumed: ${a.name}`); break;
+      case 'archive': setItems(prev => prev.map(x => x.id === a.id ? { ...x, status: 'Ended' } : x)); onToast(`Archived: ${a.name}`); break;
       case 'delete':
-        // No delete in the schema — ending is the terminal state.
-        if (confirm(`Delete ad set "${a.name}"? It will be ended.`)) setStatusViaApi(a, 'Ended');
+        if (confirm(`Delete ad set "${a.name}"?`)) {
+          setItems(prev => prev.filter(x => x.id !== a.id));
+          onToast(`Deleted: ${a.name}`);
+        }
         break;
     }
   }
@@ -263,22 +232,21 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
     const sel = [...selected];
     const n = sel.length;
     if (n === 0) return;
-    const statusFor: Record<string, string> = { pause: 'Paused', resume: 'Active', delete: 'Ended' };
-    (async () => {
-      try {
-        if (act === 'duplicate') {
-          for (const id of sel) { const a = items.find(x => x.id === id); if (a) await adMutations.createAdSet({ campaignId: a.campaignId, name: a.name + ' (copy)', status: 'paused' }); }
-          onToast(`Duplicated ${n} ad set(s)`);
-        } else if (statusFor[act]) {
-          if (act === 'delete' && !confirm(`Delete ${n} ad set(s)? They will be ended.`)) return;
-          for (const id of sel) await adMutations.updateAdSet(id, { status: statusToDb(statusFor[act]) });
-          onToast(`${statusFor[act] === 'Active' ? 'Resumed' : statusFor[act]} ${n} ad set(s)`);
-        } else return;
-        refreshAdSets();
-      } catch (e) {
-        onToast(e instanceof Error ? e.message : 'Bulk action failed');
+    if (act === 'pause') { setItems(prev => prev.map(a => sel.includes(a.id) ? { ...a, status: 'Paused' } : a)); onToast(`Paused ${n} ad set(s)`); }
+    else if (act === 'resume') { setItems(prev => prev.map(a => sel.includes(a.id) ? { ...a, status: 'Active' } : a)); onToast(`Resumed ${n} ad set(s)`); }
+    else if (act === 'duplicate') {
+      setItems(prev => {
+        const copies = sel.map(id => { const a = prev.find(x => x.id === id); return a ? { ...a, id: 'AS-' + (5000 + prev.length + 1), name: a.name + ' (copy)', status: 'Draft', spend: 0, revenue: 0, roas: 0, frequency: 0 } : null; }).filter(Boolean) as AdSet[];
+        return [...copies, ...prev];
+      });
+      onToast(`Duplicated ${n} ad set(s)`);
+    }
+    else if (act === 'delete') {
+      if (confirm(`Delete ${n} ad set(s)?`)) {
+        setItems(prev => prev.filter(a => !sel.includes(a.id)));
+        onToast(`Deleted ${n} ad set(s)`);
       }
-    })();
+    }
     setSelected(new Set());
   }
 
@@ -291,10 +259,10 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
   }
   function clearAllFilters() {
     setQ(''); setTab('All');
-    setCampaigns(new Set(campaignRefs.map(c => c.id)));
+    setCampaigns(new Set(CAMPAIGNS.map(c => c.id)));
     setPlacements(new Set(PLACEMENTS as readonly string[]));
     setBids(new Set(BIDS as readonly string[]));
-    setDraftCampaigns(new Set(campaignRefs.map(c => c.id)));
+    setDraftCampaigns(new Set(CAMPAIGNS.map(c => c.id)));
     setDraftPlacements(new Set(PLACEMENTS as readonly string[]));
     setDraftBids(new Set(BIDS as readonly string[]));
   }
@@ -335,11 +303,8 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
             <span className="material-symbols-outlined text-[16px]">tune</span>Customize
           </button>
           <div className="flex">
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" onClick={() => openAdsetDrawer(null)}>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={() => openAdsetDrawer(null)}>
               <span className="material-symbols-outlined text-[16px]">add</span>New ad set
-            </button>
-            <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={() => setCreateMenuOpen(v => !v)}>
-              <span className="material-symbols-outlined text-[16px]">expand_more</span>
             </button>
           </div>
         </div>
@@ -394,7 +359,7 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
               <div className="row-menu open" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, minWidth: 260 }} onClick={e => e.stopPropagation()}>
                 <div className="menu-header">Filter by campaign</div>
                 <div className="max-h-[220px] overflow-y-auto">
-                  {campaignRefs.map(c => (
+                  {CAMPAIGNS.map(c => (
                     <label key={c.id} className="flex items-center gap-2 px-2 py-1 text-body-sm">
                       <input type="checkbox" checked={draftCampaigns.has(c.id)} onChange={() => { const next = new Set(draftCampaigns); if (next.has(c.id)) next.delete(c.id); else next.add(c.id); setDraftCampaigns(next); }} />{c.name}
                     </label>
@@ -402,7 +367,7 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
                 </div>
                 <div className="sep"></div>
                 <div className="flex justify-end gap-2 px-2 py-1">
-                  <button className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => setDraftCampaigns(new Set(campaignRefs.map(c => c.id)))}>Clear</button>
+                  <button className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low" onClick={() => setDraftCampaigns(new Set(CAMPAIGNS.map(c => c.id)))}>Clear</button>
                   <button className="h-7 px-2 bg-primary text-white rounded text-label-sm font-semibold hover:bg-primary-container" onClick={() => { setCampaigns(new Set(draftCampaigns)); setPopCampaignOpen(false); }}>Apply</button>
                 </div>
               </div>
@@ -644,7 +609,7 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
                   <div>
                     <label className="field-label">Campaign</label>
                     <select className="field-input" value={formCampaignId} onChange={e => setFormCampaignId(e.target.value)}>
-                      {campaignRefs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      {CAMPAIGNS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
                   <div>
@@ -734,12 +699,10 @@ export default function AdSetsScreen({ onToast }: MarketingScreenProps) {
               <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={closeAdsetDrawer}>Cancel</button>
               <div className="flex items-center gap-2">
                 <div className="flex">
-                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={saveAndNew}>Save and new</button>
-                  <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={saveAndNew}>Save and new</button>
                 </div>
                 <div className="flex">
-                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={save}>Save and close</button>
-                  <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={save}>Save and close</button>
                 </div>
               </div>
             </div>

@@ -3,10 +3,7 @@
    The HTML's <style> block lives in src/app/marketing.css (global classes).
    The HTML's <body> is ported to JSX below; class names are identical.
    The HTML's <script> is ported to React state + handlers below. */
-import { useEffect, useMemo, useState } from 'react';
-import { usePromotions, promotionMutations } from '@/hooks/useMarketingApi';
-import { fetchJson } from '@/hooks/useCrmApi';
-import type { Promotion } from '@/lib/marketingTypes';
+import { useMemo, useState } from 'react';
 import { exportToCsv } from '@/lib/csvExport';
 
 interface MarketingScreenProps {
@@ -41,6 +38,14 @@ interface Discount {
   combinable?: boolean;
 }
 
+const INITIAL_DISCOUNTS: Discount[] = [
+  { id: 'd1', code: 'FALL26', title: 'Fall launch — 15% sitewide', type: 'Percentage', value: '15%', used: 742, limit: 2000, window: '2026-10-01 → 2026-11-30', start: '2026-10-01T00:00', end: '2026-11-30T23:59', status: 'Active', targets: [{ kind: 'all', label: 'All products' }], scope: 'Entire order' },
+  { id: 'd2', code: 'WELCOME10', title: 'New customer welcome', type: 'Percentage', value: '10%', used: 318, limit: null, window: 'Evergreen', start: '2026-01-01T00:00', end: null, status: 'Active', targets: [{ kind: 'customers', label: 'New customers' }], scope: 'Entire order' },
+  { id: 'd3', code: 'SHIPFREE', title: 'Free shipping over $50', type: 'Free shipping', value: '—', used: 562, limit: null, window: 'Evergreen', start: '2026-02-15T00:00', end: null, status: 'Active', targets: [{ kind: 'all', label: 'All products' }], scope: 'Shipping' },
+  { id: 'd4', code: 'BOGOTEE', title: 'Buy 2 tees, get 1 free', type: 'BOGO', value: 'Buy 2 get 1', used: 74, limit: 500, window: '2026-11-01 → 2026-11-15', start: '2026-11-01T00:00', end: '2026-11-15T23:59', status: 'Scheduled', targets: [{ kind: 'collection', label: 'Core Essentials' }], scope: 'Specific items' },
+  { id: 'd5', code: 'HOLIDAY5', title: 'Holiday capsule $5 off', type: 'Fixed', value: '$5.00', used: 41, limit: 300, window: '2026-10-20 → 2026-10-31', start: '2026-10-20T00:00', end: '2026-10-31T23:59', status: 'Expired', targets: [{ kind: 'collection', label: 'Holiday Capsule' }], scope: 'Specific items' },
+  { id: 'd6', code: 'PAUSED10', title: 'Paused sitewide promo', type: 'Percentage', value: '10%', used: 0, limit: 1000, window: '2026-11-01 → 2026-12-01', start: '2026-11-01T00:00', end: '2026-12-01T23:59', status: 'Paused', targets: [{ kind: 'all', label: 'All products' }], scope: 'Entire order' },
+];
 
 interface TargetItem {
   id: string;
@@ -48,8 +53,23 @@ interface TargetItem {
   meta: string;
 }
 
-const TARGET_DATA_STATIC: Record<string, TargetItem[]> = {
+const TARGET_DATA: Record<string, TargetItem[]> = {
   all: [{ id: 'all', label: 'All products', meta: 'Sitewide' }],
+  collections: [
+    { id: 'COL-FALL', label: 'Fall 2026 Drop', meta: '12 products' },
+    { id: 'COL-HOLIDAY', label: 'Holiday Capsule', meta: '8 products' },
+    { id: 'COL-CORE', label: 'Core Essentials', meta: '22 products' },
+  ],
+  products: [
+    { id: 'TEE-001', label: 'Classic Tee', meta: 'TEE-001 · $24.00' },
+    { id: 'TOTE-014', label: 'Canvas Tote', meta: 'TOTE-014 · $18.00' },
+    { id: 'MUG-003', label: 'Mug 11oz', meta: 'MUG-003 · $14.00' },
+  ],
+  customers: [
+    { id: 'CUS-NEW', label: 'New customers', meta: 'First order' },
+    { id: 'CUS-VIP', label: 'VIP segment', meta: 'LTV > $500' },
+    { id: 'CUS-RISK', label: 'At-risk segment', meta: 'No order in 90d' },
+  ],
 };
 
 const STATUS_PILL_CLASS: Record<string, string> = {
@@ -88,59 +108,9 @@ function TargetChip({ t }: { t: DiscountTarget }) {
 
 const EMPTY_TARGET: DiscountTarget = { kind: 'all', label: 'All products' };
 
-const TYPE_FROM_DB: Record<string, string> = { percent: 'Percentage', fixed_amount: 'Fixed', free_shipping: 'Free shipping', bogo: 'BOGO' };
-const TYPE_TO_DB: Record<string, string> = { Percentage: 'percent', Fixed: 'fixed_amount', 'Free shipping': 'free_shipping', BOGO: 'bogo' };
-
-function promoToLocal(p: Promotion): Discount {
-  const type = TYPE_FROM_DB[p.promotionType] || 'Percentage';
-  const value = type === 'Percentage' ? `${p.value}%`
-    : type === 'Fixed' ? `$${p.value.toFixed(2)}`
-    : type === 'BOGO' ? `Buy ${p.bogo?.buy ?? 2} get ${p.bogo?.get ?? 1}`
-    : '—';
-  const now = Date.now();
-  const status = p.draft ? 'Draft'
-    : !p.active ? 'Paused'
-    : p.endAt && new Date(p.endAt).getTime() < now ? 'Expired'
-    : p.startAt && new Date(p.startAt).getTime() > now ? 'Scheduled'
-    : 'Active';
-  const start = p.startAt ? p.startAt.slice(0, 16) : '';
-  const end = p.endAt ? p.endAt.slice(0, 16) : null;
-  return {
-    id: p.id, code: p.code, title: p.name, type, value,
-    used: p.usageCount, limit: p.usageLimit,
-    window: start ? `${start.slice(0, 10)} → ${end ? end.slice(0, 10) : 'Evergreen'}` : 'Evergreen',
-    start, end, status,
-    targets: p.targets.length ? p.targets : [EMPTY_TARGET],
-    scope: p.scope,
-    perCustomer: p.perCustomerLimit,
-    combinable: p.combinable,
-  };
-}
-
 export default function PromotionsScreen({ onToast, onNavigate }: MarketingScreenProps) {
   /* ─── state (mirrors HTML's `filters`, `editing`, `peekId`, etc.) ─── */
-  const { promotions: apiPromos, setPromotions: setApiPromos } = usePromotions();
-  const items: Discount[] = useMemo(() => apiPromos.map(promoToLocal), [apiPromos]);
-  const [targetData, setTargetData] = useState<Record<string, TargetItem[]>>(TARGET_DATA_STATIC);
-  const TARGET_DATA = targetData;
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [productsRes, collectionsRes, segmentsRes] = await Promise.all([
-        fetchJson<{ data: Record<string, unknown>[] }>('/api/products?limit=50'),
-        fetchJson<{ data: Record<string, unknown>[] }>('/api/v1/collections'),
-        fetchJson<{ data: { id: string; name: string; member_count?: number }[] }>('/api/crm/segments'),
-      ]);
-      if (cancelled) return;
-      setTargetData(prev => ({
-        ...prev,
-        products: productsRes.ok ? (productsRes.data.data || []).map(p => ({ id: String(p.id), label: String(p.name || p.title || 'Product'), meta: String(p.slug || p.sku || '') })) : [],
-        collections: collectionsRes.ok ? (collectionsRes.data.data || []).map(c => ({ id: String(c.id), label: String(c.name || c.title || 'Collection'), meta: c.product_count != null ? `${c.product_count} products` : '' })) : [],
-        customers: segmentsRes.ok ? (segmentsRes.data.data || []).map(s => ({ id: s.id, label: s.name, meta: `${s.member_count || 0} members` })) : [],
-      }));
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const [items, setItems] = useState<Discount[]>(INITIAL_DISCOUNTS);
   const [q, setQ] = useState('');
   const [tab, setTab] = useState<string>('All');
   const [types, setTypes] = useState<Set<string>>(new Set(TYPES as readonly string[]));
@@ -195,12 +165,6 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
   }), [items, q, tab, types, dateFrom, dateTo]);
 
   const activeCount = items.filter(d => d.status === 'Active').length;
-  const evergreenCount = items.filter(d => d.status === 'Active' && !d.end).length;
-  const limitedCount = items.filter(d => d.status === 'Active' && !!d.end).length;
-  const totalRedemptions = items.reduce((sum, d) => sum + (d.used || 0), 0);
-  const pausedCount = items.filter(d => d.status === 'Paused').length;
-  const expiredCount = items.filter(d => d.status === 'Expired').length;
-  const expiringSoonCount = items.filter(d => d.status === 'Active' && d.end && new Date(d.end).getTime() - Date.now() < 7 * 24 * 3600 * 1000).length;
   const filtersActive = !!q || tab !== 'All' || types.size !== TYPES.length || !!dateFrom || !!dateTo;
   const allChecked = rows.length > 0 && rows.every(d => selected.has(d.id));
   const someChecked = rows.some(d => selected.has(d.id));
@@ -253,7 +217,7 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
     const data = TARGET_DATA[activeTargetKind] || [];
     const picks = data
       .filter(it => targetDraft.has(it.id))
-      .map(it => ({ kind: kindMap[activeTargetKind], label: it.label, id: it.id }));
+      .map(it => ({ kind: kindMap[activeTargetKind], label: it.label }));
     if (!picks.length) { onToast('Pick at least one'); return; }
     const kinds = new Set(picks.map(p => p.kind));
     setPickedTargets(prev => prev.filter(t => !kinds.has(t.kind)).concat(picks));
@@ -304,66 +268,25 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
     };
   }
 
-  function buildInput(d: Discount) {
-    return {
-      code: d.code,
-      name: d.title,
-      promotionType: TYPE_TO_DB[d.type] || 'percent',
-      value: d.type === 'Percentage' ? parseFloat(d.value) || 0 : d.type === 'Fixed' ? parseFloat(d.value.replace('$', '')) || 0 : 0,
-      usageLimit: d.limit,
-      startAt: d.start ? new Date(d.start).toISOString() : null,
-      endAt: d.end ? new Date(d.end).toISOString() : null,
-      minimumSubtotal: fMinType !== 'none' && fMinValue ? parseFloat(fMinValue) : null,
-      targets: d.targets,
-      scope: d.scope,
-      perCustomerLimit: d.perCustomer ?? null,
-      combinable: !!d.combinable,
-      bogo: d.type === 'BOGO' ? { buy: parseInt(fBogoBuy, 10) || 2, get: parseInt(fBogoGet, 10) || 1 } : null,
-      active: true,
-    };
-  }
-
-  async function persist(d: Discount): Promise<boolean> {
-    if (editingId) {
-      const res = await promotionMutations.update(editingId, { full: true, ...buildInput(d) });
-      if (!res.ok || !res.data) { onToast('Save failed: ' + (res.error || '')); return false; }
-      setApiPromos(apiPromos.map(x => x.id === editingId ? res.data! : x));
-    } else {
-      const res = await promotionMutations.create(buildInput(d));
-      if (!res.ok || !res.data) { onToast('Save failed: ' + (res.error || '')); return false; }
-      setApiPromos([res.data, ...apiPromos]);
-    }
-    return true;
-  }
-
-  async function save() {
+  function save() {
     const d = collectDiscount(); if (!d) return;
-    if (!await persist(d)) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = d; return n; } return prev; }
+      return [d, ...prev];
+    });
     closeDiscountDrawer();
     onToast(editingId ? 'Discount updated' : 'Discount created');
   }
-  async function saveAndNew() {
+  function saveAndNew() {
     const d = collectDiscount(); if (!d) return;
-    if (!await persist(d)) return;
+    setItems(prev => {
+      if (editingId) { const i = prev.findIndex(x => x.id === editingId); if (i >= 0) { const n = [...prev]; n[i] = d; return n; } return prev; }
+      return [d, ...prev];
+    });
     setEditingId(null);
     setFCode(''); setFTitle('');
     setPickedTargets([EMPTY_TARGET]);
     onToast('Saved. New discount form ready.');
-  }
-
-  async function duplicateDiscount(d: Discount) {
-    const srcPromo = apiPromos.find(x => x.id === d.id);
-    if (!srcPromo) return;
-    const res = await promotionMutations.create({
-      code: d.code + '_COPY', name: d.title, promotionType: srcPromo.promotionType, value: srcPromo.value,
-      usageLimit: srcPromo.usageLimit, startAt: srcPromo.startAt, endAt: srcPromo.endAt,
-      minimumSubtotal: srcPromo.minimumSubtotal, maximumDiscount: srcPromo.maximumDiscount,
-      targets: srcPromo.targets, scope: srcPromo.scope, perCustomerLimit: srcPromo.perCustomerLimit,
-      combinable: srcPromo.combinable, bogo: srcPromo.bogo, draft: true, active: true,
-    });
-    if (!res.ok || !res.data) { onToast('Duplicate failed: ' + (res.error || '')); return; }
-    setApiPromos([res.data, ...apiPromos]);
-    onToast('Duplicated ' + d.code);
   }
 
   function rowAction(act: string, d: Discount) {
@@ -372,61 +295,51 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
       case 'edit': openDiscountDrawer(d.id); break;
       case 'preview': openPeek(d.id); break;
       case 'pause':
-        void promotionMutations.update(d.id, { active: false }).then(res => {
-          if (!res.ok || !res.data) { onToast('Pause failed: ' + (res.error || '')); return; }
-          setApiPromos(apiPromos.map(x => x.id === d.id ? res.data! : x));
-          onToast('Paused ' + d.code);
-        });
+        setItems(prev => prev.map(x => x.id === d.id ? { ...x, status: 'Paused' } : x));
+        onToast('Paused ' + d.code);
         break;
       case 'expire':
-        void promotionMutations.update(d.id, { endAt: new Date().toISOString() }).then(res => {
-          if (!res.ok || !res.data) { onToast('Expire failed: ' + (res.error || '')); return; }
-          setApiPromos(apiPromos.map(x => x.id === d.id ? res.data! : x));
-          onToast('Expired ' + d.code);
-        });
+        setItems(prev => prev.map(x => x.id === d.id ? { ...x, status: 'Expired' } : x));
+        onToast('Expired ' + d.code);
         break;
-      case 'duplicate': void duplicateDiscount(d); break;
+      case 'duplicate':
+        setItems(prev => [{ ...d, id: 'd' + Date.now(), code: d.code + '_COPY', status: 'Draft', used: 0 }, ...prev]);
+        onToast('Duplicated ' + d.code);
+        break;
       case 'delete':
         if (confirm('Delete this discount?')) {
-          void promotionMutations.remove(d.id).then(res => {
-            if (!res.ok) { onToast('Delete failed: ' + (res.error || '')); return; }
-            setApiPromos(apiPromos.filter(x => x.id !== d.id));
-            onToast('Deleted');
-          });
+          setItems(prev => prev.filter(x => x.id !== d.id));
+          onToast('Deleted');
         }
         break;
     }
   }
 
-  async function bulkAction(act: string) {
+  function bulkAction(act: string) {
     if (act === 'Clear') { setSelected(new Set()); return; }
     const sel = [...selected];
     const n = sel.length;
     if (n === 0) return;
-    if (act === 'Duplicate') {
-      for (const id of sel) {
-        const d = items.find(x => x.id === id);
-        if (d) await duplicateDiscount(d);
-      }
+    if (act === 'Pause') {
+      setItems(prev => prev.map(d => sel.includes(d.id) ? { ...d, status: 'Paused' } : d));
+      onToast('Paused ' + n + ' code(s)');
+    } else if (act === 'Expire') {
+      setItems(prev => prev.map(d => sel.includes(d.id) ? { ...d, status: 'Expired' } : d));
+      onToast('Expired ' + n + ' code(s)');
+    } else if (act === 'Duplicate') {
+      setItems(prev => {
+        const copies: Discount[] = sel.map(id => {
+          const d = prev.find(x => x.id === id);
+          return d ? { ...d, id: 'd' + Date.now() + Math.random().toString(36).slice(2, 6), code: d.code + '_COPY', status: 'Draft', used: 0 } : null;
+        }).filter(Boolean) as Discount[];
+        return [...copies, ...prev];
+      });
       onToast('Duplicated ' + n + ' code(s)');
     } else if (act === 'Delete') {
-      if (!confirm('Delete ' + n + ' discount code(s)?')) return;
-      let working = apiPromos.slice();
-      for (const id of sel) {
-        const res = await promotionMutations.remove(id);
-        if (res.ok) working = working.filter(x => x.id !== id);
+      if (confirm('Delete ' + n + ' discount code(s)?')) {
+        setItems(prev => prev.filter(d => !sel.includes(d.id)));
+        onToast('Deleted ' + n + ' code(s)');
       }
-      setApiPromos(working);
-      onToast('Deleted ' + n + ' code(s)');
-    } else {
-      const patch = act === 'Pause' ? { active: false } : { endAt: new Date().toISOString() };
-      let working = apiPromos.slice();
-      for (const id of sel) {
-        const res = await promotionMutations.update(id, patch);
-        if (res.ok && res.data) working = working.map(x => x.id === id ? res.data! : x);
-      }
-      setApiPromos(working);
-      onToast((act === 'Pause' ? 'Paused ' : 'Expired ') + n + ' code(s)');
     }
     setSelected(new Set());
   }
@@ -512,11 +425,8 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
             <span className="material-symbols-outlined text-[16px]">tune</span>Customize
           </button>
           <div className="flex">
-            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main flex items-center gap-1" onClick={() => openDiscountDrawer(null)}>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" onClick={() => openDiscountDrawer(null)}>
               <span className="material-symbols-outlined text-[16px]">add</span>New discount
-            </button>
-            <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" onClick={e => { e.stopPropagation(); setCreateMenuOpen(v => !v); }}>
-              <span className="material-symbols-outlined text-[16px]">expand_more</span>
             </button>
           </div>
         </div>
@@ -527,21 +437,21 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Active codes</span>
           <div className="text-headline-lg mt-1">{activeCount}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">{evergreenCount} evergreen · {limitedCount} limited</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">3 evergreen · 3 limited</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
-          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Redemptions</span>
-          <div className="text-headline-lg mt-1">{totalRedemptions.toLocaleString()}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">all time, across all codes</div>
+          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Redemptions (30d)</span>
+          <div className="text-headline-lg mt-1">1,842</div>
+          <div className="text-[11px] text-secondary mt-1">+18% vs prior period</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
-          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Total codes</span>
-          <div className="text-headline-lg mt-1">{items.length}</div>
-          <div className="text-[11px] text-on-surface-variant mt-1">{pausedCount} paused · {expiredCount} expired</div>
+          <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Discount given</span>
+          <div className="text-headline-lg mt-1">$14,280</div>
+          <div className="text-[11px] text-on-surface-variant mt-1">~7.8% of AOV</div>
         </div>
         <div className="bg-white rounded-xl border border-surface-dim p-4">
           <span className="text-label-sm text-on-surface-variant uppercase tracking-wider">Expiring soon</span>
-          <div className="text-headline-lg mt-1">{expiringSoonCount}</div>
+          <div className="text-headline-lg mt-1">2</div>
           <div className="text-[11px] text-error mt-1">within 7 days</div>
         </div>
       </div>
@@ -1035,12 +945,10 @@ export default function PromotionsScreen({ onToast, onNavigate }: MarketingScree
               <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" onClick={closeDiscountDrawer}>Cancel</button>
               <div className="flex items-center gap-2">
                 <div className="flex">
-                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" onClick={saveAndNew}>Save and new</button>
-                  <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" onClick={saveAndNew}>Save and new</button>
                 </div>
                 <div className="flex">
-                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" onClick={save}>Save and close</button>
-                  <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"><span className="material-symbols-outlined text-[16px]">expand_more</span></button>
+                  <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" onClick={save}>Save and close</button>
                 </div>
               </div>
             </div>

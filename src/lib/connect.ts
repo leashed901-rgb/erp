@@ -23,7 +23,7 @@ export interface ConnectConfig {
   authMode: string;
   baseUrl: string | null;
   headers: Record<string, string>;
-  verify: { method: string; endpoint: string; headers?: Record<string, string>; body?: string } | null;
+  verify: { method: string; endpoint: string; headers?: Record<string, string> } | null;
   credentialFields: ConnectField[];
   connectionFields: ConnectField[];
   authorizationUrl: string | null;
@@ -120,46 +120,12 @@ export async function verifyCredentials(
   const ctx = { credentials, connectionConfig, accessToken };
   const base = cfg.baseUrl ? substitute(cfg.baseUrl, ctx).replace(/\/$/, '') : '';
   if (!base) return { ok: false, mode: 'probe', status: 0, detail: 'Config has no API base URL.' };
-  // MCP servers verify with a real protocol handshake: a JSON-RPC
-  // initialize against the tenant-supplied server URL. A 2xx with a
-  // JSON-RPC result means the server accepted us; 401/403 means the
-  // key was rejected.
-  if (cfg.authMode === 'MCP') {
-    const headers: Record<string, string> = {
-      'content-type': 'application/json',
-      accept: 'application/json, text/event-stream',
-    };
-    if (credentials['apiKey']) headers['authorization'] = `Bearer ${credentials['apiKey']}`;
-    const res = await fetch(base, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2025-03-26',
-          capabilities: {},
-          clientInfo: { name: 'Unleashe', version: '1.0' },
-        },
-      }),
-    }).catch(() => null);
-    if (!res) return { ok: false, mode: 'endpoint', status: 0, detail: 'MCP server did not answer.' };
-    const text = await res.text().catch(() => '');
-    return {
-      ok: res.ok,
-      mode: 'endpoint',
-      status: res.status,
-      detail: res.ok ? 'MCP server answered the initialize handshake.' : text.slice(0, 240),
-    };
-  }
   const headers = buildAuthHeaders(cfg, credentials, connectionConfig, accessToken);
   if (cfg.verify?.endpoint) {
     const url = `${base}${substitute(cfg.verify.endpoint, ctx)}`;
     const res = await fetch(url, {
       method: cfg.verify.method || 'GET',
       headers: { ...headers, ...(cfg.verify.headers || {}) },
-      body: cfg.verify.body ? substitute(cfg.verify.body, ctx) : undefined,
     }).catch(() => null);
     if (!res) return { ok: false, mode: 'endpoint', status: 0, detail: 'Provider did not answer.' };
     const text = await res.text().catch(() => '');

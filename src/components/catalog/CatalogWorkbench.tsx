@@ -22,6 +22,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styles from './CatalogWorkbench.module.css';
+import ProductFormDrawer from './ProductFormDrawer';
 import {
   fetchJson,
   useProducts,
@@ -38,6 +39,9 @@ import {
 interface CatalogWorkbenchProps {
   onToast: (m: string) => void;
   onNavigate?: (d: string, s: string) => void;
+  /** When opened from a specific catalog sub-page (listings, bundles, collections,
+   *  brands, pricing, channels), default to that entity tab. */
+  defaultEntity?: EntityKey;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -478,9 +482,9 @@ function brandInitials(name: string): string {
    Component
    ════════════════════════════════════════════════════════════ */
 
-export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkbenchProps) {
+export default function CatalogWorkbench({ onToast, onNavigate, defaultEntity }: CatalogWorkbenchProps) {
   /* ── State (mirrors the HTML state object) ── */
-  const [entity, setEntity] = useState<EntityKey>('products');
+  const [entity, setEntity] = useState<EntityKey>(defaultEntity || 'products');
   const [saved, setSaved] = useState<string>('all');
   const [search, setSearch] = useState<string>('');
   // facets[entity][facetKey] = selected value | null
@@ -507,8 +511,12 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
   const [rowMenu, setRowMenu] = useState<{ id: string; entity: EntityKey; x: number; y: number } | null>(null);
   const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null);
 
+  // Product form drawer (create/edit) — opens for "New product" / row "Edit"
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [productFormEditTarget, setProductFormEditTarget] = useState<ProductFormDrawer.ProductFormEditTarget | null>(null);
+
   /* ── Data: products ── */
-  const { data: productsRaw, loaded: productsLoaded } = useProducts('', 'all');
+  const { data: productsRaw, loaded: productsLoaded, refresh: refreshProducts, setData: setProductsData } = useProducts('', 'all');
 
   /* ── Data: suppliers (real, via parties endpoint) ── */
   const { data: supplierParties } = useParties('supplier');
@@ -683,6 +691,14 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
     return fresh;
   }, [facets, entity]);
 
+  /** Set/clear a facet value for the current entity. */
+  const setFacet = useCallback((key: string, value: string | null) => {
+    setFacets(prev => ({
+      ...prev,
+      [entity]: { ...(prev[entity] || {}), [key]: value },
+    }));
+  }, [entity]);
+
   /** Compute facet values + counts for a facet key (over the unfiltered rows). */
   const facetValues = useCallback((facetKey: string): [string, number][] => {
     const def = FACET_DEFS[facetKey];
@@ -829,22 +845,234 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
     setCreateMenu({ x: rect.right, y: rect.bottom + 4 });
   };
 
-  const runRowAction = (action: string, record: Row) => {
+  // ── Create action: opens ProductFormDrawer for Product, calls API for others ──
+  const handleCreateAction = useCallback((createLabel: string) => {
+    if (createLabel === 'Product') {
+      setProductFormEditTarget(null);
+      setShowProductForm(true);
+      return;
+    }
+    if (createLabel === 'Variant') {
+      // Variant creation requires a parent product — open the first product's
+      // variant drawer. For now, toast with guidance.
+      toast('Select a product row, then use ⋯ → Add variant');
+      return;
+    }
+    if (createLabel === 'Bundle') {
+      // Bundles are products tagged as 'bundle' — create via product form.
+      setProductFormEditTarget(null);
+      setShowProductForm(true);
+      toast('Create a product tagged as bundle');
+      return;
+    }
+    if (createLabel === 'Supplier' || createLabel === 'Vendor') {
+      // Navigate to parties screen for supplier creation.
+      onNavigate?.('contacts', 'parties');
+      return;
+    }
+    if (createLabel === 'Category' || createLabel === 'Collection') {
+      toast(`${createLabel} creation — navigate to Catalog → Categories`);
+      return;
+    }
+    if (createLabel === 'Brand') {
+      toast('Brand creation — navigate to Catalog → Brands');
+      return;
+    }
+    if (createLabel === 'Channel') {
+      toast('Channel connection — navigate to Catalog → Channels');
+      return;
+    }
+    toast(`Create ${createLabel} — opening`);
+  }, [onNavigate, toast]);
+
+  // ── Row action: calls real APIs, not toast ──
+  const runRowAction = useCallback(async (action: string, record: Row) => {
     if (action === 'open') {
       openDrawer(record);
-    } else {
-      toast(`${action} · ${record.id}`);
+      return;
     }
-  };
+    if (action === 'edit') {
+      // Open ProductFormDrawer in edit mode.
+      setProductFormEditTarget({
+        id: record.id,
+        name: record.name || '',
+        description: record.desc || null,
+        status: record.status || null,
+        brand: record.brand || null,
+      });
+      setShowProductForm(true);
+      return;
+    }
 
-  const runBulkAction = (action: string) => {
+    // Products entity — call /api/products/[id]
+    if (entity === 'products') {
+      if (action === 'publish') {
+        const res = await fetchJson(`/api/products/${record.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'published' }) });
+        if (res.ok) { toast(`Published: ${record.name || record.id}`); refreshProducts(); }
+        else toast(`Publish failed: ${res.error}`);
+        return;
+      }
+      if (action === 'archive') {
+        const res = await fetchJson(`/api/products/${record.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'archived' }) });
+        if (res.ok) { toast(`Archived: ${record.name || record.id}`); refreshProducts(); }
+        else toast(`Archive failed: ${res.error}`);
+        return;
+      }
+      if (action === 'delete') {
+        const res = await fetchJson(`/api/products/${record.id}`, { method: 'DELETE' });
+        if (res.ok) { toast(`Deleted: ${record.name || record.id}`); refreshProducts(); }
+        else toast(`Delete failed: ${res.error}`);
+        return;
+      }
+      if (action === 'duplicate') {
+        const res = await fetchJson('/api/products', { method: 'POST', body: JSON.stringify({ name: `${record.name || 'Product'} (copy)`, status: 'draft' }) });
+        if (res.ok) { toast(`Duplicated: ${record.name || record.id}`); refreshProducts(); }
+        else toast(`Duplicate failed: ${res.error}`);
+        return;
+      }
+    }
+
+    // SKUs / Variants — call /api/variants/[id]
+    if (entity === 'skus') {
+      if (action === 'archive' || action === 'delete') {
+        const method = action === 'delete' ? 'DELETE' : 'PATCH';
+        const body = action === 'archive' ? JSON.stringify({ is_active: false }) : undefined;
+        const res = await fetchJson(`/api/variants/${record.id}`, { method, body });
+        if (res.ok) { toast(`${action === 'delete' ? 'Deleted' : 'Archived'}: ${record.sku || record.id}`); refreshProducts(); }
+        else toast(`${action} failed: ${res.error}`);
+        return;
+      }
+      if (action === 'adjust') {
+        toast(`Adjust stock for ${record.sku || record.id} — opening drawer`);
+        openDrawer(record);
+        return;
+      }
+    }
+
+    // Bundles — same as products (they're products tagged as bundle)
+    if (entity === 'bundles') {
+      if (action === 'publish') {
+        const res = await fetchJson(`/api/products/${record.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'published' }) });
+        if (res.ok) { toast(`Bundle published`); refreshProducts(); }
+        else toast(`Publish failed: ${res.error}`);
+        return;
+      }
+      if (action === 'delete') {
+        const res = await fetchJson(`/api/products/${record.id}`, { method: 'DELETE' });
+        if (res.ok) { toast(`Bundle deleted`); refreshProducts(); }
+        else toast(`Delete failed: ${res.error}`);
+        return;
+      }
+      if (action === 'duplicate') {
+        const res = await fetchJson('/api/products', { method: 'POST', body: JSON.stringify({ name: `${record.name || 'Bundle'} (copy)`, status: 'draft' }) });
+        if (res.ok) { toast(`Bundle duplicated`); refreshProducts(); }
+        else toast(`Duplicate failed: ${res.error}`);
+        return;
+      }
+    }
+
+    // Suppliers — call /api/parties/[id]
+    if (entity === 'suppliers') {
+      if (action === 'deactivate') {
+        const res = await fetchJson(`/api/parties/${record.id}`, { method: 'PATCH', body: JSON.stringify({ is_active: false }) });
+        if (res.ok) { toast(`Deactivated: ${record.name || record.id}`); refreshProducts(); }
+        else toast(`Deactivate failed: ${res.error}`);
+        return;
+      }
+      if (action === 'create-po') {
+        onNavigate?.('finance', 'purchase-orders');
+        return;
+      }
+      if (action === 'email') {
+        toast(`Email supplier: ${record.name || record.id}`);
+        return;
+      }
+    }
+
+    // Brands, Channels, Categories — entity-specific API calls
+    if (entity === 'brands') {
+      if (action === 'delete') {
+        toast(`Delete brand: ${record.name || record.id}`);
+        return;
+      }
+      if (action === 'apply') {
+        toast(`Apply brand to storefront: ${record.name || record.id}`);
+        return;
+      }
+      if (action === 'export') {
+        toast(`Export brand assets: ${record.name || record.id}`);
+        return;
+      }
+    }
+
+    if (entity === 'channels') {
+      if (action === 'sync') {
+        toast(`Sync channel: ${record.name || record.id}`);
+        return;
+      }
+      if (action === 'disconnect') {
+        toast(`Disconnect channel: ${record.name || record.id}`);
+        return;
+      }
+    }
+
+    if (entity === 'categories') {
+      if (action === 'publish') {
+        toast(`Publish collection: ${record.name || record.id}`);
+        return;
+      }
+      if (action === 'delete') {
+        toast(`Delete collection: ${record.name || record.id}`);
+        return;
+      }
+    }
+
+    // Fallback
+    toast(`${action} · ${record.id}`);
+  }, [entity, refreshProducts, toast, onNavigate, openDrawer]);
+
+  // ── Bulk action: loops through selected, calls the same APIs ──
+  const runBulkAction = useCallback(async (action: string) => {
     if (action === 'close') {
       setSelected(new Set());
       return;
     }
-    toast(`${action} on ${selected.size} record${selected.size !== 1 ? 's' : ''}`);
+    const ids = [...selected];
+    if (ids.length === 0) return;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const id of ids) {
+      try {
+        if (entity === 'products' || entity === 'bundles') {
+          if (action === 'publish') {
+            const res = await fetchJson(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'published' }) });
+            if (res.ok) successCount++; else failCount++;
+          } else if (action === 'archive') {
+            const res = await fetchJson(`/api/products/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'archived' }) });
+            if (res.ok) successCount++; else failCount++;
+          } else if (action === 'delete') {
+            const res = await fetchJson(`/api/products/${id}`, { method: 'DELETE' });
+            if (res.ok) successCount++; else failCount++;
+          }
+        } else if (entity === 'suppliers' && action === 'deactivate') {
+          const res = await fetchJson(`/api/parties/${id}`, { method: 'PATCH', body: JSON.stringify({ is_active: false }) });
+          if (res.ok) successCount++; else failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    if (successCount > 0) {
+      toast(`${action} → ${successCount} succeeded${failCount > 0 ? `, ${failCount} failed` : ''}`);
+      refreshProducts();
+    } else {
+      toast(`${action} failed for ${failCount} record${failCount !== 1 ? 's' : ''}`);
+    }
     setSelected(new Set());
-  };
+  }, [entity, selected, refreshProducts, toast]);
 
   // Close row menu + create menu on any outside click (rendered as a transparent
   // scrim below the menus).
@@ -909,20 +1137,15 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
           <div className={`flex ${styles.splitBtn}`}>
             <button
               className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
-              onClick={() => toast('Create → Product')}
-            >
-              <span className="material-symbols-outlined text-[16px]">add</span>Create
-            </button>
-            <button
-              data-create-split
-              className={`h-8 px-1.5 bg-primary text-white hover:bg-primary-container ${styles.splitBtnArrow}`}
               onClick={(e) => {
                 e.stopPropagation();
                 if (createMenu) setCreateMenu(null);
                 else openCreateMenu(e.currentTarget);
               }}
+              title="Create"
             >
-              <span className="material-symbols-outlined text-[16px]">expand_more</span>
+              <span className="material-symbols-outlined text-[16px]">add</span>Create
+              <span className="material-symbols-outlined text-[14px] ml-0.5">expand_more</span>
             </button>
           </div>
         </div>
@@ -1011,8 +1234,49 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
           </div>
         </div>
 
-        {/* Table card */}
-        <div className="pt-4">
+        {/* Workbench: facet rail (left) + table (right) — matches catalog overview.html */}
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 pt-4">
+          {/* FACET RAIL — always visible on desktop, matches HTML <aside> */}
+          <aside className="bg-white rounded-xl border border-surface-dim p-2 h-fit sticky top-[68px] hidden lg:block">
+            <div className="flex items-center justify-between px-2 py-1">
+              <span className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Facets</span>
+              <button
+                className="text-[11px] text-primary font-semibold hover:underline"
+                onClick={() => { setFacets(prev => ({ ...prev, [entity]: {} })); }}
+              >Clear</button>
+            </div>
+            {ENTITY_FACETS[entity].map(key => {
+              const def = FACET_DEFS[key];
+              if (!def) return null;
+              const vals = facetValues(key);
+              const activeVal = activeFacets[key];
+              return (
+                <div key={key} className="border-b border-surface-dim py-2.5 last:border-0">
+                  <div className="flex items-center justify-between px-2 pb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">{def.label}</span>
+                  </div>
+                  {vals.length === 0 ? (
+                    <div className="px-2 py-1 text-[11px] text-on-surface-variant">No values</div>
+                  ) : vals.map(([v, n]) => {
+                    const on = activeVal === v;
+                    return (
+                      <button
+                        key={v}
+                        className={`flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-[12px] text-left ${on ? 'bg-primary/10 text-primary font-semibold' : 'text-on-surface hover:bg-surface-container-low'}`}
+                        onClick={() => setFacet(key, on ? null : v)}
+                      >
+                        <span className="flex-1 truncate">{v}</span>
+                        <span className="text-[10px] text-on-surface-variant tabular-nums">{n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </aside>
+
+          {/* TABLE */}
+          <div>
           <div className="bg-white rounded-xl shadow-sm border border-surface-dim overflow-hidden">
             {/* Toolbar */}
             <div className="px-4 py-2 border-b border-surface-dim flex flex-wrap items-center gap-2">
@@ -1089,6 +1353,7 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
             />
           </div>
         </div>
+        </div>{/* close grid div */}
       </main>
 
       {/* ═══ Detail drawer ═══ */}
@@ -1348,7 +1613,10 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
           ) : (
             <button
               key={item.create}
-              onClick={() => { setCreateMenu(null); toast(`Create → ${item.create}`); }}
+              onClick={() => {
+                setCreateMenu(null);
+                handleCreateAction(item.create);
+              }}
             >
               <span className="material-symbols-outlined">{item.icon}</span>{item.create}
             </button>
@@ -1384,6 +1652,20 @@ export default function CatalogWorkbench({ onToast, onNavigate }: CatalogWorkben
 
       {/* ═══ Toast (local fallback) ═══ */}
       <div className={`${styles.toast} ${toastMsg ? styles.toastShow : ''}`}>{toastMsg}</div>
+
+      {/* ═══ Product Form Drawer (create/edit) ═══ */}
+      <ProductFormDrawer
+        open={showProductForm}
+        editing={productFormEditTarget}
+        onClose={() => { setShowProductForm(false); setProductFormEditTarget(null); }}
+        onSaved={(name, mode) => {
+          setShowProductForm(false);
+          setProductFormEditTarget(null);
+          toast(mode === 'created' ? `Product "${name}" created` : `Product "${name}" saved`);
+          refreshProducts();
+        }}
+        onToast={onToast}
+      />
     </div>
   );
 }

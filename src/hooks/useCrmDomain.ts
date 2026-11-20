@@ -79,8 +79,8 @@ async function fetchJson<T>(url: string): Promise<{ data?: T; error?: string }> 
   }
 }
 
-function makeHook<T>(basePath: string, defaultParentField = 'customer_id') {
-  return function useDomain(parentId?: string, parentField = defaultParentField) {
+function makeHook<T>(basePath: string) {
+  return function useDomain(parentId?: string, parentField = 'customer_id') {
     const [data, setData] = useState<T[]>([]);
     const [loaded, setLoaded] = useState(false);
     const [error, setError] = useState<string | null>(null);

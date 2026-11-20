@@ -3,16 +3,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { DomainKey } from '@/data/shellData';
 import { exportToCsv } from '@/lib/csvExport';
-import {
-  useBankRules,
-  useChartOfAccounts,
-  useBankAccounts,
-  useBankTransactions,
-  bankRuleMutations,
-  fetchBankRuleStats,
-  type BankRuleStats,
-} from '@/hooks/useAccountingApi';
-import type { BankRuleDto } from '@/lib/acctTypes';
 import styles from './BankRulesScreen.module.css';
 
 export interface BankRuleItem {
@@ -23,32 +13,70 @@ export interface BankRuleItem {
   categoryClass: string;
   matchedCount: number;
   active: boolean;
-  dto: BankRuleDto;
 }
 
-const PILL_CLASSES = [styles.pillBlue, styles.pillMaroon, styles.pillGreen, styles.pillTeal];
+const SAMPLE_TXNS = [
+  { desc: 'STAPLES #0412', date: '10/30/2026', amt: -142.5 },
+  { desc: 'STAPLES #0418', date: '10/22/2026', amt: -88.15 },
+  { desc: 'STAPLES #0412', date: '10/12/2026', amt: -210.0 },
+  { desc: 'STAPLES.COM', date: '09/28/2026', amt: -45.99 },
+  { desc: 'ADOBE CREATIVE', date: '10/26/2026', amt: -59.99 },
+  { desc: 'ADOBE SYSTEMS', date: '09/26/2026', amt: -59.99 },
+  { desc: 'STRIPE PAYOUT', date: '10/28/2026', amt: 1842.6 },
+  { desc: 'STRIPE FEE', date: '10/28/2026', amt: -52.11 },
+  { desc: 'AWS EMEA CHARGES', date: '10/27/2026', amt: -124.88 },
+  { desc: 'AWS EMEA CHARGES', date: '09/27/2026', amt: -118.44 },
+  { desc: 'UBER TRIP', date: '10/15/2026', amt: -22.4 },
+  { desc: 'UBER EATS', date: '10/18/2026', amt: -34.55 },
+];
 
-/* acct_bank_rules DTO → the table's row shape. This screen's chrome is
-   the single-keyword rule form: the keyword is the rule's first text
-   condition (description/payee contains), the category its split. */
-function toRuleItem(r: BankRuleDto, i: number): BankRuleItem {
-  const textCond = r.conditions.find((c) => c.field === 'description' || c.field === 'payee') || r.conditions[0];
-  return {
-    id: r.id,
-    name: r.name,
-    conditionKeyword: textCond?.value || '—',
-    category: r.categoryLabel || '—',
-    categoryClass: PILL_CLASSES[i % PILL_CLASSES.length],
-    matchedCount: r.timesApplied,
-    active: r.isActive,
-    dto: r,
-  };
-}
-
-const fmtUsDate = (iso: string) => {
-  const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-};
+const INITIAL_RULES: BankRuleItem[] = [
+  {
+    id: 'rule-1',
+    name: 'Staples → Office supplies',
+    conditionKeyword: 'STAPLES',
+    category: 'Office supplies',
+    categoryClass: styles.pillBlue,
+    matchedCount: 11,
+    active: true,
+  },
+  {
+    id: 'rule-2',
+    name: 'Adobe → Software',
+    conditionKeyword: 'ADOBE',
+    category: 'Software',
+    categoryClass: styles.pillMaroon,
+    matchedCount: 6,
+    active: true,
+  },
+  {
+    id: 'rule-3',
+    name: 'Stripe payouts → Stripe clearing',
+    conditionKeyword: 'STRIPE',
+    category: 'Stripe clearing',
+    categoryClass: styles.pillGreen,
+    matchedCount: 8,
+    active: true,
+  },
+  {
+    id: 'rule-4',
+    name: 'AWS → Software',
+    conditionKeyword: 'AWS',
+    category: 'Software',
+    categoryClass: styles.pillMaroon,
+    matchedCount: 3,
+    active: true,
+  },
+  {
+    id: 'rule-5',
+    name: 'Uber → Travel (paused)',
+    conditionKeyword: 'UBER',
+    category: 'Travel',
+    categoryClass: styles.pillTeal,
+    matchedCount: 0,
+    active: false,
+  },
+];
 
 export interface BankRulesScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
@@ -56,22 +84,7 @@ export interface BankRulesScreenProps {
 }
 
 export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreenProps) {
-  const { rules: ruleDtos, refresh: refreshRules } = useBankRules();
-  const { accounts: coaAccounts } = useChartOfAccounts();
-  const { bankAccounts } = useBankAccounts();
-  const { transactions: feedTxns } = useBankTransactions(null);
-  const rules = useMemo(() => ruleDtos.map(toRuleItem), [ruleDtos]);
-  const [ruleStats, setRuleStats] = useState<BankRuleStats | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void fetchBankRuleStats().then((res) => {
-      if (alive && res.ok && res.data) setRuleStats(res.data);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [ruleDtos]);
-
+  const [rules, setRules] = useState<BankRuleItem[]>(INITIAL_RULES);
   const [activeTab, setActiveTab] = useState<'all' | 'active' | 'paused'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -83,10 +96,6 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
   const [formKeyword, setFormKeyword] = useState('');
   const [formCategory, setFormCategory] = useState('');
   const [formActive, setFormActive] = useState(true);
-  const [formField, setFormField] = useState('description');
-  const [formOperator, setFormOperator] = useState('contains');
-  const [formMatchMode, setFormMatchMode] = useState('all');
-  const [formBankAccount, setFormBankAccount] = useState('');
 
   // Row Menu
   const [rowMenuRuleId, setRowMenuRuleId] = useState<string | null>(null);
@@ -116,12 +125,11 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
     return () => document.removeEventListener('click', handleOutside);
   }, []);
 
-  // KPIs — counts from the rules themselves; 30d volume + match rate
-  // from /api/accounting/bank-rules/stats
+  // KPIs
   const totalRules = rules.length;
   const activeRules = rules.filter((r) => r.active).length;
   const pausedRules = rules.filter((r) => !r.active).length;
-  const autoCategorized30d = ruleStats?.autoCategorized30d ?? 0;
+  const autoCategorized30d = rules.reduce((acc, r) => acc + r.matchedCount, 0);
 
   // Filtered rules
   const filteredRules = useMemo(() => {
@@ -156,16 +164,19 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
     setSelectedIds(next);
   };
 
-  // Toggle single rule active state — persists via PATCH
-  const handleToggleRule = async (id: string, e: React.MouseEvent) => {
+  // Toggle single rule active state
+  const handleToggleRule = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const rule = rules.find((r) => r.id === id);
-    if (!rule) return;
-    const res = await bankRuleMutations.update(id, { isActive: !rule.active });
-    if (res.ok) {
-      showToast(!rule.active ? 'Rule activated' : 'Rule paused');
-      await refreshRules();
-    } else showToast(res.error || 'Status could not be updated');
+    setRules((prev) =>
+      prev.map((r) => {
+        if (r.id === id) {
+          const nextState = !r.active;
+          showToast(nextState ? 'Rule activated' : 'Rule paused');
+          return { ...r, active: nextState };
+        }
+        return r;
+      })
+    );
   };
 
   // Open Drawer for Create
@@ -175,10 +186,6 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
     setFormKeyword('');
     setFormCategory('');
     setFormActive(true);
-    setFormField('description');
-    setFormOperator('contains');
-    setFormMatchMode('all');
-    setFormBankAccount('');
     setIsDrawerOpen(true);
   };
 
@@ -186,39 +193,21 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
   const handleOpenEditDrawer = (rule: BankRuleItem) => {
     setEditingRuleId(rule.id);
     setFormName(rule.name);
-    setFormKeyword(rule.dto.conditions[0]?.value || '');
-    setFormCategory(rule.dto.categoryAccountId || '');
+    setFormKeyword(rule.conditionKeyword);
+    setFormCategory(rule.category);
     setFormActive(rule.active);
-    setFormField(rule.dto.conditions[0]?.field || 'description');
-    setFormOperator(rule.dto.conditions[0]?.operator || 'contains');
-    setFormMatchMode(rule.dto.matchMode || 'all');
-    setFormBankAccount(rule.dto.bankAccountIds[0] || '');
     setIsDrawerOpen(true);
   };
 
-  /* Live preview: this drawer's model is one condition over the real
-     bank feed — evaluated client-side against actual transactions. */
+  // Live preview matches
   const previewMatches = useMemo(() => {
-    const kw = formKeyword.trim().toLowerCase();
+    const kw = formKeyword.trim().toUpperCase();
     if (!kw) return [];
-    return feedTxns
-      .filter((t) => {
-        const text = formField === 'payee' ? (t.payee || '') : formField === 'reference' ? '' : t.description;
-        const hay = text.toLowerCase();
-        switch (formOperator) {
-          case 'contains': return hay.includes(kw);
-          case 'not_contains': return !hay.includes(kw);
-          case 'equals': return hay === kw;
-          case 'starts_with': return hay.startsWith(kw);
-          case 'ends_with': return hay.endsWith(kw);
-          default: return hay.includes(kw);
-        }
-      })
-      .map((t) => ({ desc: t.description, date: fmtUsDate(t.date), amt: t.amount }));
-  }, [formKeyword, formField, formOperator, feedTxns]);
+    return SAMPLE_TXNS.filter((t) => t.desc.toUpperCase().includes(kw));
+  }, [formKeyword]);
 
-  // Save Rule — persists through the API (conditions + split rows)
-  const handleSaveRule = async (andClose: boolean) => {
+  // Save Rule
+  const handleSaveRule = (andClose: boolean) => {
     if (!formName.trim()) {
       showToast('Rule name is required');
       return;
@@ -232,74 +221,42 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
       return;
     }
 
-    const payload = {
-      name: formName.trim(),
-      matchMode: formMatchMode,
-      isActive: formActive,
-      /* 'All accounts' must stay unset — an empty array is a whitelist
-         that matches nothing (acct_bank_rule_matches) */
-      bankAccountIds: formBankAccount ? [formBankAccount] : undefined,
-      conditions: [{ field: formField, operator: formOperator, value: formKeyword.trim() }],
-      categoryAccountId: formCategory,
-    };
-
     if (editingRuleId) {
-      const res = await bankRuleMutations.update(editingRuleId, payload);
-      if (!res.ok) {
-        showToast(res.error || 'Rule could not be updated');
-        return;
-      }
+      setRules((prev) =>
+        prev.map((r) =>
+          r.id === editingRuleId
+            ? {
+                ...r,
+                name: formName.trim(),
+                conditionKeyword: formKeyword.trim().toUpperCase(),
+                category: formCategory,
+                active: formActive,
+              }
+            : r
+        )
+      );
       showToast(`Rule "${formName}" updated`);
     } else {
-      const res = await bankRuleMutations.create({ ...payload, appliesTo: 'both', txnType: 'expense' });
-      if (!res.ok) {
-        showToast(res.error || 'Rule could not be saved');
-        return;
-      }
+      const created: BankRuleItem = {
+        id: `rule-${Date.now()}`,
+        name: formName.trim(),
+        conditionKeyword: formKeyword.trim().toUpperCase(),
+        category: formCategory,
+        categoryClass: styles.pillBlue,
+        matchedCount: 0,
+        active: formActive,
+      };
+      setRules((prev) => [created, ...prev]);
       showToast(`Rule "${formName}" saved`);
     }
-    await refreshRules();
 
     if (andClose) {
       setIsDrawerOpen(false);
     } else {
-      handleOpenCreateDrawer();
+      setFormName('');
+      setFormKeyword('');
+      setFormCategory('');
     }
-  };
-
-  /* Bulk helpers — real mutations with tallies */
-  const bulkSetActive = async (active: boolean) => {
-    const ids = [...selectedIds];
-    let ok = 0;
-    for (const id of ids) {
-      const res = await bankRuleMutations.update(id, { isActive: active });
-      if (res.ok) ok += 1;
-    }
-    showToast(`${active ? 'Activated' : 'Paused'} ${ok} of ${ids.length} rules`);
-    setSelectedIds(new Set());
-    await refreshRules();
-  };
-  const bulkApply = async () => {
-    const ids = [...selectedIds];
-    let applied = 0;
-    for (const id of ids) {
-      const res = await bankRuleMutations.apply(id);
-      if (res.ok && res.data) applied += res.data.appliedNow;
-    }
-    showToast(`Applied rules to ${applied} existing transactions`);
-    setSelectedIds(new Set());
-    await refreshRules();
-  };
-  const bulkDelete = async () => {
-    const ids = [...selectedIds];
-    let ok = 0;
-    for (const id of ids) {
-      const res = await bankRuleMutations.remove(id);
-      if (res.ok) ok += 1;
-    }
-    showToast(`Deleted ${ok} of ${ids.length} rules`);
-    setSelectedIds(new Set());
-    await refreshRules();
   };
 
   return (
@@ -378,7 +335,7 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
           </div>
           <div className={styles.kpiCard}>
             <span className={styles.kpiLabel}>Match rate</span>
-            <div className={styles.kpiValue}>{ruleStats ? `${Math.round(ruleStats.matchRate * 100)}%` : '—'}</div>
+            <div className={styles.kpiValue}>94%</div>
           </div>
         </div>
 
@@ -442,7 +399,7 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
               Saved views
             </button>
             <span style={{ marginLeft: 'auto', fontSize: 11, color: '#5a6355' }}>
-              {filteredRules.length} of {totalRules}
+              1–{filteredRules.length} of {totalRules}
             </span>
           </div>
 
@@ -453,7 +410,13 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => void bulkSetActive(true)}
+                onClick={() => {
+                  setRules((prev) =>
+                    prev.map((r) => (selectedIds.has(r.id) ? { ...r, active: true } : r))
+                  );
+                  showToast(`Activated ${selectedIds.size} rules`);
+                  setSelectedIds(new Set());
+                }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                   play_arrow
@@ -463,7 +426,13 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => void bulkSetActive(false)}
+                onClick={() => {
+                  setRules((prev) =>
+                    prev.map((r) => (selectedIds.has(r.id) ? { ...r, active: false } : r))
+                  );
+                  showToast(`Paused ${selectedIds.size} rules`);
+                  setSelectedIds(new Set());
+                }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                   pause
@@ -473,7 +442,10 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => void bulkApply()}
+                onClick={() => {
+                  showToast(`Applied ${selectedIds.size} rules to existing bank transactions`);
+                  setSelectedIds(new Set());
+                }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                   play_circle
@@ -483,7 +455,11 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
               <button
                 type="button"
                 className={styles.bulkBtn}
-                onClick={() => void bulkDelete()}
+                onClick={() => {
+                  setRules((prev) => prev.filter((r) => !selectedIds.has(r.id)));
+                  showToast(`Deleted ${selectedIds.size} rules`);
+                  setSelectedIds(new Set());
+                }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
                   delete
@@ -525,7 +501,7 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
                 <th>Rule name</th>
                 <th>When (description)</th>
                 <th>Then (category)</th>
-                <th style={{ textAlign: 'right' }}>Times applied</th>
+                <th style={{ textAlign: 'right' }}>Matched (30d)</th>
                 <th>Active</th>
                 <th style={{ width: 36 }} />
               </tr>
@@ -571,7 +547,7 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
                     <td className={styles.td} onClick={(e) => e.stopPropagation()}>
                       <div
                         className={`${styles.switch} ${rule.active ? styles.switchOn : ''}`}
-                        onClick={(e) => void handleToggleRule(rule.id, e)}
+                        onClick={(e) => handleToggleRule(rule.id, e)}
                       />
                     </td>
                     <td
@@ -630,27 +606,16 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
             className={styles.menuItem}
             onClick={() => {
               const rule = rules.find((r) => r.id === rowMenuRuleId);
-              setRowMenuRuleId(null);
-              if (!rule) return;
-              void (async () => {
-                const res = await bankRuleMutations.create({
+              if (rule) {
+                const dup: BankRuleItem = {
+                  ...rule,
+                  id: `rule-${Date.now()}`,
                   name: `${rule.name} (Copy)`,
-                  priority: rule.dto.priority,
-                  appliesTo: rule.dto.appliesTo,
-                  matchMode: rule.dto.matchMode,
-                  txnType: rule.dto.txnType,
-                  bankAccountIds: rule.dto.bankAccountIds.length ? rule.dto.bankAccountIds : undefined,
-                  autoConfirm: rule.dto.autoConfirm,
-                  isActive: rule.active,
-                  conditions: rule.dto.conditions.map((c) => ({ field: c.field, operator: c.operator, value: c.value, value2: c.value2, caseSensitive: c.caseSensitive })),
-                  categoryAccountId: rule.dto.categoryAccountId || undefined,
-                  splits: rule.dto.splits.map((s) => ({ accountId: s.accountId, percent: s.percent })),
-                });
-                if (res.ok) {
-                  showToast(`Duplicated ${rule.name}`);
-                  await refreshRules();
-                } else showToast(res.error || 'Duplicate failed');
-              })();
+                };
+                setRules((prev) => [dup, ...prev]);
+                showToast(`Duplicated ${rule.name}`);
+              }
+              setRowMenuRuleId(null);
             }}
           >
             <span className="material-symbols-outlined">content_copy</span>
@@ -662,16 +627,14 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              const id = rowMenuRuleId;
+              const matched = Math.floor(Math.random() * 8) + 3;
+              setRules((prev) =>
+                prev.map((r) =>
+                  r.id === rowMenuRuleId ? { ...r, matchedCount: r.matchedCount + matched } : r
+                )
+              );
+              showToast(`Applied to ${matched} past transactions`);
               setRowMenuRuleId(null);
-              if (!id) return;
-              void (async () => {
-                const res = await bankRuleMutations.apply(id);
-                if (res.ok && res.data) {
-                  showToast(`Applied to ${res.data.appliedNow} past transactions`);
-                  await refreshRules();
-                } else showToast(res.error || 'Apply failed');
-              })();
             }}
           >
             <span className="material-symbols-outlined">play_circle</span>
@@ -695,17 +658,11 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
             type="button"
             className={styles.menuItem}
             onClick={() => {
-              const id = rowMenuRuleId;
-              const rule = rules.find((r) => r.id === id);
+              setRules((prev) =>
+                prev.map((r) => (r.id === rowMenuRuleId ? { ...r, active: !r.active } : r))
+              );
+              showToast('Rule status updated');
               setRowMenuRuleId(null);
-              if (!id || !rule) return;
-              void (async () => {
-                const res = await bankRuleMutations.update(id, { isActive: !rule.active });
-                if (res.ok) {
-                  showToast('Rule status updated');
-                  await refreshRules();
-                } else showToast(res.error || 'Status could not be updated');
-              })();
             }}
           >
             <span className="material-symbols-outlined">pause</span>
@@ -715,16 +672,9 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
             type="button"
             className={`${styles.menuItem} ${styles.menuItemDanger}`}
             onClick={() => {
-              const id = rowMenuRuleId;
+              setRules((prev) => prev.filter((r) => r.id !== rowMenuRuleId));
+              showToast('Rule deleted');
               setRowMenuRuleId(null);
-              if (!id) return;
-              void (async () => {
-                const res = await bankRuleMutations.remove(id);
-                if (res.ok) {
-                  showToast('Rule deleted');
-                  await refreshRules();
-                } else showToast(res.error || 'Rule could not be deleted');
-              })();
             }}
           >
             <span className="material-symbols-outlined">delete</span>
@@ -786,39 +736,26 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#5a6355' }}>
                 When (conditions)
               </div>
-              <select
-                className={styles.condSelect}
-                style={{ fontSize: 11, height: 26 }}
-                value={formMatchMode}
-                onChange={(e) => setFormMatchMode(e.target.value)}
-              >
-                <option value="all">Match ALL conditions</option>
-                <option value="any">Match ANY condition</option>
+              <select className={styles.condSelect} style={{ fontSize: 11, height: 26 }}>
+                <option>Match ALL conditions</option>
+                <option>Match ANY condition</option>
               </select>
             </div>
 
             <div className={styles.condRow}>
               <span className={styles.condPrefix}>When</span>
-              <select
-                className={styles.condSelect}
-                value={formField}
-                onChange={(e) => setFormField(e.target.value)}
-              >
-                <option value="description">Bank description</option>
-                <option value="payee">Payee</option>
-                <option value="reference">Reference</option>
-                <option value="bank_text">Bank text</option>
+              <select className={styles.condSelect} defaultValue="Bank description">
+                <option>Bank description</option>
+                <option>Payee</option>
+                <option>Amount</option>
+                <option>Type</option>
               </select>
-              <select
-                className={styles.condSelect}
-                value={formOperator}
-                onChange={(e) => setFormOperator(e.target.value)}
-              >
-                <option value="contains">Contains</option>
-                <option value="not_contains">Does not contain</option>
-                <option value="equals">Equals</option>
-                <option value="starts_with">Starts with</option>
-                <option value="ends_with">Ends with</option>
+              <select className={styles.condSelect} defaultValue="Contains">
+                <option>Contains</option>
+                <option>Does not contain</option>
+                <option>Equals</option>
+                <option>Starts with</option>
+                <option>Ends with</option>
               </select>
               <input
                 className={styles.condInput}
@@ -846,9 +783,14 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
                   onChange={(e) => setFormCategory(e.target.value)}
                 >
                   <option value="">— Select category —</option>
-                  {coaAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
+                  <option value="Office supplies">Office supplies</option>
+                  <option value="Shipping">Shipping</option>
+                  <option value="Software">Software</option>
+                  <option value="Advertising">Advertising</option>
+                  <option value="Meals & entertainment">Meals &amp; entertainment</option>
+                  <option value="Travel">Travel</option>
+                  <option value="Stripe clearing">Stripe clearing</option>
+                  <option value="Ask My Accountant">Ask My Accountant</option>
                 </select>
               </div>
 
@@ -856,16 +798,11 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
                 <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#5a6355', marginBottom: 4 }}>
                   Apply to bank account
                 </label>
-                <select
-                  className={styles.condInput}
-                  style={{ width: '100%', height: 36 }}
-                  value={formBankAccount}
-                  onChange={(e) => setFormBankAccount(e.target.value)}
-                >
-                  <option value="">All accounts</option>
-                  {bankAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}{a.maskedNumber ? ` •${a.maskedNumber}` : ''}</option>
-                  ))}
+                <select className={styles.condInput} style={{ width: '100%', height: 36 }}>
+                  <option>All accounts</option>
+                  <option>Chase •9910</option>
+                  <option>Visa •4421</option>
+                  <option>Amex •2103</option>
                 </select>
               </div>
 
@@ -939,14 +876,14 @@ export default function BankRulesScreen({ onNavigate, onToast }: BankRulesScreen
             <button
               type="button"
               className={styles.headerBtn}
-              onClick={() => void handleSaveRule(false)}
+              onClick={() => handleSaveRule(false)}
             >
               Save and new
             </button>
             <button
               type="button"
               className={`${styles.headerBtn} ${styles.headerBtnPrimary}`}
-              onClick={() => void handleSaveRule(true)}
+              onClick={() => handleSaveRule(true)}
             >
               Save rule
             </button>

@@ -5,14 +5,24 @@
  * Heavyweight Tee").
  *
  * Structure, classes, fonts, colors, copy and interactions are the
- * design, verbatim. Data comes from the blank detail API
- * (GET /api/v1/blanks/:id) + the catalog card — never from static data.
+ * design, verbatim. Data lives in src/data/erpCatalogData.ts.
  * Interactions per the design's <script>: tabs, print-area selection,
  * live profit calculation, toast.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getBlank, type BlankDetail } from '@/lib/podApi';
 import { useDesignCanvas } from '@/lib/designCanvasStore';
+import {
+  PRODUCT,
+  PRODUCT_DETAILS,
+  PRODUCT_FULFILLMENT,
+  PRODUCT_MAIN_IMAGE,
+  PRODUCT_MOCKUPS,
+  PRODUCT_REVIEWS,
+  PRODUCT_SUPPLIER_COSTS,
+  PRODUCT_THUMBS,
+  PRODUCT_VARIANTS,
+} from '@/data/erpCatalogData';
 import type { DomainKey } from '@/data/shellData';
 
 type Tab = 'details' | 'variants' | 'pricing' | 'fulfillment' | 'mockups' | 'reviews';
@@ -109,7 +119,7 @@ export default function ErpProductPageScreen({
 }: ErpProductPageScreenProps) {
   const [tab, setTab] = useState<Tab>('details');
   const [printAreaIdx, setPrintAreaIdx] = useState(0);
-  const [retail, setRetail] = useState('');
+  const [retail, setRetail] = useState(PRODUCT.summary.retailPrice);
   const [toastMessage, setToastMessage] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -118,8 +128,8 @@ export default function ErpProductPageScreen({
   // (openProductPage) — carrying the CARD's live fields (image, price,
   // SKU, supplier) so this page renders the real product the instant
   // View is clicked. GET /api/v1/blanks/:id then enriches: full costs,
-  // variants, offers, delivery. Opened directly with no product set,
-  // the page shows an empty state — the design's tee never renders.
+  // variants, offers, delivery. The design data below stays as the
+  // fallback ONLY when the page is opened directly with no product set.
   const productPage = useDesignCanvas((s) => s.productPage);
   const openStudio = useDesignCanvas((s) => s.openStudio);
   const [detail, setDetail] = useState<BlankDetail | null>(null);
@@ -160,7 +170,7 @@ export default function ErpProductPageScreen({
   // Re-seeds only on product change; user edits in between stick.
   useEffect(() => {
     if (!productPage) {
-      setRetail('');
+      setRetail(PRODUCT.summary.retailPrice);
       return;
     }
     const p = productPage.price;
@@ -174,7 +184,7 @@ export default function ErpProductPageScreen({
 
   // A real product is set — the tee mock must NEVER bleed through.
   const live = Boolean(productPage);
-  const title = detail?.name ?? productPage?.name ?? '';
+  const title = detail?.name ?? productPage?.name ?? PRODUCT.title;
   const subtitle = detail
     ? `${detail.brand} • ${detail.supplierCount && detail.supplierCount > 1 ? `Multi-Supplier Product (${detail.supplierCount} offers)` : detail.supplier}`
     : productPage
@@ -183,13 +193,13 @@ export default function ErpProductPageScreen({
             ? `Multi-Supplier Product (${productPage.supplierCount} offers)`
             : productPage.supplier ?? '—'
         }`
-      : '';
+      : PRODUCT.subtitle;
   const tags = detail
     ? [detail.brand, ...(detail.techniques ?? []).slice(0, 2).map((t) => t.label), 'POD'].filter(Boolean)
     : productPage
       ? [productPage.brand, productPage.supplier, 'POD'].filter(Boolean)
-      : [];
-  const description = detail?.description || '';
+      : PRODUCT.tags;
+  const description = detail?.description || (live ? '' : PRODUCT.description);
 
   // Gallery — real supplier images per color (Printful images endpoint),
   // else the card thumbnail (instant, from the catalog card), else the
@@ -206,9 +216,13 @@ export default function ErpProductPageScreen({
     if (urls.length === 0 && cardImg) urls.push(cardImg);
     return urls;
   }, [detail, cardImg]);
-  const mainImage = galleryImages[0] ?? productPage?.img;
+  const mainImage = galleryImages[0] ?? productPage?.img ?? PRODUCT_MAIN_IMAGE;
   const thumbAt = (i: number) =>
-    galleryImages[i] ?? galleryImages[0] ?? productPage?.img;
+    galleryImages[i] ??
+    galleryImages[0] ??
+    productPage?.img ??
+    (live ? undefined : PRODUCT_THUMBS[i]) ??
+    PRODUCT_MAIN_IMAGE;
 
   // Print areas — real placements + physical sizes at 300 DPI; the
   // card's eligibility string covers the instant-render window.
@@ -228,7 +242,7 @@ export default function ErpProductPageScreen({
               label: p.replace(/_(dtf|dtg|embroidery|sublimation|screen_print|screenprint|vinyl|cut_sew)$/i, ''),
               size: '',
             }))
-        : [];
+        : PRODUCT.printAreas;
 
   const cardBadge =
     productPage?.supplierSlug === 'printful'
@@ -257,7 +271,7 @@ export default function ErpProductPageScreen({
               price: productPage.price != null ? money(productPage.price) : '—',
             },
           ]
-        : [];
+        : PRODUCT.offers;
 
   const summary = {
     baseCost: detail
@@ -266,7 +280,7 @@ export default function ErpProductPageScreen({
         ? productPage.price != null
           ? money(productPage.price)
           : '—'
-        : '—',
+        : PRODUCT.summary.baseCost,
     selectedVariant:
       detail?.variants?.colors?.[0] && detail?.variants?.sizes?.[0]
         ? `${detail.variants.colors[0].name} / ${detail.variants.sizes[0]}`
@@ -275,11 +289,11 @@ export default function ErpProductPageScreen({
             ? productPage.variantCount
               ? `${productPage.variantCount} variants`
               : '—'
-            : '—'),
+            : PRODUCT.summary.selectedVariant),
     printArea:
       detail?.variants?.printAreas?.[0] ??
-      (productPage ? (productPage.eligibility?.split(' / ')[0] ?? '—') : '—'),
-    activeSupplier: detail?.supplier ?? productPage?.supplier ?? '',
+      (productPage ? (productPage.eligibility?.split(' / ')[0] ?? '—') : PRODUCT.summary.printArea),
+    activeSupplier: detail?.supplier ?? productPage?.supplier ?? PRODUCT.summary.activeSupplier,
   };
 
   // Fulfillment network — real computable facts from the offers/printers.
@@ -326,51 +340,8 @@ export default function ErpProductPageScreen({
         { label: 'Fastest delivery', value: detailLoading ? 'Loading…' : '—' },
       ];
     }
-    return [];
+    return PRODUCT.fulfillmentNetwork;
   })();
-
-  // ── Icon mapping for live product data (restores the design's
-  // material-symbols language). The supplier's feature rows carry an
-  // external Printify SVG URL — fragile (external host, wrong style)
-  // — so features and care instructions are icon-mapped by CONTENT
-  // instead. Every feature and every care instruction gets a visible
-  // icon; the fallback is a generic check, never a bare row.
-  const featureIconFor = (name: string, description?: string | null): string => {
-    const t = `${name} ${description ?? ''}`.toLowerCase();
-    // Structural keywords first: a description mentioning "weather
-    // protection" must not steal a drawcord/zip/pocket feature.
-    if (/zip/.test(t)) return 'unfold_more';
-    if (/pocket/.test(t)) return 'shopping_bag';
-    if (/elbow|articulated|mobility|flex|movement|stretch/.test(t)) return 'accessibility';
-    if (/drawcord|drawstring|toggle|adjustable|customiz/.test(t)) return 'tune';
-    if (/\b(wind|water-?repellent|waterproof|rain|weather)\b/.test(t)) return 'umbrella';
-    if (/cotton/.test(t)) return 'eco';
-    if (/polyester|fabric|material|shell|lining|fleece|knit|textile|nylon/.test(t)) return 'layers';
-    if (/durable|strength|heavyweight|ripstop|reinforced/.test(t)) return 'shield';
-    if (/breathab|vent|mesh|airflow|moisture/.test(t)) return 'air';
-    if (/soft|comfort|cozy|plush/.test(t)) return 'spa';
-    if (/color|colour|neutral|versatile/.test(t)) return 'palette';
-    if (/essential|must-have|classic|staple/.test(t)) return 'star';
-    if (/print|design/.test(t)) return 'palette';
-    return 'check_circle';
-  };
-  const careIconFor = (text: string): string => {
-    const t = text.toLowerCase();
-    const negated = /do not|don't|never/.test(t);
-    if (/bleach/.test(t)) return negated ? 'no_drinks' : 'science';
-    if (/dry.?clean/.test(t)) return negated ? 'dangerous' : 'dry_cleaning';
-    if (/iron|steam/.test(t)) return negated ? 'block' : 'iron';
-    if (/tumble|dry|hang|line dry/.test(t)) return negated ? 'block' : 'dry';
-    if (/wash|launder/.test(t)) return 'local_laundry_service';
-    return 'check_circle';
-  };
-  // Size guide headers are long ("Body Length at Back", "Sleeve
-  // Length") — shorten them so the table fits its column.
-  const shortColumn = (c: string): string =>
-    c
-      .replace(/body length at back/i, 'Body Length')
-      .replace(/sleeve length/i, 'Sleeve')
-      .replace(/chest/i, 'Chest');
 
   // Details tab — real description + techniques when present; honest
   // card facts during the load window (never the tee copy).
@@ -388,56 +359,14 @@ export default function ErpProductPageScreen({
           productPage.eligibility ? `Print areas: ${productPage.eligibility}` : '',
           productPage.sku ? `SKU: ${productPage.sku}` : '',
         ].filter(Boolean)
-      : [];
+      : PRODUCT_DETAILS.aboutBullets;
   const aboutParagraph =
     detail?.description ||
     (productPage
       ? detailLoading
         ? 'Loading the supplier’s product description…'
         : 'No description on file from this supplier yet.'
-      : '');
-  // Supplier descriptions append a bullet list inline ("prose • item •
-  // item") — split it into prose + bullets so the About section reads
-  // as designed copy, not a dumped paragraph.
-  const aboutSplit = (() => {
-    const idx = aboutParagraph.indexOf('•');
-    if (idx < 0) return { prose: aboutParagraph, bullets: [] as string[] };
-    return {
-      prose: aboutParagraph.slice(0, idx).trim(),
-      bullets: aboutParagraph
-        .slice(idx)
-        .split('•')
-        .map((b) => b.trim().replace(/\.$/, ''))
-        .filter(Boolean),
-    };
-  })();
-
-  // Key Features / Care / Size Guide — the product's OWN data from the
-  // DB mirror (detail.features / careInstructions / sizeGuide). Absent
-  // data renders honestly, not as another product's features.
-  const liveFeatures = detail?.features ?? [];
-  const liveCare = detail?.careInstructions ?? [];
-  // Size guide: rows = the guide's sizes, columns = its measurement
-  // types. Ranges are mm in the mirror — convert to inches for display.
-  const liveSizeGuide = (() => {
-    const sg = detail?.sizeGuide;
-    if (!sg || !Array.isArray(sg.sizes) || sg.sizes.length === 0) return null;
-    const types = (sg.types ?? []).filter((t) => Array.isArray(t.ranges) && t.ranges.length > 0);
-    if (types.length === 0) return null;
-    const mmToIn = (mm: string): string => {
-      const n = Number.parseFloat(mm);
-      if (!Number.isFinite(n) || n <= 0) return '—';
-      return (n / 25.4).toFixed(1);
-    };
-    return {
-      sizes: sg.sizes,
-      columns: types.map((t) => t.name),
-      rows: sg.sizes.map((size, i) => ({
-        size,
-        values: types.map((t) => mmToIn(t.ranges[i]?.from ?? '')),
-      })),
-    };
-  })();
+      : PRODUCT_DETAILS.aboutParagraph);
 
   // Variants tab — real colors + sizes (empty + honest labels while
   // the detail loads; mock colors only for a direct no-product visit).
@@ -450,7 +379,7 @@ export default function ErpProductPageScreen({
         }))
       : live
         ? []
-        : [];
+        : PRODUCT_VARIANTS.colors;
   const sizes = detail?.variants?.sizes?.length ? detail.variants.sizes : null;
   const variantRows = detail
     ? (sizes ?? ['One size']).slice(0, 8).map((s, i) => {
@@ -469,21 +398,21 @@ export default function ErpProductPageScreen({
       })
     : live
       ? []
-      : [];
+      : PRODUCT_VARIANTS.rows;
   const activeVariantsLabel = detail
     ? `Showing ${variantRows.length} of ${detail.variantCount ?? variantRows.length} active variants`
     : productPage
       ? detailLoading
         ? 'Loading variants…'
         : 'Variant details unavailable'
-      : '';
+      : PRODUCT_VARIANTS.activeVariantsLabel;
   const colorsLabel = detail
     ? `Colors (${colors.length} active)`
     : productPage
       ? detailLoading
         ? 'Colors (loading…)'
         : 'Colors unavailable'
-      : '';
+      : PRODUCT_VARIANTS.colorsLabel;
 
   // Supplier costs tab — real offers; the card's own supplier + price
   // covers the instant-render window.
@@ -521,7 +450,7 @@ export default function ErpProductPageScreen({
               shaded: false,
             },
           ]
-        : [];
+        : PRODUCT_SUPPLIER_COSTS.rows;
 
   // Fulfillment tab — real printers (empty + the page-wide loading
   // banner while the detail loads; mock providers only for a direct
@@ -545,7 +474,7 @@ export default function ErpProductPageScreen({
         }))
       : live
         ? []
-        : [];
+        : PRODUCT_FULFILLMENT.providers;
 
   // Mockups tab — the real gallery images (the card photo covers the
   // instant-render window; mock cards only for a direct no-product visit).
@@ -559,7 +488,7 @@ export default function ErpProductPageScreen({
         }))
       : live
         ? []
-        : [];
+        : PRODUCT_MOCKUPS.cards;
 
   /** Design Now — the real wiring: open the studio with THIS blank
    *  loaded onto the canvas. Navigate FIRST (the canvas shows its
@@ -599,7 +528,7 @@ export default function ErpProductPageScreen({
 
   /* Dynamic Pricing Logic — verbatim from the design's script, on the
      LIVE base cost when a real product is loaded. */
-  const baseCost = detail?.baseCost ?? productPage?.price ?? 0;
+  const baseCost = detail?.baseCost ?? productPage?.price ?? PRODUCT.baseCostNumber;
   const retailNum = parseFloat(retail);
   let profitText = '$0.00';
   let profitError = false;
@@ -608,25 +537,6 @@ export default function ErpProductPageScreen({
   } else if (retailNum < baseCost) {
     profitText = `-$${(baseCost - retailNum).toFixed(2)}`;
     profitError = true;
-  }
-
-  // No product set (opened directly) — say so instead of the design's tee.
-  if (!live && !detail) {
-    return (
-      <div className="erp-pp flex flex-col items-center justify-center bg-background font-sans text-body-md text-on-surface antialiased" style={{ minHeight: 'calc(100vh - 124px)' }}>
-        <style>{CSS}</style>
-        <span className="material-symbols-outlined text-[40px] text-outline mb-4">inventory_2</span>
-        <h2 className="font-semibold text-[18px] mb-2">No product selected</h2>
-        <p className="text-on-surface-variant text-[14px] mb-6">Pick a product from the catalog to see its details.</p>
-        <button
-          type="button"
-          className="px-4 py-2 bg-primary text-white text-[14px] font-semibold rounded hover:bg-primary-container"
-          onClick={() => onNavigate('design', 'product-catalog')}
-        >
-          Back to catalog
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -714,26 +624,22 @@ export default function ErpProductPageScreen({
               <div className="w-[340px] shrink-0 space-y-4">
                 {/* Main Image */}
                 <div className="w-full h-[340px] bg-surface-container-low rounded-xl border border-surface-dim flex items-center justify-center overflow-hidden">
-                  {mainImage ? (
-                    <img src={mainImage} alt="Product" className="object-cover w-full h-full" />
-                  ) : (
-                    <span className="text-[13px] text-on-surface-variant">No image on file</span>
-                  )}
+                  <img src={mainImage} alt="Product" className="object-cover w-full h-full" />
                 </div>
 
                 {/* Thumbnails */}
                 <div className="grid grid-cols-4 gap-2">
                   <div className="aspect-square bg-surface-container-low rounded-lg border-2 border-primary overflow-hidden cursor-pointer">
-                    {thumbAt(0) ? (<img src={thumbAt(0)} alt="" className="object-cover w-full h-full" />) : null}
+                    <img src={thumbAt(0)} alt="" className="object-cover w-full h-full" />
                   </div>
                   <div className="aspect-square bg-surface-container-low rounded-lg border border-surface-dim overflow-hidden cursor-pointer hover:border-outline">
-                    {thumbAt(1) ? (<img src={thumbAt(1)} alt="" className="object-cover w-full h-full" />) : null}
+                    <img src={thumbAt(1)} alt="" className="object-cover w-full h-full" />
                   </div>
                   <div className="aspect-square bg-surface-container-low rounded-lg border border-surface-dim overflow-hidden cursor-pointer hover:border-outline">
-                    {thumbAt(2) ? (<img src={thumbAt(2)} alt="" className="object-cover w-full h-full" />) : null}
+                    <img src={thumbAt(2)} alt="" className="object-cover w-full h-full" />
                   </div>
                   <div className="aspect-square bg-surface-container-low rounded-lg border border-surface-dim overflow-hidden cursor-pointer hover:border-outline">
-                    {thumbAt(3) ? (<img src={thumbAt(3)} alt="" className="object-cover w-full h-full" />) : null}
+                    <img src={thumbAt(3)} alt="" className="object-cover w-full h-full" />
                   </div>
                 </div>
 
@@ -985,129 +891,80 @@ export default function ErpProductPageScreen({
                         ))}
                       </ul>
                       <p className="text-on-surface leading-relaxed">
-                        {aboutSplit.prose}
+                        {aboutParagraph}
                       </p>
-                      {aboutSplit.bullets.length > 0 && (
-                        <ul className="list-disc pl-5 space-y-1 text-on-surface-variant">
-                          {aboutSplit.bullets.map((b) => (
-                            <li key={b}>{b}</li>
-                          ))}
-                        </ul>
-                      )}
                     </div>
 
                     <div>
                       <h3 className="font-semibold text-[18px] mb-5 text-on-surface">Key Features</h3>
-                      {liveFeatures.length > 0 ? (
-                        <div className="grid grid-cols-2 gap-8">
-                          {liveFeatures.map((f) => (
-                            <div className="flex gap-4" key={f.name}>
-                              <span className="material-symbols-outlined text-[28px] text-outline">
-                                {featureIconFor(f.name, f.description)}
-                              </span>
-                              <div>
-                                <h4 className="font-semibold text-on-surface text-[14px] mb-1">
-                                  {f.name}
-                                </h4>
-                                {f.description && (
-                                  <p className="text-on-surface-variant text-[13px]">{f.description}</p>
-                                )}
-                              </div>
+                      <div className="grid grid-cols-2 gap-8">
+                        {PRODUCT_DETAILS.keyFeatures.map((f) => (
+                          <div className="flex gap-4" key={f.title}>
+                            <span className="material-symbols-outlined text-[28px] text-outline">
+                              {f.icon}
+                            </span>
+                            <div>
+                              <h4 className="font-semibold text-on-surface text-[14px] mb-1">
+                                {f.title}
+                              </h4>
+                              <p className="text-on-surface-variant text-[13px]">{f.text}</p>
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-on-surface-variant text-[13px]">
-                          {detailLoading
-                            ? 'Loading features…'
-                            : 'No features on file from this supplier yet.'}
-                        </p>
-                      )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
 
                     <div>
                       <h3 className="font-semibold text-[18px] mb-4 text-on-surface">
                         Care Instructions
                       </h3>
-                      {liveCare.length > 0 ? (
-                        <>
-                          <div className="flex gap-5 mb-4 text-on-surface-variant">
-                            {liveCare.map((c) => (
-                              <span
-                                key={c}
-                                className="material-symbols-outlined text-[28px]"
-                                title={c}
-                              >
-                                {careIconFor(c)}
-                              </span>
-                            ))}
-                          </div>
-                          <ul className="list-disc pl-5 space-y-1 text-on-surface-variant text-[13px]">
-                            {liveCare.map((c) => (
-                              <li key={c}>{c}</li>
-                            ))}
-                          </ul>
-                        </>
-                      ) : (
-                        <p className="text-on-surface-variant text-[13px]">
-                          {detailLoading
-                            ? 'Loading care instructions…'
-                            : 'No care instructions on file from this supplier yet.'}
-                        </p>
-                      )}
+                      <div className="flex gap-5 mb-4 text-on-surface-variant">
+                        {PRODUCT_DETAILS.careIcons.map((c) => (
+                          <span
+                            key={c.icon}
+                            className="material-symbols-outlined text-[28px]"
+                            title={c.title}
+                          >
+                            {c.icon}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-on-surface-variant text-[13px]">
+                        {PRODUCT_DETAILS.careText}
+                      </p>
                     </div>
-
                   </div>
 
                   <div className="col-span-1">
                     <h3 className="font-semibold text-[18px] mb-4 text-on-surface">Size Guide</h3>
-                    {liveSizeGuide ? (
-                      <>
-                        <div className="border border-surface-dim rounded-lg overflow-x-auto mb-3">
-                          <table className="w-full text-[12px] text-center">
-                            <thead className="bg-surface-container-low text-on-surface-variant">
-                              <tr>
-                                <th className="py-2 px-1 whitespace-nowrap border-b border-surface-dim border-r">Size</th>
-                                {liveSizeGuide.columns.map((c) => (
-                                  <th key={c} className="py-2 px-1 whitespace-nowrap border-b border-surface-dim border-r last:border-r-0">
-                                    {shortColumn(c)}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {liveSizeGuide.rows.map((r, ri) => (
-                                <tr
-                                  key={r.size}
-                                  className={`${ri % 2 === 1 ? 'bg-surface-container-lowest ' : ''}${
-                                    ri === liveSizeGuide.rows.length - 1 ? '' : 'border-b border-surface-dim'
-                                  }`}
-                                >
-                                  <td className="py-2 px-1 whitespace-nowrap border-r">{r.size}</td>
-                                  {r.values.map((v, vi) => (
-                                    <td
-                                      key={vi}
-                                      className={`py-2 px-1 whitespace-nowrap${vi < r.values.length - 1 ? ' border-r' : ''}`}
-                                    >
-                                      {v}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <p className="text-[12px] text-on-surface-variant">
-                          Measurements in inches, from the supplier’s size guide.
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-on-surface-variant text-[13px]">
-                        {detailLoading
-                          ? 'Loading size guide…'
-                          : 'No size guide on file from this supplier yet.'}
-                      </p>
-                    )}
+                    <div className="border border-surface-dim rounded-lg overflow-hidden mb-3">
+                      <table className="w-full text-[13px] text-center">
+                        <thead className="bg-surface-container-low text-on-surface-variant">
+                          <tr>
+                            <th className="py-3 border-b border-surface-dim border-r">Size</th>
+                            <th className="py-3 border-b border-surface-dim border-r">Chest (in)</th>
+                            <th className="py-3 border-b border-surface-dim">Length (in)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {PRODUCT_DETAILS.sizeGuide.rows.map((r) => (
+                            <tr
+                              key={r.size}
+                              className={`${r.shaded ? 'bg-surface-container-lowest ' : ''}${
+                                r.size === '2XL' ? '' : 'border-b border-surface-dim'
+                              }`}
+                            >
+                              <td className="py-3 border-r">{r.size}</td>
+                              <td className="py-3 border-r">{r.chest}</td>
+                              <td className="py-3">{r.length}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[12px] text-on-surface-variant">
+                      {PRODUCT_DETAILS.sizeGuide.note}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1216,7 +1073,9 @@ export default function ErpProductPageScreen({
                         Total Active Variants
                       </td>
                       <td colSpan={4} className="text-left pl-6">
-                        {detail?.variantCount ?? productPage?.variantCount ?? '—'}
+                        {detail?.variantCount ??
+                          productPage?.variantCount ??
+                          (live ? '—' : PRODUCT_VARIANTS.totalActiveVariants)}
                       </td>
                     </tr>
                   </tfoot>
@@ -1230,10 +1089,10 @@ export default function ErpProductPageScreen({
                 <div className="flex justify-between items-center mb-8">
                   <div>
                     <h2 className="text-[20px] font-semibold mb-2">
-                      Supplier Costs
+                      {PRODUCT_SUPPLIER_COSTS.heading}
                     </h2>
                     <p className="text-[14px] text-on-surface-variant">
-                      {supplierCostRows.length} offer{supplierCostRows.length === 1 ? '' : 's'} on file
+                      {PRODUCT_SUPPLIER_COSTS.subheading}
                     </p>
                   </div>
                   <button
@@ -1331,9 +1190,9 @@ export default function ErpProductPageScreen({
               <div className="bg-white border border-surface-dim rounded-xl p-8">
                 <div className="flex justify-between items-center mb-8">
                   <div>
-                    <h2 className="text-[20px] font-semibold mb-2">Fulfillment &amp; Providers</h2>
+                    <h2 className="text-[20px] font-semibold mb-2">{PRODUCT_FULFILLMENT.heading}</h2>
                     <p className="text-[14px] text-on-surface-variant">
-                      {providers.length} provider{providers.length === 1 ? '' : 's'} on file
+                      {PRODUCT_FULFILLMENT.subheading}
                     </p>
                   </div>
                   <button
@@ -1394,8 +1253,8 @@ export default function ErpProductPageScreen({
                   </div>
                   <div className="flex items-center gap-2">
                     <select className="h-9 pl-3 pr-8 border border-surface-dim rounded text-[13px] bg-white appearance-none focus:outline-none focus:border-primary">
-                      {colors.map((c) => (
-                        <option key={c.name}>{c.name}</option>
+                      {PRODUCT_MOCKUPS.colorOptions.map((c) => (
+                        <option key={c}>{c}</option>
                       ))}
                     </select>
                   </div>
@@ -1443,9 +1302,114 @@ export default function ErpProductPageScreen({
             {/* 6. Reviews */}
             {tab === 'reviews' && (
               <div className="bg-white border border-surface-dim rounded-xl p-8">
-                <p className="text-[14px] text-on-surface-variant">
-                  No reviews on file for this product yet.
-                </p>
+                <div className="flex gap-12">
+                  <div className="w-72 shrink-0">
+                    <div className="flex items-end gap-3 mb-3">
+                      <div className="text-[48px] font-bold leading-none text-on-surface">
+                        {PRODUCT_REVIEWS.score}
+                      </div>
+                      <div className="flex text-yellow-400 mb-1">
+                        {PRODUCT_REVIEWS.starIcons.map((s, i) => (
+                          <span
+                            key={i}
+                            className="material-symbols-outlined text-[24px]"
+                            style={
+                              s === 'star' ? { fontVariationSettings: "'FILL' 1" } : undefined
+                            }
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-[13px] text-on-surface-variant mb-8">
+                      {PRODUCT_REVIEWS.basedOn}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="w-full h-10 bg-primary text-white text-[14px] font-semibold rounded hover:bg-primary-container mb-8"
+                    >
+                      Write a Review
+                    </button>
+
+                    <div className="space-y-3">
+                      {PRODUCT_REVIEWS.ratingBars.map((bar) => (
+                        <div key={bar.label} className="flex items-center text-[13px] gap-3">
+                          <span className="w-16 text-on-surface-variant">{bar.label}</span>
+                          <div className="flex-1 rating-bar">
+                            <div className="rating-bar-fill" style={{ width: bar.width }}></div>
+                          </div>
+                          <span className="w-8 text-right font-medium">{bar.score}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 space-y-8">
+                    <div className="flex items-center justify-between mb-2 pb-4 border-b border-surface-dim">
+                      <div className="flex gap-2">
+                        {PRODUCT_REVIEWS.filters.map((f, i) => (
+                          <button
+                            type="button"
+                            key={f}
+                            className={
+                              i === 0
+                                ? 'px-4 py-1.5 bg-surface-container border border-surface-dim rounded-full text-[12px] font-semibold'
+                                : 'px-4 py-1.5 hover:bg-surface-container rounded-full text-[12px] text-on-surface-variant'
+                            }
+                          >
+                            {f}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2 text-[12px] text-on-surface-variant">
+                        <span>Sort by:</span>
+                        <select className="bg-transparent font-semibold text-on-surface outline-none">
+                          {PRODUCT_REVIEWS.sortOptions.map((o) => (
+                            <option key={o}>{o}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {PRODUCT_REVIEWS.reviews.map((review) => (
+                      <div key={review.title} className="border-b border-surface-dim pb-6">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex text-yellow-400">
+                              {review.stars.map((s, i) => (
+                                <span
+                                  key={i}
+                                  className="material-symbols-outlined text-[18px]"
+                                  style={{ fontVariationSettings: "'FILL' 1" }}
+                                >
+                                  {s}
+                                </span>
+                              ))}
+                            </div>
+                            <span className="font-semibold text-[14px] text-on-surface">
+                              {review.title}
+                            </span>
+                            {review.verified && (
+                              <span className="bg-surface-container px-2 py-0.5 rounded text-[11px] text-on-surface-variant flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[14px]">
+                                  verified
+                                </span>
+                                Verified Purchase
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[13px] text-on-surface-variant">{review.date}</span>
+                        </div>
+                        <p className="text-[14px] text-on-surface mb-3">{review.text}</p>
+                        <div className="text-[12px] text-on-surface-variant flex items-center gap-2">
+                          <span>{review.author}</span> • <span>{review.meta}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>

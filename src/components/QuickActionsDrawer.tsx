@@ -7,7 +7,7 @@ export interface ActionItem {
   id: string;
   name: string;
   icon: string;
-  group: 'customers' | 'vendors' | 'team' | 'other' | 'tax' | 'inventory';
+  group: 'customers' | 'vendors' | 'team' | 'other' | 'tax' | 'inventory' | 'crm' | 'sellers';
 }
 
 export interface ActionGroup {
@@ -34,6 +34,20 @@ export const ALL_ACTION_GROUPS: ActionGroup[] = [
     ],
   },
   {
+    id: 'crm',
+    name: 'CRM & Communication',
+    actions: [
+      { id: 'crm_message', name: 'Send customer message', icon: 'mail', group: 'crm' },
+      { id: 'crm_ticket', name: 'Create support ticket', icon: 'confirmation_number', group: 'crm' },
+      { id: 'crm_view_invoices', name: 'View customer invoices', icon: 'receipt_long', group: 'crm' },
+      { id: 'crm_view_statements', name: 'View customer statements', icon: 'summarize', group: 'crm' },
+      { id: 'crm_add_lead', name: 'Add lead', icon: 'flag', group: 'crm' },
+      { id: 'crm_add_deal', name: 'Create deal', icon: 'trending_up', group: 'crm' },
+      { id: 'crm_book_appointment', name: 'Book appointment', icon: 'event', group: 'crm' },
+      { id: 'crm_add_note', name: 'Add note', icon: 'sticky_note_2', group: 'crm' },
+    ],
+  },
+  {
     id: 'vendors',
     name: 'Vendors',
     actions: [
@@ -47,6 +61,17 @@ export const ALL_ACTION_GROUPS: ActionGroup[] = [
       { id: 'v_upload_bills', name: 'Upload multiple bills', icon: 'upload_file', group: 'vendors' },
       { id: 'v_sched_pay', name: 'Schedule online payment', icon: 'schedule', group: 'vendors' },
       { id: 'v_credit', name: 'Create vendor credit', icon: 'savings', group: 'vendors' },
+    ],
+  },
+  {
+    id: 'sellers',
+    name: 'Seller Marketplace',
+    actions: [
+      { id: 's_add_seller', name: 'Add seller', icon: 'person_add', group: 'sellers' },
+      { id: 's_onboard', name: 'Review onboarding queue', icon: 'how_to_reg', group: 'sellers' },
+      { id: 's_feed', name: 'View seller feed', icon: 'campaign', group: 'sellers' },
+      { id: 's_appeals', name: 'Review appeals', icon: 'gavel', group: 'sellers' },
+      { id: 's_violations', name: 'Review violations', icon: 'warning', group: 'sellers' },
     ],
   },
   {
@@ -78,11 +103,10 @@ export const ALL_ACTION_GROUPS: ActionGroup[] = [
   },
   {
     id: 'inventory',
-    name: 'Inventory',
+    name: 'Inventory & Design',
     actions: [
       { id: 'i_product_service', name: 'Add inventory item', icon: 'inventory_2', group: 'inventory' },
       { id: 'i_design_studio', name: 'Design Studio', icon: 'apparel', group: 'inventory' },
-      { id: 'i_support_ticket', name: 'Open Support Ticket', icon: 'confirmation_number', group: 'inventory' },
       { id: 'i_publish_design', name: 'Publish Design', icon: 'publish', group: 'inventory' },
       { id: 'i_social_post', name: 'Create Social Post', icon: 'share', group: 'inventory' },
     ],

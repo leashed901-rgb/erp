@@ -1,133 +1,93 @@
 'use client';
 
 /**
- * Social Calendar — month grid + list view of scheduled posts, wired to
- * the real social_posts rows (doc 23). Chips show posts with a scheduled
- * date; the month defaults to today, not a hardcoded October.
+ * Social Calendar — month grid + list view of scheduled posts.
+ * Minimalist rebuild: local CSS module, real Month/List toggle,
+ * channel filter, peek drawer on post click, day-click → create-content.
  */
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import styles from './SocialCalendar.module.css';
-import { useSocialPosts, socialMutations } from '@/hooks/useSocialApi';
-import type { SocialPost } from '@/lib/socialTypes';
 
 interface SocialCalendarScreenProps {
   onToast: (msg: string) => void;
-  onNavigate?: (domain: import('@/data/shellData').DomainKey, screenId: string) => void;
+  onNavigate?: (domain: string, screenId: string) => void;
+}
+
+interface CalPost {
+  id: string;
+  title: string;
+  channel: 'Instagram' | 'TikTok' | 'Facebook' | 'LinkedIn';
+  color: string;
+  date: string; // YYYY-MM-DD
+  time: string;
+  status: 'Scheduled' | 'Pending approval' | 'Draft';
+  copy: string;
 }
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const CHANNELS = ['All', 'Instagram', 'TikTok', 'Facebook', 'LinkedIn', 'Pinterest', 'YouTube'] as const;
+const CHANNELS = ['All', 'Instagram', 'TikTok', 'Facebook', 'LinkedIn'] as const;
 const CHANNEL_COLOR: Record<string, string> = {
-  instagram: '#c13584',
-  tiktok: '#010101',
-  facebook: '#1877f2',
-  linkedin: '#0a66c2',
-  pinterest: '#bd081c',
-  youtube: '#ff0000',
+  Instagram: '#c13584',
+  TikTok: '#010101',
+  Facebook: '#1877f2',
+  LinkedIn: '#0a66c2',
 };
 
-function cap(s: string): string {
-  return s ? s[0].toUpperCase() + s.slice(1) : s;
-}
+const INITIAL_POSTS: CalPost[] = [
+  { id: 'c1', title: 'October product spotlight', channel: 'Instagram', color: '#c13584', date: '2026-10-28', time: '2:00 PM', status: 'Scheduled', copy: 'Highlighting this month\'s best-selling pieces.' },
+  { id: 'c2', title: 'Weekly company update', channel: 'LinkedIn', color: '#0a66c2', date: '2026-10-29', time: '9:00 AM', status: 'Scheduled', copy: 'Internal milestones shared externally.' },
+  { id: 'c3', title: 'Behind the scenes', channel: 'TikTok', color: '#010101', date: '2026-10-31', time: '12:00 PM', status: 'Scheduled', copy: 'Studio redesign footage.' },
+  { id: 'c4', title: 'Holiday teaser', channel: 'Instagram', color: '#c13584', date: '2026-10-31', time: '4:00 PM', status: 'Pending approval', copy: 'Sneak peek at the holiday drop.' },
+  { id: 'c5', title: 'New hoodie drop', channel: 'TikTok', color: '#010101', date: '2026-11-01', time: '10:00 AM', status: 'Scheduled', copy: 'Heavyweight hoodie restock — 6 colorways.' },
+  { id: 'c6', title: 'Customer spotlight', channel: 'Instagram', color: '#c13584', date: '2026-11-03', time: '12:00 PM', status: 'Pending approval', copy: 'Featuring a longtime customer.' },
+  { id: 'c7', title: 'Black Friday teaser', channel: 'Facebook', color: '#1877f2', date: '2026-11-05', time: '3:00 PM', status: 'Draft', copy: 'Teaser for the Black Friday sale.' },
+  { id: 'c8', title: 'Weekend meme', channel: 'TikTok', color: '#010101', date: '2026-11-07', time: '6:00 PM', status: 'Draft', copy: 'Light weekend content.' },
+];
 
-function titleOf(p: SocialPost): string {
-  if (p.title) return p.title;
-  const first = (p.caption || '').split('\n')[0].trim();
-  return first ? (first.length > 60 ? `${first.slice(0, 60)}…` : first) : 'Untitled post';
-}
-
-function channelOf(p: SocialPost): string {
-  const n = p.channels?.[0] || p.networks?.[0]?.network || '';
-  return n ? cap(n) : '—';
-}
-
-function dateKey(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function timeOf(iso: string | null): string {
-  if (!iso) return 'Unscheduled';
-  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-}
-
-function statusPill(status: string) {
-  if (status === 'scheduled') return <span className={`${styles.pill} ${styles.pillGreen}`}>Scheduled</span>;
-  if (status === 'publishing') return <span className={`${styles.pill} ${styles.pillOrange}`}>Publishing</span>;
-  if (status === 'published') return <span className={`${styles.pill} ${styles.pillGreen}`}>Published</span>;
-  if (status === 'failed') return <span className={`${styles.pill} ${styles.pillGray}`}>Failed</span>;
+function statusPill(status: CalPost['status']) {
+  if (status === 'Scheduled') return <span className={`${styles.pill} ${styles.pillGreen}`}>Scheduled</span>;
+  if (status === 'Pending approval') return <span className={`${styles.pill} ${styles.pillOrange}`}>Pending</span>;
   return <span className={`${styles.pill} ${styles.pillGray}`}>Draft</span>;
 }
 
 export default function SocialCalendarScreen({ onToast, onNavigate }: SocialCalendarScreenProps) {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth());
+  const [year, setYear] = useState(2026);
+  const [month, setMonth] = useState(9); // October
   const [view, setView] = useState<'month' | 'list'>('month');
   const [channelFilter, setChannelFilter] = useState<string>('All');
-  const [peekPost, setPeekPost] = useState<SocialPost | null>(null);
-  const [busy, setBusy] = useState(false);
-  const { posts, loading, error, refresh } = useSocialPosts();
-
-  const todayNum = now.getDate();
-  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+  const [posts, setPosts] = useState<CalPost[]>(INITIAL_POSTS);
+  const [peekPost, setPeekPost] = useState<CalPost | null>(null);
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = 28; // for highlight
 
   const prevMonth = () => (month === 0 ? (setMonth(11), setYear(year - 1)) : setMonth(month - 1));
   const nextMonth = () => (month === 11 ? (setMonth(0), setYear(year + 1)) : setMonth(month + 1));
-  const goToday = () => { setYear(now.getFullYear()); setMonth(now.getMonth()); };
+  const goToday = () => { setYear(2026); setMonth(9); };
 
   const getDateStr = (day: number) =>
     `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-  const filteredPosts = useMemo(() => {
-    if (channelFilter === 'All') return posts;
-    return posts.filter((p) => channelOf(p) === channelFilter);
-  }, [posts, channelFilter]);
+  const filteredPosts = channelFilter === 'All' ? posts : posts.filter((p) => p.channel === channelFilter);
 
-  const postsByDate = useMemo(() => {
-    const map = new Map<string, SocialPost[]>();
-    for (const p of filteredPosts) {
-      const k = dateKey(p.scheduledAt || p.publishedAt);
-      if (!k) continue;
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(p);
-    }
-    return map;
-  }, [filteredPosts]);
-
-  async function handleDuplicate(post: SocialPost) {
-    setBusy(true);
-    const r = await socialMutations.createPost({
-      caption: post.caption,
-      title: post.title ? `${post.title} (copy)` : undefined,
-      channels: post.channels || [],
-      mediaUrls: post.mediaUrls || [],
-    });
-    setBusy(false);
+  const handleDuplicate = (post: CalPost) => {
+    const dup: CalPost = { ...post, id: `c${Date.now()}`, title: `${post.title} (copy)`, status: 'Draft', time: 'Unscheduled' };
+    setPosts((prev) => [dup, ...prev]);
     setPeekPost(null);
-    if (!r.ok) { onToast(`Duplicate failed: ${r.error || 'unknown error'}`); return; }
-    await refresh();
-    onToast(`Duplicated "${titleOf(post)}" as a draft.`);
-  }
+    onToast(`Duplicated "${post.title}".`);
+  };
 
-  async function handleDelete(post: SocialPost) {
-    setBusy(true);
-    const r = await socialMutations.deletePost(post.id);
-    setBusy(false);
+  const handleDelete = (post: CalPost) => {
+    setPosts((prev) => prev.filter((p) => p.id !== post.id));
     setPeekPost(null);
-    if (!r.ok) { onToast(`Delete failed: ${r.error || 'unknown error'}`); return; }
-    await refresh();
-    onToast(`Deleted "${titleOf(post)}".`);
-  }
+    onToast(`Deleted "${post.title}".`);
+  };
 
   return (
     <div className={styles.screen}>
+      {/* Toolbar */}
       <div className={styles.toolbar}>
         <div className={styles.toolbarLeft}>
           <h1 className={styles.toolbarTitle}>Calendar</h1>
@@ -156,14 +116,9 @@ export default function SocialCalendarScreen({ onToast, onNavigate }: SocialCale
         </div>
       </div>
 
+      {/* Content */}
       <div className={styles.content}>
-        {error ? (
-          <div className={styles.empty}>
-            <span className="material-symbols-outlined">error</span>
-            <h3>Could not load posts</h3>
-            <p>{error}</p>
-          </div>
-        ) : view === 'month' ? (
+        {view === 'month' ? (
           <div className={styles.gridWrap}>
             <div className={styles.grid}>
               {DAY_NAMES.map((d) => (<div key={d} className={styles.dayHead}>{d}</div>))}
@@ -171,7 +126,7 @@ export default function SocialCalendarScreen({ onToast, onNavigate }: SocialCale
               {Array.from({ length: daysInMonth }, (_, i) => {
                 const day = i + 1;
                 const dateStr = getDateStr(day);
-                const dayPosts = postsByDate.get(dateStr) || [];
+                const dayPosts = filteredPosts.filter((p) => p.date === dateStr);
                 return (
                   <div
                     key={day}
@@ -182,15 +137,15 @@ export default function SocialCalendarScreen({ onToast, onNavigate }: SocialCale
                       onNavigate?.('marketing', 'mkt-create-content');
                     }}
                   >
-                    <span className={`${styles.dateNum} ${day === todayNum && isCurrentMonth ? styles.dateToday : ''}`}>{day}</span>
+                    <span className={`${styles.dateNum} ${day === today && month === 9 && year === 2026 ? styles.dateToday : ''}`}>{day}</span>
                     {dayPosts.slice(0, 3).map((p) => (
                       <div
                         key={p.id}
                         className={styles.postChip}
-                        style={{ borderLeftColor: CHANNEL_COLOR[(p.channels?.[0] || '').toLowerCase()] || '#666' }}
+                        style={{ borderLeftColor: p.color }}
                         onClick={(e) => { e.stopPropagation(); setPeekPost(p); }}
                       >
-                        {titleOf(p)}
+                        {p.title}
                       </div>
                     ))}
                     {dayPosts.length > 3 && <span className={styles.moreChip}>+{dayPosts.length - 3} more</span>}
@@ -201,9 +156,7 @@ export default function SocialCalendarScreen({ onToast, onNavigate }: SocialCale
           </div>
         ) : (
           <div className={styles.listWrap}>
-            {loading ? (
-              <div className={styles.empty}><h3>Loading…</h3></div>
-            ) : filteredPosts.length === 0 ? (
+            {filteredPosts.length === 0 ? (
               <div className={styles.empty}>
                 <span className="material-symbols-outlined">calendar_today</span>
                 <h3>No posts</h3>
@@ -217,10 +170,10 @@ export default function SocialCalendarScreen({ onToast, onNavigate }: SocialCale
                 <tbody>
                   {filteredPosts.map((p) => (
                     <tr key={p.id} onClick={() => setPeekPost(p)}>
-                      <td>{p.scheduledAt ? new Date(p.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</td>
-                      <td><strong>{titleOf(p)}</strong></td>
-                      <td><span className={styles.chDot} style={{ background: CHANNEL_COLOR[(p.channels?.[0] || '').toLowerCase()] || '#666' }} />{channelOf(p)}</td>
-                      <td>{timeOf(p.scheduledAt || p.publishedAt)}</td>
+                      <td>{new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</td>
+                      <td><strong>{p.title}</strong></td>
+                      <td><span className={styles.chDot} style={{ background: p.color }} />{p.channel}</td>
+                      <td>{p.time}</td>
                       <td>{statusPill(p.status)}</td>
                     </tr>
                   ))}
@@ -231,33 +184,34 @@ export default function SocialCalendarScreen({ onToast, onNavigate }: SocialCale
         )}
       </div>
 
+      {/* Peek drawer */}
       {peekPost && (
         <>
           <div className={`${styles.scrim} ${styles.scrimOpen}`} onClick={() => setPeekPost(null)} />
           <div className={`${styles.peek} ${styles.peekOpen}`}>
             <div className={styles.peekHead}>
               <div>
-                <h3 className={styles.peekHeadTitle}>{titleOf(peekPost)}</h3>
+                <h3 className={styles.peekHeadTitle}>{peekPost.title}</h3>
                 <p className={styles.peekHeadSub}>
-                  <span className={styles.chDot} style={{ background: CHANNEL_COLOR[(peekPost.channels?.[0] || '').toLowerCase()] || '#666' }} />
-                  {channelOf(peekPost)} · {peekPost.scheduledAt ? new Date(peekPost.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'} · {timeOf(peekPost.scheduledAt || peekPost.publishedAt)}
+                  <span className={styles.chDot} style={{ background: peekPost.color }} />
+                  {peekPost.channel} · {new Date(peekPost.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {peekPost.time}
                 </p>
               </div>
               <button type="button" className={styles.btnIcon} onClick={() => setPeekPost(null)}><span className="material-symbols-outlined">close</span></button>
             </div>
             <div className={styles.peekBody}>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>{peekPost.caption}</p>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>{peekPost.copy}</p>
               <div className={styles.peekField}><span className={styles.peekLabel}>Status</span><span className={styles.peekValue}>{statusPill(peekPost.status)}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Channel</span><span className={styles.peekValue}>{channelOf(peekPost)}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Date</span><span className={styles.peekValue}>{peekPost.scheduledAt ? new Date(peekPost.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span></div>
-              <div className={styles.peekField}><span className={styles.peekLabel}>Time</span><span className={styles.peekValue}>{timeOf(peekPost.scheduledAt || peekPost.publishedAt)}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Channel</span><span className={styles.peekValue}>{peekPost.channel}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Date</span><span className={styles.peekValue}>{peekPost.date}</span></div>
+              <div className={styles.peekField}><span className={styles.peekLabel}>Time</span><span className={styles.peekValue}>{peekPost.time}</span></div>
               <div className={styles.peekField}><span className={styles.peekLabel}>Post ID</span><span className={styles.peekValue}>{peekPost.id}</span></div>
             </div>
             <div className={styles.peekFooter}>
-              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} disabled={busy} onClick={() => void handleDelete(peekPost)}>
+              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} onClick={() => handleDelete(peekPost)}>
                 <span className="material-symbols-outlined">delete</span> Delete
               </button>
-              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} disabled={busy} onClick={() => void handleDuplicate(peekPost)}>
+              <button type="button" className={`${styles.btn} ${styles.btnOutline}`} onClick={() => handleDuplicate(peekPost)}>
                 <span className="material-symbols-outlined">content_copy</span> Duplicate
               </button>
               <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => { setPeekPost(null); onNavigate?.('marketing', 'mkt-create-content'); }}>

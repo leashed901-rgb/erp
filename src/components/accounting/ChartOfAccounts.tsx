@@ -1,8 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import type { AccountingScreenProps } from './types';
-import { useChartOfAccounts, coaMutations, fetchAccountRegister } from '@/hooks/useAccountingApi';
-import type { CoaAccount } from '@/lib/acctTypes';
 import './chart-of-accounts.css';
 
 /* ═══════════ Detail types per account type (cascading) — verbatim from the mockup ═══════════ */
@@ -25,11 +23,11 @@ const INLINE_TAX_OPTIONS = ['—', 'Sales', 'COGS', 'Office', 'Software', 'Trave
 const withCommas = (n: number) => n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 interface AccountRow {
-  id: string;
+  id: number;
   type: AccountType;
   name: string;
   number: string;
-  /** data-detail attribute value — drives the edit-drawer prefill */
+  /** data-detail attribute value — drives the edit-drawer prefill (differs from the cell text on Office supplies, as in the mockup) */
   detail: string;
   /** Visible "Detail type" cell text */
   detailText: string;
@@ -38,36 +36,51 @@ interface AccountRow {
   balance: string;
   bankbal: string;
   inactive: boolean;
-  parentId: string | null;
-  desc: string;
 }
 
-const fmtMoney = (n: number) => `${n < 0 ? '-' : ''}$${withCommas(Math.abs(n))}`;
+/* Initial table rows — verbatim from the mockup tbody */
+const INITIAL_ACCOUNTS: AccountRow[] = [
+  { id: 1, type: 'Asset', name: 'Business checking', number: '1000', detail: 'Checking', detailText: 'Checking', tax: '—', balance: '$84,210.40', bankbal: '$84,210.40', inactive: false },
+  { id: 2, type: 'Asset', name: 'Accounts receivable (A/R)', number: '1100', detail: 'Accounts receivable', detailText: 'Accounts receivable', tax: '—', balance: '$8,420.00', bankbal: '—', inactive: false },
+  { id: 3, type: 'Asset', name: 'Stripe clearing', number: '1010', detail: 'Cash and cash equivalents', detailText: 'Cash and cash equivalents', tax: '—', balance: '$1,842.60', bankbal: '—', inactive: false },
+  { id: 4, type: 'Liability', name: 'Accounts payable (A/P)', number: '2000', detail: 'Accounts payable', detailText: 'Accounts payable', tax: '—', balance: '$4,080.00', bankbal: '—', inactive: false },
+  { id: 5, type: 'Liability', name: 'Sales tax payable', number: '2200', detail: 'Sales tax payable', detailText: 'Sales tax payable', tax: '—', balance: '$1,880.00', bankbal: '—', inactive: false },
+  { id: 6, type: 'Equity', name: "Owner's equity", number: '3000', detail: "Owner's equity", detailText: "Owner's equity", tax: '—', balance: '$66,010.00', bankbal: '—', inactive: false },
+  { id: 7, type: 'Income', name: 'Sales — Apparel', number: '4000', detail: 'Sales of product income', detailText: 'Sales of product income', tax: 'Sales', balance: '$42,180.00', bankbal: '—', inactive: false },
+  { id: 8, type: 'Income', name: 'Shipping income', number: '4010', detail: 'Sales of product income', detailText: 'Sales of product income', tax: 'Sales', balance: '$1,204.00', bankbal: '—', inactive: false },
+  { id: 9, type: 'Expense', name: 'COGS — Apparel', number: '5000', detail: 'Cost of goods sold', detailText: 'Cost of goods sold', tax: 'COGS', balance: '$8,140.00', bankbal: '—', inactive: false },
+  { id: 10, type: 'Expense', name: 'Office supplies', number: '6100', detail: 'Office/General Administrative Expenses', detailText: 'Office/General Administrative', tax: 'Office', balance: '$142.50', bankbal: '—', inactive: false },
+  { id: 11, type: 'Expense', name: 'Software & subscriptions', number: '6200', detail: 'Dues and subscriptions', detailText: 'Dues and subscriptions', tax: 'Software', balance: '$59.99', bankbal: '—', inactive: false },
+];
 
-/* acct_chart_of_accounts DTO → the table's row shape. Balances are
-   computed by the API from acct_journal_lines (posted, non-reversal)
-   plus opening balances; bank balances come from the linked bank
-   feed. */
-function toAccountRow(a: CoaAccount): AccountRow {
-  return {
-    id: a.id,
-    type: a.type,
-    name: a.name,
-    number: a.code,
-    detail: a.detail,
-    detailText: a.detailText,
-    tax: a.tax,
-    balance: fmtMoney(a.balance),
-    bankbal: a.bankBalance != null ? fmtMoney(a.bankBalance) : '—',
-    inactive: !a.isActive,
-    parentId: a.parentAccountId,
-    desc: a.description || '',
-  };
-}
+/* ═══════════ Register transactions — verbatim ═══════════ */
+interface RegTxn { date: string; desc: string; amt: number }
 
-const fmtRegDate = (iso: string) => {
-  const d = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+const REG_TXNS: Record<string, RegTxn[]> = {
+  'Business checking': [
+    { date: '11/01/2026', desc: 'ACME CORP — ACH', amt: 1240.00 },
+    { date: '11/03/2026', desc: 'STAPLES #0412', amt: -142.50 },
+    { date: '11/05/2026', desc: 'FEDEX 001239847', amt: -84.20 },
+    { date: '11/10/2026', desc: 'STRIPE PAYOUT', amt: 1842.60 },
+    { date: '11/18/2026', desc: 'AWS EMEA CHARGES', amt: -124.88 },
+    { date: '11/24/2026', desc: 'BLUE RIDGE CO. — ACH', amt: 8540.00 },
+  ],
+  'Accounts receivable (A/R)': [
+    { date: '11/01/2026', desc: 'Invoice 1002 issued', amt: 1240.00 },
+    { date: '10/28/2026', desc: 'Invoice 1001 issued', amt: 3410.00 },
+    { date: '10/15/2026', desc: 'Invoice 0998 issued', amt: 890.00 },
+  ],
+  'Accounts payable (A/P)': [
+    { date: '11/01/2026', desc: 'Bill PF-9211 — Printful', amt: -2880.00 },
+    { date: '10/28/2026', desc: 'Bill GL-4402 — Gelato', amt: -1200.00 },
+  ],
+  'Sales — Apparel': [
+    { date: '11/01/2026', desc: 'Invoice 1002', amt: 1240.00 },
+    { date: '10/30/2026', desc: 'Sales receipt SR-889', amt: 540.00 },
+  ],
+  'Office supplies': [
+    { date: '11/03/2026', desc: 'STAPLES #0412', amt: 142.50 },
+  ],
 };
 
 interface RegRowData {
@@ -90,26 +103,22 @@ interface RegSnapshot {
 }
 
 interface TbMenuState { kind: 'cleanup' | 'new-acct'; top: number; left: number }
-interface RowMenuState { rowId: string; top: number; left: number }
+interface RowMenuState { rowId: number; top: number; left: number }
 type RegTab = 'all' | 'deposits' | 'payments';
 
-export default function ChartOfAccounts(props: AccountingScreenProps) {
-  /* ── Table state — live from acct_chart_of_accounts via the API ── */
-  const { accounts, refresh: refreshAccounts } = useChartOfAccounts();
-  const [rows, setRows] = useState<AccountRow[]>([]);
-  useEffect(() => {
-    setRows(accounts.map(toAccountRow));
-  }, [accounts]);
+export default function ChartOfAccounts(_props: AccountingScreenProps) {
+  /* ── Table state ── */
+  const [rows, setRows] = useState<AccountRow[]>(INITIAL_ACCOUNTS);
   const [filterText, setFilterText] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [checkAll, setCheckAll] = useState(false);
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
 
   /* ── Edit mode ── */
   const [editMode, setEditMode] = useState(false);
   /* Edit-mode detail-cell display: starts at the cell text; the mockup rebuilds the detail
      select's options when the inline Type select changes (selection resets to the first option) */
-  const [inlineDetailDisplay, setInlineDetailDisplay] = useState<Record<string, string>>({});
+  const [inlineDetailDisplay, setInlineDetailDisplay] = useState<Record<number, string>>({});
 
   /* ── Menus ── */
   const [tbMenu, setTbMenu] = useState<TbMenuState | null>(null);
@@ -117,10 +126,7 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
 
   /* ── Account drawer ── */
   const [acctOpen, setAcctOpen] = useState(false);
-  const [editingRowId, setEditingRowId] = useState<string | null>(null);
-  const [acctParent, setAcctParent] = useState('');
-  const [acctAsOf, setAcctAsOf] = useState('2026-11-01');
-  const [acctActive, setAcctActive] = useState(true);
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [acctTitle, setAcctTitle] = useState('New account');
   const [acctType, setAcctType] = useState<'' | AccountType>('');
   const [acctDetail, setAcctDetail] = useState('');
@@ -140,6 +146,8 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
   /* ── Toast ── */
   const [toastMsg, setToastMsg] = useState('');
   const toastTimer = useRef<number | null>(null);
+
+  const nextId = useRef(INITIAL_ACCOUNTS.length + 1);
 
   const toast = (m: string) => {
     setToastMsg(m);
@@ -167,9 +175,7 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
       setAcctOpening('');
       setAcctBalVisible(true);
       setAcctBalance(row.balance || '$0.00');
-      setAcctParent(row.parentId || '');
-      setAcctDesc(row.desc);
-      setAcctActive(!row.inactive);
+      /* data-acct-desc is intentionally left untouched when editing (the mockup never resets it here) */
     } else {
       setEditingRowId(null);
       setAcctTitle('New account');
@@ -181,14 +187,12 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
       setAcctTax('');
       setAcctOpening('');
       setAcctBalVisible(false);
-      setAcctParent('');
-      setAcctActive(true);
     }
     setAcctOpen(true);
   };
   const closeAccountDrawer = () => setAcctOpen(false);
 
-  const saveAccount = async (andClose: boolean) => {
+  const saveAccount = (andClose: boolean) => {
     const type = acctType;
     const detail = acctDetail;
     const name = acctName.trim();
@@ -198,43 +202,33 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
     if (!name) { toast('Account name required'); return; }
     if (!number) { toast('Account number required'); return; }
 
-    const opening = parseFloat(acctOpening.replace(/[$,]/g, ''));
     if (editingRowId !== null) {
-      const res = await coaMutations.update(editingRowId, {
-        name,
-        code: number,
-        type,
-        detail,
-        description: acctDesc,
-        parentAccountId: acctParent || null,
-        taxLine: tax,
-        isActive: acctActive,
-        ...(acctOpening.trim() && !Number.isNaN(opening) ? { openingBalance: opening } : {}),
-      });
-      if (!res.ok) { toast(res.error || 'Update failed'); return; }
-      await refreshAccounts();
+      /* Edit existing */
+      setRows(rs => rs.map(r => (r.id === editingRowId
+        ? { ...r, name, number, type, detail, detailText: detail, tax: tax || '—' }
+        : r)));
       toast('Account updated');
     } else {
-      const res = await coaMutations.create({
-        name,
-        code: number,
+      /* Create new — insert at top of table */
+      const created: AccountRow = {
+        id: nextId.current++,
         type,
+        name,
+        number,
         detail,
-        description: acctDesc,
-        parentAccountId: acctParent || null,
-        taxLine: tax,
-        isActive: acctActive,
-        openingBalance: Number.isNaN(opening) ? 0 : opening,
-        openingDate: acctAsOf,
-      });
-      if (!res.ok) { toast(res.error || 'Create failed'); return; }
-      await refreshAccounts();
+        detailText: detail,
+        tax: tax || '—',
+        balance: '$0.00',
+        bankbal: '—',
+        inactive: false,
+      };
+      setRows(rs => [created, ...rs]);
       toast(`Account "${name}" created`);
     }
     if (andClose) {
       closeAccountDrawer();
     } else {
-      /* Drawer stays open, blank "New account" form */
+      /* currentAccountRow = null; openAccountDrawer(null) — drawer stays open, blank "New account" form */
       openAccountDrawer(null);
     }
   };
@@ -254,17 +248,9 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
   };
   const handleClean = (act: string) => {
     setTbMenu(null);
-    if (act === 'start') {
-      const inactive = rows.filter(r => r.inactive).length;
-      const names = rows.map(r => r.name.toLowerCase());
-      const dupes = names.filter((n, i) => names.indexOf(n) !== i).length;
-      toast(`Cleanup check — ${inactive} inactive accounts, ${dupes} duplicate names across ${rows.length} accounts`);
-    }
+    if (act === 'start') toast('Cleanup session started — inactive accounts and duplicates flagged');
     if (act === 'edit') toggleEditMode(true);
-    if (act === 'history') {
-      const inactive = rows.filter(r => r.inactive).length;
-      toast(`${rows.length} accounts on the chart — ${inactive} inactive`);
-    }
+    if (act === 'history') toast('Cleanup history — last session: 3 accounts merged, 1 archived');
   };
   const handleNewKind = (kind: AccountType) => {
     setTbMenu(null);
@@ -282,58 +268,44 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
       setRows(rs => rs.map(r => ({ ...r, detailText: r.detail })));
     }
   };
-  const patchRow = (id: string, patch: Partial<AccountRow>) => {
+  const patchRow = (id: number, patch: Partial<AccountRow>) => {
     setRows(rs => rs.map(r => (r.id === id ? { ...r, ...patch } : r)));
-  };
-  /* Inline edits persist to acct_chart_of_accounts immediately; a
-     failed write reverts the cell from the server on refresh. */
-  const persistInline = (id: string, patch: Parameters<typeof coaMutations.update>[1]) => {
-    void coaMutations.update(id, patch).then((res) => {
-      if (!res.ok) {
-        toast(res.error || 'Inline change failed');
-        void refreshAccounts();
-      }
-    });
   };
   /* Inline Type select change: dataset.type updates and the detail select's options are rebuilt
      for the new type with no selection (first option shows) */
-  const handleInlineTypeChange = (id: string, t: AccountType) => {
+  const handleInlineTypeChange = (id: number, t: AccountType) => {
     patchRow(id, { type: t });
     setInlineDetailDisplay(prev => ({ ...prev, [id]: DETAIL_TYPES[t][0] }));
-    persistInline(id, { type: t });
   };
-  const handleInlineDetailChange = (id: string, v: string) => {
+  const handleInlineDetailChange = (id: number, v: string) => {
     patchRow(id, { detail: v });
     setInlineDetailDisplay(prev => ({ ...prev, [id]: v }));
-    persistInline(id, { detail: v });
   };
 
-  /* ═══════════ Register drawer — real journal lines via the API ═══════════ */
-  const openRegister = async (row: AccountRow) => {
-    const res = await fetchAccountRegister(row.id);
-    if (!res.ok || !res.data) {
-      toast(res.error || 'Could not load the register');
-      return;
-    }
-    const { openingBalance, activity, closingBalance, lines } = res.data;
-    let running = openingBalance;
-    const regRows: RegRowData[] = lines.map(l => {
-      running += l.amount;
-      const isDep = l.amount >= 0;
+  /* ═══════════ Register drawer ═══════════ */
+  const openRegister = (row: AccountRow) => {
+    const name = row.name;
+    const bal = row.balance || '$0.00';
+    const opening = '$' + withCommas(Math.max(0, parseFloat(bal.replace(/[$,]/g, '')) - 3000));
+    const txns = REG_TXNS[name] || [];
+    let running = parseFloat(opening.replace(/[$,]/g, ''));
+    const regRows: RegRowData[] = txns.map(t => {
+      running += t.amt;
+      const isDep = t.amt >= 0;
       return {
-        date: fmtRegDate(l.date),
-        desc: l.description,
+        date: t.date,
+        desc: t.desc,
         kind: isDep ? 'deposits' : 'payments',
-        amtText: `${isDep ? '+' : '−'}$${withCommas(Math.abs(l.amount))}`,
-        balText: fmtMoney(running),
+        amtText: `${isDep ? '+' : '−'}$${withCommas(Math.abs(t.amt))}`,
+        balText: `$${withCommas(running)}`,
       };
     });
     setRegData({
-      title: row.name,
+      title: name,
       sub: `Account ${row.number} · ${row.type}`,
-      opening: fmtMoney(openingBalance),
-      activity: fmtMoney(activity),
-      closing: fmtMoney(closingBalance),
+      opening,
+      activity: bal,
+      closing: bal,
       rows: regRows,
       empty: regRows.length === 0,
     });
@@ -354,36 +326,21 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
   const handleRowAction = (act: string, tr: AccountRow) => {
     setRowMenu(null);
     switch (act) {
-      case 'view-register': void openRegister(tr); break;
+      case 'view-register': openRegister(tr); break;
       case 'edit': openAccountDrawer(tr); break;
-      case 'run-report': props.onNavigate('finance', 'reports'); break;
-      case 'make-sub': openAccountDrawer(tr); break;
-      case 'merge': toast('The platform has no account-merge function — make the account inactive instead'); break;
+      case 'run-report': toast(`Running report for ${tr.name}`); break;
+      case 'make-sub': toast('Make sub-account of… — opens parent picker'); break;
+      case 'merge': toast('Merge into another account — opens account picker'); break;
       case 'deactivate':
-        void coaMutations.update(tr.id, { isActive: false }).then((res) => {
-          if (res.ok) {
-            patchRow(tr.id, { inactive: true });
-            toast(`${tr.name} made inactive`);
-          } else toast(res.error || 'Could not deactivate');
-        });
-        break;
+        patchRow(tr.id, { inactive: true });
+        toast(`${tr.name} made inactive`); break;
       case 'activate':
-        void coaMutations.update(tr.id, { isActive: true }).then((res) => {
-          if (res.ok) {
-            patchRow(tr.id, { inactive: false });
-            toast(`${tr.name} reactivated`);
-          } else toast(res.error || 'Could not reactivate');
-        });
-        break;
+        patchRow(tr.id, { inactive: false });
+        toast(`${tr.name} reactivated`); break;
       case 'delete':
-        void coaMutations.remove(tr.id).then((res) => {
-          if (res.ok) {
-            setRows(rs => rs.filter(r => r.id !== tr.id));
-            setCheckedIds(prev => { const n = new Set(prev); n.delete(tr.id); return n; });
-            toast(`${tr.name} deleted`);
-          } else toast(res.error || 'Could not delete — accounts with journal history cannot be deleted');
-        });
-        break;
+        setRows(rs => rs.filter(r => r.id !== tr.id));
+        setCheckedIds(prev => { const n = new Set(prev); n.delete(tr.id); return n; });
+        toast(`${tr.name} deleted`); break;
     }
   };
 
@@ -396,7 +353,7 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
   });
 
   /* ═══════════ Check-all ═══════════ */
-  const toggleCheck = (id: string) => {
+  const toggleCheck = (id: number) => {
     setCheckedIds(prev => {
       const n = new Set(prev);
       if (n.has(id)) n.delete(id); else n.add(id);
@@ -452,17 +409,13 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
         <div className="flex items-center justify-between gap-4 py-4">
           <div>
             <h1 className="text-headline-lg">Chart of accounts</h1>
-            <p className="text-body-sm text-on-surface-variant mt-0.5">{rows.length} accounts · Numbered, typed, mapped to tax lines.</p>
+            <p className="text-body-sm text-on-surface-variant mt-0.5">34 accounts · Numbered, typed, mapped to tax lines.</p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main" data-new-account onClick={() => openAccountDrawer(null)}>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1" data-new-account onClick={() => openAccountDrawer(null)}>
                 <span className="material-symbols-outlined text-[16px]">add</span>New account
               </button>
-              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow" data-new-account-split aria-label="New account options" onClick={handleNewAcctSplit}>
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
-            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-run-report onClick={() => props.onNavigate('finance', 'reports')}>
+            <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1" data-run-report onClick={() => toast('Running report across all accounts…')}>
               <span className="material-symbols-outlined text-[16px]">assessment</span>Run report</button>
           </div>
         </div>
@@ -497,7 +450,7 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
         <div className={`mb-3 bg-qb-blue/5 border border-qb-blue/30 rounded-lg px-4 py-2 flex items-center gap-2 text-body-sm text-qb-blue${editMode ? '' : ' hidden-imp'}`} data-edit-banner>
           <span className="material-symbols-outlined text-[18px]">edit</span>
           <span className="flex-1">Edit mode on — click any cell to edit inline. Press <kbd className="bg-white border border-surface-dim rounded px-1 text-[10px]">Esc</kbd> to cancel a cell.</span>
-          <button className="h-7 px-2 border border-qb-blue rounded text-label-sm font-semibold hover:bg-white" data-save-inline onClick={() => { void refreshAccounts(); toast('Inline changes saved'); toggleEditMode(false); }}>Save changes</button>
+          <button className="h-7 px-2 border border-qb-blue rounded text-label-sm font-semibold hover:bg-white" data-save-inline onClick={() => { toast('Inline changes saved'); toggleEditMode(false); }}>Save changes</button>
         </div>
 
         {/* Table card */}
@@ -532,14 +485,14 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
                     <td className="px-3 py-2 font-mono text-on-surface-variant" data-field="number">
                       {editMode ? (
                         <input key={row.number} type="text" defaultValue={row.number}
-                          onBlur={e => { patchRow(row.id, { number: e.currentTarget.value }); persistInline(row.id, { code: e.currentTarget.value }); }}
+                          onBlur={e => patchRow(row.id, { number: e.currentTarget.value })}
                           onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.value = row.number; e.currentTarget.blur(); } }} />
                       ) : row.number}
                     </td>
                     <td className="px-3 py-2 font-medium" data-field="name">
                       {editMode ? (
                         <input key={row.name} type="text" defaultValue={row.name}
-                          onBlur={e => { patchRow(row.id, { name: e.currentTarget.value }); persistInline(row.id, { name: e.currentTarget.value }); }}
+                          onBlur={e => patchRow(row.id, { name: e.currentTarget.value })}
                           onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.value = row.name; e.currentTarget.blur(); } }} />
                       ) : row.name}
                     </td>
@@ -561,7 +514,7 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
                     <td className="px-3 py-2 text-right tabular-nums" data-field="bankbal">{row.bankbal}</td>
                     <td className="px-3 py-2 text-on-surface-variant" data-field="tax">
                       {editMode ? (
-                        <select value={row.tax} onChange={e => { patchRow(row.id, { tax: e.target.value }); persistInline(row.id, { taxLine: e.target.value }); }}>
+                        <select value={row.tax} onChange={e => patchRow(row.id, { tax: e.target.value })}>
                           {INLINE_TAX_OPTIONS.map(o => <option key={o}>{o}</option>)}
                         </select>
                       ) : row.tax}
@@ -632,11 +585,14 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
 
           <div>
             <label className="field-label">Sub-account of</label>
-            <select className="field-input" data-acct-parent value={acctParent} onChange={e => setAcctParent(e.target.value)}>
+            <select className="field-input" data-acct-parent defaultValue="">
               <option value="">— None (top-level account) —</option>
-              {rows.filter(r => r.id !== editingRowId).map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
+              <option>Business checking</option>
+              <option>Accounts receivable (A/R)</option>
+              <option>Stripe clearing</option>
+              <option>Accounts payable (A/P)</option>
+              <option>Sales — Apparel</option>
+              <option>Office supplies</option>
             </select>
           </div>
 
@@ -652,7 +608,7 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
             </div>
             <div>
               <label className="field-label">As of</label>
-              <input className="field-input" data-acct-asof type="date" value={acctAsOf} onChange={e => setAcctAsOf(e.target.value)} />
+              <input className="field-input" data-acct-asof type="date" defaultValue="2026-11-01" />
             </div>
           </div>
 
@@ -667,7 +623,7 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
 
           <div className="border-t border-surface-dim pt-4">
             <label className="flex items-center gap-2 text-body-sm">
-              <input type="checkbox" className="row-check" checked={acctActive} onChange={e => setAcctActive(e.target.checked)} data-acct-active />
+              <input type="checkbox" className="row-check" defaultChecked data-acct-active />
               Active account
             </label>
             <p className="text-[11px] text-on-surface-variant mt-1">Inactive accounts are hidden from pickers but remain in reports.</p>
@@ -685,16 +641,8 @@ export default function ChartOfAccounts(props: AccountingScreenProps) {
         <div className="h-14 border-t border-surface-dim px-4 flex items-center justify-between shrink-0">
           <button className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low" data-close-acct onClick={closeAccountDrawer}>Cancel</button>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main" data-save-new onClick={() => saveAccount(false)}>Save and new</button>
-              <button className="h-8 px-1.5 bg-white border border-surface-dim hover:bg-surface-container-low split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
-            <div className="flex split-btn">
-              <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main" data-save-acct onClick={() => saveAccount(true)}>Save account</button>
-              <button className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow">
-                <span className="material-symbols-outlined text-[16px]">expand_more</span></button>
-            </div>
+            <button className="h-8 px-3 bg-white border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low" data-save-new onClick={() => saveAccount(false)}>Save and new</button>
+            <button className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container" data-save-acct onClick={() => saveAccount(true)}>Save account</button>
           </div>
         </div>
       </div>

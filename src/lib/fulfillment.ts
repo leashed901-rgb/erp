@@ -26,18 +26,15 @@ export interface PodOrderLine {
 }
 
 export async function podLinesForOrder(orderId: string): Promise<PodOrderLine[]> {
-  // Live order lines live in erp_order_lines (the DocumentEngine order
-  // world), NOT order_items — the legacy POD table is empty (0 rows).
-  // sku_id on the line IS the product_variant id.
   const { data: items, error } = await supabaseAdmin()
-    .from('erp_order_lines')
-    .select('id,sku_id,design_publication_id,supplier_catalog_variant_id,quantity,unit_price')
+    .from('order_items')
+    .select('id,product_variant_id,design_publication_id,quantity,unit_price')
     .eq('tenant_id', DEFAULT_TENANT_ID)
     .eq('order_id', orderId);
-  if (error) throw new Error(`erp_order_lines: ${error.message}`);
+  if (error) throw new Error(`order_items: ${error.message}`);
   const lines: PodOrderLine[] = [];
   for (const item of items ?? []) {
-    const variantId = item.sku_id as string | null;
+    const variantId = item.product_variant_id as string | null;
     if (!variantId) continue;
     const { data: variant } = await supabaseAdmin()
       .from('product_variants')

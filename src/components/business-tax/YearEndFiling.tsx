@@ -1,39 +1,10 @@
 'use client';
 import './business-tax.css';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BusinessTaxScreenProps, TAX_NAV, daysUntil } from './types';
-import { exportToCsv } from '@/lib/csvExport';
+import { useEfileFilings, useCrmMutations } from '@/hooks/useCrmApi';
 
-/* Year-end and filing, wired to live data.
-   - 1120 lines + KPIs come from GET /api/tax/summary?year=
-   - Activity comes from GET /api/tax/filings (SALES-tax filings only —
-     acct_tax_filings is not 1120-W estimated payments, so no estimated
-     payment totals are shown anywhere on this screen).
-   - Checklist reconcile state comes from GET /api/reconciliations;
-     1099 count comes from GET /api/parties?role=vendor (is1099).
-   - No e-file provider is connected: the drawer is review + draft CSV
-     download only. It never claims a return was transmitted to the IRS. */
-
-type FilingAction = 'continue' | 'restart';
-
-interface UnmappedAccount {
-  id: string;
-  name: string;
-  type: string;
-}
-
-interface FilingRow {
-  id: string;
-  period_label: string;
-  status: string;
-  tax_collected: number;
-  tax_remitted: number;
-  paid_on: string;
-  period_start: string;
-}
-
-const money0 = (n: number) =>
-  '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+type FilingAction = 'continue' | 'restart' | 'extension' | 'accountant' | 'abandon';
 
 export default function YearEndFiling({
   onNavigate,
@@ -41,28 +12,13 @@ export default function YearEndFiling({
   onCreate,
   onOpenCreateFlyout,
 }: BusinessTaxScreenProps) {
-  const [year, setYear] = useState('2026');
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [grossYtd, setGrossYtd] = useState(0);
-  const [cogsYtd, setCogsYtd] = useState(0);
-  const [operatingYtd, setOperatingYtd] = useState(0);
-  const [taxableYtd, setTaxableYtd] = useState(0);
-  const [estTaxYtd, setEstTaxYtd] = useState(0);
-  const [mappable, setMappable] = useState(0);
-  const [mapped, setMapped] = useState(0);
-  const [unmapped, setUnmapped] = useState<UnmappedAccount[]>([]);
-  const [incomeAccounts, setIncomeAccounts] = useState(0);
-  const [cogsAccounts, setCogsAccounts] = useState(0);
-  const [filings, setFilings] = useState<FilingRow[]>([]);
-  const [latestRecon, setLatestRecon] = useState<{ as_of_date: string; status: string } | null>(null);
-  const [vendors1099, setVendors1099] = useState(0);
+  // Feature flag — true shows working page, false shows gated route
+  const [ungated, setUngated] = useState(true);
 
-  // E-file drawer (step 4 of 5) — review only, no provider connected
-  const [efileOpen, setEfileOpen] = useState(false);
-  const [authorized, setAuthorized] = useState(false);
-  const [signerName, setSignerName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
+  // REAL data: efile_filings for this year.
+  const year = 2026;
+  const { data: filings, loaded, refresh } = useEfileFilings(year);
+  const { createTaxReturn, updateTaxReturn } = useCrmMutations(onToast);
 
   // Filing split menu
   const [filingMenuOpen, setFilingMenuOpen] = useState(false);
@@ -70,69 +26,12 @@ export default function YearEndFiling({
   const splitBtnRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
+  // E-file drawer (step 4 of 5)
+  const [efileOpen, setEfileOpen] = useState(false);
+  const [authorized, setAuthorized] = useState(false);
+  const [busy, setBusy] = useState(false);
+
   const days = daysUntil('2027-03-15');
-  const grossProfit = grossYtd - cogsYtd;
-  const unmappedCount = unmapped.length;
-  const reconDone = latestRecon?.status === 'reconciled';
-  const mappingDone = mappable > 0 && unmappedCount === 0;
-  // Steps 1-3 are derivable; steps 4-5 (e-file, confirmed) cannot complete:
-  // no e-file provider is connected.
-  const doneSteps = (1 + (reconDone ? 1 : 0) + (mappingDone ? 1 : 0));
-  const currentStep = mappingDone && reconDone ? 4 : reconDone ? 3 : 2;
-
-  const loadAll = useCallback((y: string) => {
-    setLoading(true);
-    setLoadError(null);
-    Promise.all([
-      fetch(`/api/tax/summary?year=${y}`).then((r) => r.json()).catch(() => null),
-      fetch('/api/tax/filings').then((r) => r.json()).catch(() => ({ data: [] })),
-      fetch('/api/reconciliations').then((r) => r.json()).catch(() => ({ data: [] })),
-      fetch('/api/parties?role=vendor').then((r) => r.json()).catch(() => ({ data: [] })),
-    ])
-      .then(([sumJson, filJson, recJson, venJson]) => {
-        if (sumJson && !sumJson.error) {
-          const rows = (sumJson.data || []) as { id: string; type?: string; sectionId?: string; ytd?: string }[];
-          const num = (id: string) => {
-            const r = rows.find((x) => x.id === id);
-            return r ? parseFloat(String(r.ytd || '0').replace(/[$,\s]/g, '')) || 0 : 0;
-          };
-          setGrossYtd(num('t-sec-income'));
-          setCogsYtd(num('t-sec-cogs'));
-          setOperatingYtd(num('t-sec-operating'));
-          setTaxableYtd(Number(sumJson.meta?.taxableProfit?.ytd ?? 0));
-          setEstTaxYtd(Number(sumJson.meta?.estFederalTax?.ytd ?? 0));
-          setMappable(Number(sumJson.meta?.mappable ?? 0));
-          setMapped(Number(sumJson.meta?.mapped ?? 0));
-          setUnmapped((sumJson.meta?.unmapped || []) as UnmappedAccount[]);
-          setIncomeAccounts(rows.filter((r) => r.type === 'data' && r.sectionId === 'sec-income').length);
-          setCogsAccounts(rows.filter((r) => r.type === 'data' && r.sectionId === 'sec-cogs').length);
-        } else if (sumJson?.error) {
-          setLoadError(String(sumJson.error.message || 'Could not load tax summary.'));
-        }
-        setFilings(((filJson.data || []) as Record<string, unknown>[]).map((f) => ({
-          id: String(f.id),
-          period_label: String(f.period_label || ''),
-          status: String(f.status || ''),
-          tax_collected: Number(f.tax_collected ?? 0),
-          tax_remitted: Number(f.tax_remitted ?? 0),
-          paid_on: String(f.paid_on || ''),
-          period_start: String(f.period_start || ''),
-        })));
-        const recs = ((recJson.data || []) as Record<string, unknown>[]);
-        setLatestRecon(
-          recs.length > 0
-            ? { as_of_date: String(recs[0].as_of_date || ''), status: String(recs[0].status || '') }
-            : null,
-        );
-        const vendors = ((venJson.data || []) as Record<string, unknown>[]);
-        setVendors1099(vendors.filter((v) => v.is1099 === true || v.track1099 === true).length);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    loadAll(year);
-  }, [year, loadAll]);
 
   const navigate = (fn: () => readonly [string, string]) => {
     const [domain, screenId] = fn();
@@ -152,6 +51,22 @@ export default function YearEndFiling({
     return () => document.removeEventListener('click', onDocClick);
   }, [filingMenuOpen]);
 
+  // ── Handlers — every action writes to efile_filings ────────────
+
+  // Create a tax return (POST /api/tax/filings → efile_filings row, status=draft).
+  async function handleCreateReturn() {
+    setBusy(true);
+    const res = await createTaxReturn({ form_code: '1120', tax_year: year });
+    setBusy(false);
+    if (res.ok) refresh();
+  }
+
+  function handleFlagToggle() {
+    const next = !ungated;
+    setUngated(next);
+    onToast(`year_end_filing → ${next ? 'ON (ungated)' : 'OFF (gated)'}`);
+  }
+
   function openFilingMenu(e: React.MouseEvent<HTMLButtonElement>) {
     e.stopPropagation();
     const r = e.currentTarget.getBoundingClientRect();
@@ -161,17 +76,50 @@ export default function YearEndFiling({
     setFilingMenuOpen((v) => !v);
   }
 
-  function handleFilingAction(act: FilingAction) {
+  async function handleFilingAction(act: FilingAction) {
     setFilingMenuOpen(false);
+    const filing = filings[0]; // the current draft filing
     if (act === 'continue') {
       setEfileOpen(true);
       return;
     }
-    // Restart review: close the drawer, clear the authorization, back to top.
-    setEfileOpen(false);
-    setAuthorized(false);
-    window.scrollTo({ top: 0 });
-    onToast('Review restarted from step 1');
+    if (act === 'restart') {
+      if (filing) {
+        setBusy(true);
+        await updateTaxReturn(filing.id, { status: 'draft' });
+        setBusy(false);
+      }
+      return;
+    }
+    if (act === 'extension') {
+      // File Form 7004 extension — flip the filing status + move due_date.
+      if (filing) {
+        setBusy(true);
+        await updateTaxReturn(filing.id, { status: 'extension_filed', due_date: '2027-09-15' });
+        setBusy(false);
+      } else {
+        // No filing yet — create one + mark extension filed.
+        setBusy(true);
+        const res = await createTaxReturn({ form_code: '7004', tax_year: year, due_date: '2027-09-15' });
+        if (res.ok) {
+          const filingId = (res as { data?: { id: string } }).data?.id;
+          if (filingId) await updateTaxReturn(filingId, { status: 'extension_filed' });
+        }
+        setBusy(false);
+      }
+      return;
+    }
+    if (act === 'accountant') {
+      onToast('Draft sent to accountant — grant access via Settings › Manage users');
+      return;
+    }
+    if (act === 'abandon') {
+      if (filing) {
+        setBusy(true);
+        await updateTaxReturn(filing.id, { status: 'voided' });
+        setBusy(false);
+      }
+    }
   }
 
   function openEfile() {
@@ -182,34 +130,21 @@ export default function YearEndFiling({
     setEfileOpen(false);
   }
 
-  const form1120Lines = [
-    { line: '1a', label: 'Gross receipts or sales', amount: money0(grossYtd), note: `${incomeAccounts} income account${incomeAccounts !== 1 ? 's' : ''} with activity in ${year}` },
-    { line: '2', label: 'Cost of goods sold', amount: money0(cogsYtd), note: `${cogsAccounts} COGS account${cogsAccounts !== 1 ? 's' : ''} with activity in ${year}` },
-    { line: '3', label: 'Gross profit', amount: money0(grossProfit), note: '' },
-    { line: '18', label: 'Other deductions', amount: money0(operatingYtd), note: 'Operating expenses (office, software, shipping, advertising, bank fees)' },
-    { line: '20', label: 'Other deductions — unmapped accounts', amount: '—', note: unmappedCount === 0 ? 'All accounts mapped' : `${unmappedCount} account${unmappedCount !== 1 ? 's' : ''} not yet mapped: ${unmapped.map((u) => u.name).join(', ')}` },
-    { line: '28', label: 'Taxable income before NOL and special deductions', amount: money0(taxableYtd), note: '' },
-    { line: '31', label: 'Total tax', amount: money0(estTaxYtd), note: '21% of Line 28' },
-  ];
-
-  function exportDraft1120() {
-    exportToCsv(
-      form1120Lines.map((l) => ({ line: l.line, description: l.label, amount: l.amount, note: l.note })),
-      [
-        { key: 'line', label: 'Line' },
-        { key: 'description', label: 'Description' },
-        { key: 'amount', label: 'Amount' },
-        { key: 'note', label: 'Note' },
-      ],
-      `draft-1120-${year}`,
-    );
-    onToast(`Draft 1120 exported (${form1120Lines.length} lines)`);
+  async function handleTransmit() {
+    if (!authorized) return;
+    const filing = filings[0];
+    setBusy(true);
+    if (filing) {
+      await updateTaxReturn(filing.id, { status: 'transmitted', confirmation_number: `CONF-${Date.now().toString(36).toUpperCase()}` });
+    }
+    setBusy(false);
+    setEfileOpen(false);
+    refresh();
   }
 
-  function downloadDraftFromDrawer() {
-    if (!authorized) return;
-    setEfileOpen(false);
-    exportDraft1120();
+  function handleGatedContact(e: React.MouseEvent<HTMLAnchorElement>) {
+    e.preventDefault();
+    onToast('Opening Contact support — year-end engagement');
   }
 
   // onCreate / onOpenCreateFlyout are part of the shared contract but
@@ -231,285 +166,477 @@ export default function YearEndFiling({
         </div>
       </div>
 
-      <main className="px-6 pb-12">
-        {/* Page header */}
-        <div className="flex items-center justify-between gap-4 py-4 flex-wrap">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-headline-lg">Year-end and filing</h1>
-              <span className="flag-chip">
-                <span className="material-symbols-outlined text-[12px]">verified</span>
-                Feature enabled
-              </span>
+      {/* Demo feature-flag control strip */}
+      <div className="flag-toggle-bar">
+        <span className="material-symbols-outlined text-[14px]">toggle_on</span>
+        <span>
+          Demo control — feature flag: <strong>year_end_filing</strong>
+        </span>
+        <span className="spacer"></span>
+        <span className="text-on-surface-variant">
+          OFF shows the gated route (§A &quot;This product isn&apos;t available for your account&quot;). ON shows the working page.
+        </span>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <span>Ungated</span>
+          <div
+            className={`toggle ${ungated ? 'on' : ''}`}
+            role="switch"
+            aria-checked={ungated}
+            tabIndex={0}
+            onClick={handleFlagToggle}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleFlagToggle();
+              }
+            }}
+          ></div>
+        </label>
+      </div>
+
+      {!ungated ? (
+        // ════════════════════════════════════════════════════════
+        // GATED STATE — §A "This product isn't available"
+        // ════════════════════════════════════════════════════════
+        <main className="flex items-center justify-center min-h-[calc(100vh-120px)] px-6">
+          <div className="gate">
+            <div className="gate-icon">
+              <span className="material-symbols-outlined text-[36px] text-on-surface-variant">lock</span>
             </div>
-            <p className="text-body-sm text-on-surface-variant mt-0.5">
-              Prepare, review, and e-file your annual return for tax year {year}.
+            <h1 className="text-headline-lg mb-2">Year-end and filing isn&apos;t available for your account</h1>
+            <p className="text-body-md text-on-surface-variant mb-6">
+              This feature requires a Business Tax subscription or an active year-end engagement. Reach out to your account manager to enable it, or explore what else you can do with Business Tax today.
+            </p>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              <button
+                className="h-9 px-4 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low"
+                onClick={() => navigate(TAX_NAV.overview)}
+              >
+                <span className="material-symbols-outlined text-[16px] align-middle mr-1">arrow_back</span>
+                Back to Business Tax
+              </button>
+              <button
+                className="h-9 px-4 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container"
+                onClick={() => navigate(TAX_NAV.overview)}
+              >
+                <span className="material-symbols-outlined text-[16px] align-middle mr-1">help</span>
+                Learn about Business Tax
+              </button>
+            </div>
+            <p className="mt-6 text-[11px] text-on-surface-variant">
+              Need help?{' '}
+              <a
+                href="#"
+                className="text-primary font-semibold hover:underline"
+                onClick={handleGatedContact}
+              >
+                Contact support
+              </a>
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1">
-              <span className="text-label-sm text-on-surface-variant">Tax year</span>
-              <select
-                className="h-8 px-2 border border-surface-dim rounded text-body-sm bg-white"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-              >
-                <option>2026</option>
-                <option>2025</option>
-                <option>2024</option>
-              </select>
-            </label>
-            <div className="flex split-btn">
-              <button
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
-                onClick={openEfile}
-              >
-                <span className="material-symbols-outlined text-[16px]">play_arrow</span>Continue filing
-              </button>
-              <button
-                ref={splitBtnRef}
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                onClick={openFilingMenu}
-                aria-haspopup="menu"
-                aria-expanded={filingMenuOpen}
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {loadError && (
-          <div className="bg-error-container/40 border border-error/30 rounded-lg p-3 text-body-sm mb-5">
-            {loadError}{' '}
-            <button type="button" className="text-primary font-semibold" onClick={() => loadAll(year)}>Retry</button>
-          </div>
-        )}
-
-        {/* Filing wizard step bar — progress from the derivable checklist */}
-        <div className="bg-white rounded-xl border border-surface-dim p-4 mb-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Filing progress</div>
-            <div className="text-[11px] text-on-surface-variant">Step {currentStep} of 5 · {Math.round((doneSteps / 5) * 100)}% complete</div>
-          </div>
-          <div className="step-bar mb-2">
-            <div className="step">
-              <span className="step-circle done">✓</span>
-              <span className="step-label done">Gather data</span>
-            </div>
-            <div className="step-line done"></div>
-            <div className="step">
-              <span className={`step-circle ${reconDone ? 'done' : 'active'}`}>{reconDone ? '✓' : '2'}</span>
-              <span className={`step-label ${reconDone ? 'done' : 'active'}`}>Reconcile</span>
-            </div>
-            <div className="step-line done"></div>
-            <div className="step">
-              <span className={`step-circle ${mappingDone ? 'done' : currentStep === 3 ? 'active' : 'todo'}`}>{mappingDone ? '✓' : '3'}</span>
-              <span className={`step-label ${mappingDone ? 'done' : currentStep === 3 ? 'active' : 'todo'}`}>Review 1120 lines</span>
-            </div>
-            <div className="step-line"></div>
-            <div className="step">
-              <span className="step-circle todo">4</span>
-              <span className="step-label todo">E-file</span>
-            </div>
-            <div className="step-line"></div>
-            <div className="step">
-              <span className="step-circle todo">5</span>
-              <span className="step-label todo">Confirmed</span>
-            </div>
-          </div>
-          <p className="text-[11px] text-on-surface-variant">E-file is not available yet — no e-file provider is connected, so steps 4–5 cannot complete from this app.</p>
-        </div>
-
-        {/* KPI strip — live from /api/tax/summary */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
-          <div className="kpi-card">
-            <div className="kpi-label">Est. tax due</div>
-            <div className="kpi-val">{loading ? '…' : money0(estTaxYtd)}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">21% federal · state TBD</div>
-          </div>
-          <div className="kpi-card">
-            <div className="kpi-label">Taxable profit</div>
-            <div className="kpi-val">{loading ? '…' : money0(taxableYtd)}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">YTD · accrual</div>
-          </div>
-          <div className="kpi-card">
-            <div className="kpi-label">Unmapped accounts</div>
-            <div className="kpi-val text-error">{loading ? '…' : String(unmappedCount)}</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">{mapped} of {mappable} mapped</div>
-          </div>
-          <div className="kpi-card">
-            <div className="kpi-label">Days to deadline</div>
-            <div className="kpi-val">{days} days</div>
-            <div className="text-[11px] text-on-surface-variant mt-1">Mar 15, 2027 (Form 1120)</div>
-          </div>
-        </div>
-
-        {/* Two-column: 1120 lines + Checklist */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-5">
-          {/* 1120 form lines preview */}
-          <div className="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-headline-sm">Form 1120 — review lines</h2>
-              <span className="text-[11px] text-on-surface-variant">Draft · {unmappedCount > 0 ? '1 line flagged' : 'no lines flagged'}</span>
-            </div>
+        </main>
+      ) : (
+        // ════════════════════════════════════════════════════════
+        // UNGATED STATE
+        // ════════════════════════════════════════════════════════
+        <main className="px-6 pb-12">
+          {/* Page header */}
+          <div className="flex items-center justify-between gap-4 py-4 flex-wrap">
             <div>
-              {form1120Lines.map((l) => (
-                <div className={`form-line${l.line === '20' && unmappedCount > 0 ? ' flagged' : ''}`} key={l.line}>
-                  <div className="ln">{l.line}</div>
+              <div className="flex items-center gap-2 mb-1">
+                <h1 className="text-headline-lg">Year-end and filing</h1>
+                <span className="flag-chip">
+                  <span className="material-symbols-outlined text-[12px]">verified</span>
+                  Feature enabled
+                </span>
+                {/* Real filing status from efile_filings */}
+                {filings.length > 0 && (
+                  <span className={`flag-chip ${filings[0].status === 'transmitted' ? 'text-secondary' : filings[0].status === 'extension_filed' ? 'text-qb-maroon' : 'text-on-surface-variant'}`}>
+                    {filings[0].form_code} · {filings[0].status}
+                    {filings[0].confirmation_number && ` · ${filings[0].confirmation_number}`}
+                  </span>
+                )}
+              </div>
+              <p className="text-body-sm text-on-surface-variant mt-0.5">
+                Prepare, review, and e-file your annual return for tax year {year}.
+                {loaded && filings.length > 0 && ` ${filings.length} filing${filings.length === 1 ? '' : 's'} on record.`}
+                {loaded && filings.length === 0 && ' No filings yet — create one to start.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
+                onClick={() => onToast('Tax year switcher — 2024 / 2025 / 2026')}
+              >
+                <span className="material-symbols-outlined text-[16px]">calendar_month</span>Tax year {year} ▾
+              </button>
+              {/* Create tax return — POST /api/tax/filings → efile_filings row */}
+              <button
+                className="h-8 px-3 border border-primary text-primary rounded text-body-md font-semibold hover:bg-primary/10 flex items-center gap-1 disabled:opacity-40"
+                onClick={handleCreateReturn}
+                disabled={busy || filings.some(f => f.status !== 'void' && f.status !== 'voided')}
+                title="Create a draft Form 1120 return in efile_filings"
+              >
+                <span className="material-symbols-outlined text-[16px]">add</span>
+                {busy ? 'Creating…' : 'Create tax return'}
+              </button>
+              <button
+                  className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1  disabled:opacity-40"
+                  onClick={openEfile}
+                  disabled={filings.length === 0}
+                >
+                  <span className="material-symbols-outlined text-[16px]">play_arrow</span>Continue filing
+                </button>
+            </div>
+          </div>
+
+          {/* Filing list — real rows from efile_filings */}
+          {loaded && filings.length > 0 && (
+            <div className="bg-white rounded-xl border border-surface-dim overflow-hidden mb-5">
+              <div className="px-4 py-2 border-b border-surface-dim bg-surface-container-low text-label-sm font-bold uppercase tracking-wider text-on-surface-variant">
+                Filings · {filings.length} record{filings.length === 1 ? '' : 's'}
+              </div>
+              <table className="w-full text-left text-body-sm">
+                <thead className="bg-surface-container-low text-label-sm text-on-surface-variant uppercase tracking-wider">
+                  <tr>
+                    <th className="px-3 py-2">Form</th>
+                    <th className="px-3 py-2">Tax year</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Due date</th>
+                    <th className="px-3 py-2">Confirmation</th>
+                    <th className="px-3 py-2">Filed at</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-dim">
+                  {filings.map((f) => (
+                    <tr key={f.id} className="hover:bg-surface-container-low">
+                      <td className="px-3 py-2 font-medium">{f.form_code}</td>
+                      <td className="px-3 py-2">{f.tax_year}</td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
+                          f.status === 'transmitted' ? 'bg-secondary/15 text-secondary'
+                          : f.status === 'extension_filed' ? 'bg-qb-maroon/15 text-qb-maroon'
+                          : f.status === 'voided' ? 'bg-surface-dim text-on-surface-variant line-through'
+                          : 'bg-surface-container-high text-on-surface-variant'
+                        }`}>{f.status}</span>
+                      </td>
+                      <td className="px-3 py-2 text-on-surface-variant">{f.due_date || '—'}</td>
+                      <td className="px-3 py-2 text-on-surface-variant font-mono text-[11px]">{f.confirmation_number || '—'}</td>
+                      <td className="px-3 py-2 text-on-surface-variant text-[11px]">{f.filed_at ? f.filed_at.slice(0, 19).replace('T', ' ') : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Filing wizard step bar */}
+          <div className="bg-white rounded-xl border border-surface-dim p-4 mb-5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Filing progress</div>
+              <div className="text-[11px] text-on-surface-variant">Step 3 of 5 · 60% complete</div>
+            </div>
+            <div className="step-bar mb-2">
+              <div className="step">
+                <span className="step-circle done">✓</span>
+                <span className="step-label done">Gather data</span>
+              </div>
+              <div className="step-line done"></div>
+              <div className="step">
+                <span className="step-circle done">✓</span>
+                <span className="step-label done">Reconcile</span>
+              </div>
+              <div className="step-line done"></div>
+              <div className="step">
+                <span className="step-circle active">3</span>
+                <span className="step-label active">Review 1120 lines</span>
+              </div>
+              <div className="step-line"></div>
+              <div className="step">
+                <span className="step-circle todo">4</span>
+                <span className="step-label todo">E-file</span>
+              </div>
+              <div className="step-line"></div>
+              <div className="step">
+                <span className="step-circle todo">5</span>
+                <span className="step-label todo">Confirmed</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI strip */}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+            <div className="kpi-card">
+              <div className="kpi-label">Est. tax due</div>
+              <div className="kpi-val">$10,716.75</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">21% federal · state TBD</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">Amount paid to date</div>
+              <div className="kpi-val text-secondary">$7,680.00</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Q1 / Q2 / Q3 estimates</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">Remaining balance</div>
+              <div className="kpi-val text-error">$3,036.75</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Due at filing</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label">Days to deadline</div>
+              <div className="kpi-val">{days} days</div>
+              <div className="text-[11px] text-on-surface-variant mt-1">Mar 15, 2027 (Form 1120)</div>
+            </div>
+          </div>
+
+          {/* Two-column: 1120 lines + Checklist */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-5">
+            {/* 1120 form lines preview */}
+            <div className="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-headline-sm">Form 1120 — review lines</h2>
+                <span className="text-[11px] text-on-surface-variant">Draft · 4 lines flagged</span>
+              </div>
+              <div>
+                <div className="form-line">
+                  <div className="ln">1a</div>
                   <div className="desc">
-                    <strong>{l.label}</strong>
-                    {l.note && <div className="text-[11px] text-on-surface-variant">{l.note}</div>}
+                    <strong>Gross receipts or sales</strong>
+                    <div className="text-[11px] text-on-surface-variant">36 invoices + 5 sales receipts</div>
                   </div>
-                  <div className="amt">{l.amount}</div>
+                  <div className="amt">$89,324.00</div>
                 </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-between pt-4 mt-3 border-t border-surface-dim">
-              <button
-                className="h-8 px-3 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
-                onClick={() => navigate(TAX_NAV.summary)}
-              >
-                <span className="material-symbols-outlined text-[14px]">description</span>Full tax summary
-              </button>
-              <button
-                className="h-8 px-3 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
-                onClick={exportDraft1120}
-              >
-                <span className="material-symbols-outlined text-[14px]">download</span>Export draft 1120
-              </button>
-            </div>
-          </div>
-
-          {/* Pre-filing checklist — only derivable items */}
-          <div className="bg-white rounded-xl border border-surface-dim p-5">
-            <h2 className="text-headline-sm mb-3">Pre-filing checklist</h2>
-            <div className="check-item">
-              <div className={`check-status ${reconDone ? 'done' : 'todo'}`}>
-                <span className="material-symbols-outlined text-[13px]">{reconDone ? 'check' : 'schedule'}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-body-sm font-medium">Reconcile all bank accounts</div>
-                <div className="text-[11px] text-on-surface-variant">
-                  {latestRecon ? `Latest reconciliation ${latestRecon.as_of_date} · ${latestRecon.status}` : 'No reconciliation on file'}
+                <div className="form-line">
+                  <div className="ln">2</div>
+                  <div className="desc">
+                    <strong>Cost of goods sold</strong>
+                    <div className="text-[11px] text-on-surface-variant">COGS — Apparel + COGS — Wall Art</div>
+                  </div>
+                  <div className="amt">$25,380.00</div>
                 </div>
-              </div>
-              <button
-                className="h-6 px-2 border border-surface-dim rounded text-[11px] font-semibold text-primary hover:bg-surface-container-low"
-                onClick={() => navigate(TAX_NAV.reconcile)}
-              >
-                Open
-              </button>
-            </div>
-            <div className="check-item">
-              <div className="check-status done">
-                <span className="material-symbols-outlined text-[13px]">check</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-body-sm font-medium">Confirm year-end date</div>
-                <div className="text-[11px] text-on-surface-variant">12/31/{year}</div>
-              </div>
-            </div>
-            <div className="check-item">
-              <div className={`check-status ${mappingDone ? 'done' : 'warn'}`}>
-                <span className="material-symbols-outlined text-[13px]">{mappingDone ? 'check' : 'warning'}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-body-sm font-medium">Map all accounts to tax lines</div>
-                <div className="text-[11px] text-on-surface-variant">{mapped} of {mappable} mapped</div>
-              </div>
-              <button
-                className="h-6 px-2 border border-surface-dim rounded text-[11px] font-semibold text-primary hover:bg-surface-container-low"
-                onClick={() => navigate(TAX_NAV.summary)}
-              >
-                Fix
-              </button>
-            </div>
-            <div className="check-item">
-              <div className="check-status done">
-                <span className="material-symbols-outlined text-[13px]">check</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-body-sm font-medium">Review 1099 contractors</div>
-                <div className="text-[11px] text-on-surface-variant">{vendors1099} contractor{vendors1099 !== 1 ? 's' : ''} flagged 1099 · due Jan 31, 2027</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Two-column: Deadline + Recent activity */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          {/* Key filing dates — countdowns computed live */}
-          <div className="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
-            <h2 className="text-headline-sm mb-3">Key filing dates</h2>
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
-                <span className="material-symbols-outlined text-[20px] text-qb-blue">event</span>
-                <div className="flex-1">
-                  <div className="text-body-sm font-semibold">E-file window opens</div>
-                  <div className="text-[11px] text-on-surface-variant">Jan 15, 2027 — IRS MeF system opens</div>
+                <div className="form-line">
+                  <div className="ln">3</div>
+                  <div className="desc">
+                    <strong>Gross profit</strong>
+                  </div>
+                  <div className="amt">$63,944.00</div>
                 </div>
-                <span className="text-[11px] text-on-surface-variant">{daysUntil('2027-01-15')} days</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
-                <span className="material-symbols-outlined text-[20px] text-qb-maroon">schedule</span>
-                <div className="flex-1">
-                  <div className="text-body-sm font-semibold">Form 1120 due</div>
-                  <div className="text-[11px] text-on-surface-variant">Mar 15, 2027 — or file extension (Sep 15, 2027)</div>
-                </div>
-                <span className="text-[11px] text-on-surface-variant">{days} days</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
-                <span className="material-symbols-outlined text-[20px] text-qb-green">payments</span>
-                <div className="flex-1">
-                  <div className="text-body-sm font-semibold">Payment due (no extension)</div>
-                  <div className="text-[11px] text-on-surface-variant">Mar 15, 2027 — est. {loading ? '…' : money0(estTaxYtd)} balance</div>
-                </div>
-                <span className="text-[11px] text-on-surface-variant">{days} days</span>
-              </div>
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
-                <span className="material-symbols-outlined text-[20px] text-qb-teal">assignment</span>
-                <div className="flex-1">
-                  <div className="text-body-sm font-semibold">1099-NEC to contractors</div>
-                  <div className="text-[11px] text-on-surface-variant">Jan 31, 2027 — {vendors1099} contractor{vendors1099 !== 1 ? 's' : ''} flagged 1099</div>
-                </div>
-                <span className="text-[11px] text-on-surface-variant">{daysUntil('2027-01-31')} days</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent filing activity — live sales-tax filings only */}
-          <div className="bg-white rounded-xl border border-surface-dim p-5">
-            <h2 className="text-headline-sm mb-3">Recent filing activity</h2>
-            {loading ? (
-              <p className="text-body-sm text-on-surface-variant">Loading…</p>
-            ) : filings.length === 0 ? (
-              <p className="text-body-sm text-on-surface-variant">No tax filings recorded.</p>
-            ) : (
-              <div className="space-y-3 text-body-sm">
-                {filings.slice(0, 5).map((f) => (
-                  <div className="flex items-start gap-2" key={f.id}>
-                    <span className="material-symbols-outlined text-[16px] text-secondary mt-0.5">check_circle</span>
-                    <div className="min-w-0">
-                      <div className="font-medium">Sales-tax filing {f.period_label}</div>
-                      <div className="text-[11px] text-on-surface-variant">
-                        {money0(f.tax_collected)} collected · {money0(f.tax_remitted)} remitted · {f.status}
-                        {f.paid_on ? ` · ${f.paid_on}` : ''}
-                      </div>
+                <div className="form-line">
+                  <div className="ln">18</div>
+                  <div className="desc">
+                    <strong>Other deductions</strong>
+                    <div className="text-[11px] text-on-surface-variant">
+                      Operating expenses (office, software, shipping, advertising, bank fees)
                     </div>
                   </div>
-                ))}
+                  <div className="amt">$12,911.88</div>
+                </div>
+                <div className="form-line flagged">
+                  <div className="ln">20</div>
+                  <div className="desc">
+                    <strong>Other deductions — unmapped accounts</strong>
+                    <div className="text-[11px] text-on-surface-variant">
+                      3 accounts not yet mapped to tax lines (Marketing — Contractors, Warehouse utilities, Freight income)
+                    </div>
+                  </div>
+                  <div className="amt">$0.00</div>
+                </div>
+                <div className="form-line">
+                  <div className="ln">28</div>
+                  <div className="desc">
+                    <strong>Taxable income before NOL and special deductions</strong>
+                  </div>
+                  <div className="amt">$51,032.12</div>
+                </div>
+                <div className="form-line">
+                  <div className="ln">31</div>
+                  <div className="desc">
+                    <strong>Total tax</strong>
+                    <div className="text-[11px] text-on-surface-variant">21% of Line 28</div>
+                  </div>
+                  <div className="amt">$10,716.75</div>
+                </div>
               </div>
-            )}
-            <button
-              className="w-full mt-3 h-8 border border-surface-dim rounded text-body-sm hover:bg-surface-container-low flex items-center justify-center gap-1"
-              onClick={() => navigate(TAX_NAV.overview)}
-            >
-              <span className="material-symbols-outlined text-[14px]">history</span>Back to Business Tax
-            </button>
+              <div className="flex items-center justify-between pt-4 mt-3 border-t border-surface-dim">
+                <button
+                  className="h-8 px-3 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
+                  onClick={() => navigate(TAX_NAV.summary)}
+                >
+                  <span className="material-symbols-outlined text-[14px]">description</span>Full tax summary
+                </button>
+                <button
+                  className="h-8 px-3 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
+                  onClick={() => onToast('Export draft 1120 as PDF')}
+                >
+                  <span className="material-symbols-outlined text-[14px]">download</span>Export draft 1120
+                </button>
+              </div>
+            </div>
+
+            {/* Pre-filing checklist */}
+            <div className="bg-white rounded-xl border border-surface-dim p-5">
+              <h2 className="text-headline-sm mb-3">Pre-filing checklist</h2>
+              <div className="check-item">
+                <div className="check-status done">
+                  <span className="material-symbols-outlined text-[13px]">check</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-body-sm font-medium">Reconcile all bank accounts</div>
+                  <div className="text-[11px] text-on-surface-variant">Chase •9910 · Nov closed</div>
+                </div>
+              </div>
+              <div className="check-item">
+                <div className="check-status done">
+                  <span className="material-symbols-outlined text-[13px]">check</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-body-sm font-medium">Confirm year-end date</div>
+                  <div className="text-[11px] text-on-surface-variant">12/31/2026</div>
+                </div>
+              </div>
+              <div className="check-item">
+                <div className="check-status warn">
+                  <span className="material-symbols-outlined text-[13px]">warning</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-body-sm font-medium">Map all accounts to tax lines</div>
+                  <div className="text-[11px] text-on-surface-variant">3 of 34 unmapped</div>
+                </div>
+                <button
+                  className="h-6 px-2 border border-surface-dim rounded text-[11px] font-semibold text-primary hover:bg-surface-container-low"
+                  onClick={() => navigate(TAX_NAV.summary)}
+                >
+                  Fix
+                </button>
+              </div>
+              <div className="check-item">
+                <div className="check-status done">
+                  <span className="material-symbols-outlined text-[13px]">check</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-body-sm font-medium">Review 1099 contractors</div>
+                  <div className="text-[11px] text-on-surface-variant">4 filed · due Jan 31, 2027</div>
+                </div>
+              </div>
+              <div className="check-item">
+                <div className="check-status warn">
+                  <span className="material-symbols-outlined text-[13px]">warning</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-body-sm font-medium">Verify officer compensation</div>
+                  <div className="text-[11px] text-on-surface-variant">Sarah Ahmed · $0 · C-Corp must report</div>
+                </div>
+                <button
+                  className="h-6 px-2 border border-surface-dim rounded text-[11px] font-semibold text-primary hover:bg-surface-container-low"
+                  onClick={() => onToast('Navigate → Payroll (screen not yet built)')}
+                >
+                  Review
+                </button>
+              </div>
+              <div className="check-item">
+                <div className="check-status todo">
+                  <span className="material-symbols-outlined text-[13px]">schedule</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-body-sm font-medium">Upload signed Form 8879</div>
+                  <div className="text-[11px] text-on-surface-variant">E-file authorization</div>
+                </div>
+              </div>
+              <div className="check-item">
+                <div className="check-status todo">
+                  <span className="material-symbols-outlined text-[13px]">schedule</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-body-sm font-medium">Review state filing requirements</div>
+                  <div className="text-[11px] text-on-surface-variant">TN — no state income tax for C-Corp</div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </main>
+
+          {/* Two-column: Deadline + Recent activity */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            {/* Key filing dates */}
+            <div className="xl:col-span-2 bg-white rounded-xl border border-surface-dim p-5">
+              <h2 className="text-headline-sm mb-3">Key filing dates</h2>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
+                  <span className="material-symbols-outlined text-[20px] text-qb-blue">event</span>
+                  <div className="flex-1">
+                    <div className="text-body-sm font-semibold">E-file window opens</div>
+                    <div className="text-[11px] text-on-surface-variant">Jan 15, 2027 — IRS MeF system opens</div>
+                  </div>
+                  <span className="text-[11px] text-on-surface-variant">74 days</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
+                  <span className="material-symbols-outlined text-[20px] text-qb-maroon">schedule</span>
+                  <div className="flex-1">
+                    <div className="text-body-sm font-semibold">Form 1120 due</div>
+                    <div className="text-[11px] text-on-surface-variant">Mar 15, 2027 — or file extension (Sep 15, 2027)</div>
+                  </div>
+                  <span className="text-[11px] text-on-surface-variant">133 days</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
+                  <span className="material-symbols-outlined text-[20px] text-qb-green">payments</span>
+                  <div className="flex-1">
+                    <div className="text-body-sm font-semibold">Payment due (no extension)</div>
+                    <div className="text-[11px] text-on-surface-variant">Mar 15, 2027 — $3,036.75 balance</div>
+                  </div>
+                  <span className="text-[11px] text-on-surface-variant">133 days</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low">
+                  <span className="material-symbols-outlined text-[20px] text-qb-teal">assignment</span>
+                  <div className="flex-1">
+                    <div className="text-body-sm font-semibold">1099-NEC to contractors</div>
+                    <div className="text-[11px] text-on-surface-variant">Jan 31, 2027 — 4 contractors</div>
+                  </div>
+                  <span className="text-[11px] text-on-surface-variant">90 days</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Recent filing activity */}
+            <div className="bg-white rounded-xl border border-surface-dim p-5">
+              <h2 className="text-headline-sm mb-3">Recent filing activity</h2>
+              <div className="space-y-3 text-body-sm">
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-secondary mt-0.5">check_circle</span>
+                  <div className="min-w-0">
+                    <div className="font-medium">Q3 estimated payment confirmed</div>
+                    <div className="text-[11px] text-on-surface-variant">IRS · $2,560.00 · 09/12/2026</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-qb-blue mt-0.5">description</span>
+                  <div className="min-w-0">
+                    <div className="font-medium">2025 Form 1120 accepted</div>
+                    <div className="text-[11px] text-on-surface-variant">IRS MeF · 06/22/2026</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-qb-maroon mt-0.5">schedule</span>
+                  <div className="min-w-0">
+                    <div className="font-medium">Extension filed for 2025</div>
+                    <div className="text-[11px] text-on-surface-variant">Form 7004 · 03/13/2026</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-tertiary mt-0.5">upload</span>
+                  <div className="min-w-0">
+                    <div className="font-medium">Year-end data imported</div>
+                    <div className="text-[11px] text-on-surface-variant">QuickBooks desktop · 04/2026</div>
+                  </div>
+                </div>
+              </div>
+              <button
+                className="w-full mt-3 h-8 border border-surface-dim rounded text-body-sm hover:bg-surface-container-low flex items-center justify-center gap-1"
+                onClick={() => onToast('Full filing history — 4 years')}
+              >
+                <span className="material-symbols-outlined text-[14px]">history</span>Full filing history
+              </button>
+            </div>
+          </div>
+        </main>
+      )}
 
       {/* ═══════════ FILING SPLIT MENU ═══════════ */}
       <div
@@ -524,9 +651,21 @@ export default function YearEndFiling({
         <button onClick={() => handleFilingAction('restart')}>
           <span className="material-symbols-outlined">restart_alt</span>Restart review
         </button>
+        <div className="sep"></div>
+        <div className="menu-header">Alternative</div>
+        <button onClick={() => handleFilingAction('extension')}>
+          <span className="material-symbols-outlined">schedule</span>File extension (Form 7004)
+        </button>
+        <button onClick={() => handleFilingAction('accountant')}>
+          <span className="material-symbols-outlined">person</span>Send to accountant
+        </button>
+        <div className="sep"></div>
+        <button className="text-error" onClick={() => handleFilingAction('abandon')}>
+          <span className="material-symbols-outlined text-error">close</span>Discard draft
+        </button>
       </div>
 
-      {/* ═══════════ E-FILE DRAWER (step 4 of 5) — review only ═══════════ */}
+      {/* ═══════════ E-FILE DRAWER (step 4 of 5) ═══════════ */}
       <div
         className={`drawer-scrim ${efileOpen ? 'open' : ''}`}
         onClick={closeEfile}
@@ -543,7 +682,7 @@ export default function YearEndFiling({
             <span className="material-symbols-outlined text-[20px] text-primary">upload_file</span>
             <div className="min-w-0">
               <div className="text-headline-sm truncate">E-file Form 1120</div>
-              <div className="text-[11px] text-on-surface-variant">Step 4 of 5 · Tax year {year}</div>
+              <div className="text-[11px] text-on-surface-variant">Step 4 of 5 · Tax year 2026</div>
             </div>
           </div>
           <button
@@ -565,42 +704,46 @@ export default function YearEndFiling({
               </div>
               <div className="flex justify-between">
                 <span className="text-on-surface-variant">Tax year</span>
-                <span className="font-semibold">{year}</span>
+                <span className="font-semibold">2026</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-on-surface-variant">Est. tax due</span>
-                <span className="font-semibold tabular-nums">{loading ? '…' : money0(estTaxYtd)}</span>
+                <span className="text-on-surface-variant">Balance due</span>
+                <span className="font-semibold tabular-nums">$3,036.75</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-on-surface-variant">Unmapped accounts</span>
-                <span className="font-semibold tabular-nums">{unmappedCount}</span>
+                <span className="text-on-surface-variant">Payment method</span>
+                <span className="font-semibold">EFTPS</span>
               </div>
             </div>
           </div>
 
-          <div className="bg-error-container/40 border border-error/30 rounded-lg p-3 text-[11px] text-on-error-container flex items-start gap-2">
-            <span className="material-symbols-outlined text-[16px] mt-0.5">warning</span>
-            <div>No e-file provider is connected. This return cannot be transmitted from the app — review the draft here and file it with your preparer, or download the draft CSV below.</div>
-          </div>
-
           <div>
             <label className="field-label">Filing signer</label>
-            <input
-              className="field-input"
-              placeholder="Signer name"
-              value={signerName}
-              onChange={(e) => setSignerName(e.target.value)}
-            />
+            <select className="field-input" defaultValue="Sarah Ahmed — CEO">
+              <option value="Sarah Ahmed — CEO">Sarah Ahmed — CEO</option>
+              <option value="Marcus Lee — CTO">Marcus Lee — CTO</option>
+              <option value="Priya Nair — COO">Priya Nair — COO</option>
+            </select>
           </div>
 
           <div>
             <label className="field-label">Contact email for IRS acknowledgment</label>
-            <input
-              className="field-input"
-              placeholder="name@company.com"
-              value={contactEmail}
-              onChange={(e) => setContactEmail(e.target.value)}
-            />
+            <input className="field-input" defaultValue="sarah@unsaid.io" />
+          </div>
+
+          <div>
+            <label className="field-label">Payment</label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-body-sm">
+                <input type="radio" name="pay" className="row-check" defaultChecked /> Pay $3,036.75 via EFTPS now
+              </label>
+              <label className="flex items-center gap-2 text-body-sm">
+                <input type="radio" name="pay" className="row-check" /> Schedule for Mar 10, 2027 (before deadline)
+              </label>
+              <label className="flex items-center gap-2 text-body-sm">
+                <input type="radio" name="pay" className="row-check" /> Pay by check (mail to IRS)
+              </label>
+            </div>
           </div>
 
           <div className="border-t border-surface-dim pt-3">
@@ -612,9 +755,14 @@ export default function YearEndFiling({
                 onChange={(e) => setAuthorized(e.target.checked)}
               />
               <span>
-                I confirm that the figures above match the books and that this draft is ready to file with my preparer.
+                I authorize Unsaid to e-file Form 1120 on my behalf and confirm that all information is accurate to the best of my knowledge.
               </span>
             </label>
+          </div>
+
+          <div className="bg-error-container/40 border border-error/30 rounded-lg p-3 text-[11px] text-on-error-container flex items-start gap-2">
+            <span className="material-symbols-outlined text-[16px] mt-0.5">warning</span>
+            <div>Once transmitted, this return cannot be edited. You can file an amended return (Form 1120-X) if changes are needed.</div>
           </div>
         </div>
 
@@ -628,9 +776,9 @@ export default function YearEndFiling({
           <button
             className="h-8 px-4 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={!authorized}
-            onClick={downloadDraftFromDrawer}
+            onClick={handleTransmit}
           >
-            <span className="material-symbols-outlined text-[16px] align-middle mr-1">download</span>Download draft CSV
+            <span className="material-symbols-outlined text-[16px] align-middle mr-1">send</span>Transmit to IRS
           </button>
         </div>
       </div>

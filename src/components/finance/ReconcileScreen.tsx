@@ -2,20 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { DomainKey } from '@/data/shellData';
-import { useBankAccounts, useReconcileWorkspace, reconcileMutations, type ReconcileSummaryDto } from '@/hooks/useAccountingApi';
-import type { BankStatement } from '@/lib/bankDetailTypes';
 import styles from './ReconcileScreen.module.css';
-
-const fmtDate = (iso: string) => {
-  if (!iso) return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[2]}/${m[3]}/${m[1]}` : iso;
-};
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const monthEndISO = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
-};
 
 interface ReconcileTxn {
   id: string;
@@ -27,86 +14,30 @@ interface ReconcileTxn {
   type: 'payment' | 'deposit';
 }
 
+const INITIAL_RECONCILE_TXNS: ReconcileTxn[] = [
+  // Payments / Charges
+  { id: 'p1', date: '10/30/2026', desc: 'STAPLES #0412', payee: 'Staples', amount: 142.5, cleared: true, type: 'payment' },
+  { id: 'p2', date: '10/29/2026', desc: 'FEDEX 001239847', payee: 'FedEx', amount: 84.2, cleared: true, type: 'payment' },
+  { id: 'p3', date: '10/27/2026', desc: 'AWS EMEA CHARGES', payee: 'Amazon Web Services', amount: 124.88, cleared: true, type: 'payment' },
+  { id: 'p4', date: '10/26/2026', desc: 'ADOBE CREATIVE', payee: 'Adobe', amount: 59.99, cleared: true, type: 'payment' },
+  { id: 'p5', date: '10/22/2026', desc: 'STAPLES #0418', payee: 'Staples', amount: 88.15, cleared: true, type: 'payment' },
+  // Deposits / Credits
+  { id: 'd1', date: '10/28/2026', desc: 'STRIPE PAYOUT', payee: 'Staples', amount: 1842.6, cleared: true, type: 'deposit' },
+  { id: 'd2', date: '10/27/2026', desc: 'ACME CORP — ACH', payee: 'Acme Corp', amount: 1240.0, cleared: true, type: 'deposit' },
+];
+
 export interface ReconcileScreenProps {
   onNavigate: (domain: DomainKey, screenId: string) => void;
   onToast?: (msg: string) => void;
 }
 
 export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreenProps) {
-  const { bankAccounts } = useBankAccounts();
-  const [accountId, setAccountId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!accountId && bankAccounts.length) setAccountId(bankAccounts[0].id);
-  }, [bankAccounts, accountId]);
-  const { workspace, refresh: refreshWorkspace } = useReconcileWorkspace(accountId);
+  const [account, setAccount] = useState('Chase •9910');
+  const [beginningBalance] = useState(83469.72);
+  const [statementEndingBalance, setStatementEndingBalance] = useState('86053.00');
+  const [statementEndingDate, setStatementEndingDate] = useState('2026-10-31');
 
-  const [statementEndingBalance, setStatementEndingBalance] = useState('');
-  const [statementEndingDate, setStatementEndingDate] = useState(monthEndISO());
-  const [summary, setSummary] = useState<ReconcileSummaryDto | null>(null);
-
-  // ── Batch D: bank statements. The reconcile workspace takes the
-  //    statement ending balance as manual input and never saved it —
-  //    acct_bank_statements had no route and no screen. This panel lists
-  //    the recorded statements and lets the current one be saved. ──
-  const [statements, setStatements] = useState<BankStatement[] | null>(null);
-  const [statementError, setStatementError] = useState<string | null>(null);
-  const [showStatementForm, setShowStatementForm] = useState(false);
-
-  const loadStatements = async () => {
-    const j = await fetch('/api/bank-statements').then((r) => r.json()).catch(() => null);
-    if (j?.error) { setStatementError(j.error.message || 'Statements load failed'); return; }
-    setStatements((j?.data || []) as BankStatement[]);
-  };
-
-  useEffect(() => {
-    void loadStatements();
-  }, []);
-
-  /* When a reconciliation is already in progress for the account,
-     resume it: statement fields + beginning balance come from it */
-  useEffect(() => {
-    if (workspace?.active) {
-      setStatementEndingBalance(
-        workspace.active.statementEndingBalance != null ? String(workspace.active.statementEndingBalance) : '',
-      );
-      if (workspace.active.statementEndDate) setStatementEndingDate(workspace.active.statementEndDate);
-    }
-  }, [workspace?.active?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const activeId = workspace?.active?.id || null;
-  useEffect(() => {
-    if (!activeId) {
-      setSummary(null);
-      return;
-    }
-    let alive = true;
-    void reconcileMutations.summary(activeId).then((res) => {
-      if (alive && res.ok && res.data) setSummary(res.data);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [activeId, workspace]);
-
-  const beginningBalance = summary?.beginningBalance ?? workspace?.beginningBalance ?? 0;
-
-  /* Lines visible in the workspace: posted on or before the statement
-     date. Payments are negative lines, deposits positive. */
-  const txns: ReconcileTxn[] = useMemo(
-    () =>
-      (workspace?.lines || [])
-        .filter((l) => !statementEndingDate || l.date <= statementEndingDate)
-        .map((l) => ({
-          id: l.id,
-          date: fmtDate(l.date),
-          desc: l.description,
-          payee: l.description,
-          amount: Math.abs(l.amount),
-          cleared: l.cleared,
-          type: l.amount < 0 ? 'payment' : 'deposit',
-        })),
-    [workspace, statementEndingDate],
-  );
+  const [txns, setTxns] = useState<ReconcileTxn[]>(INITIAL_RECONCILE_TXNS);
 
   // Toast
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -137,86 +68,44 @@ export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreen
     return deposits.filter((d) => d.cleared).reduce((sum, d) => sum + d.amount, 0);
   }, [deposits]);
 
-  // Cleared Balance = Beginning Balance - Cleared Payments + Cleared
-  // Deposits. With an active reconciliation the platform summary is
-  // authoritative; before start, the same math runs over local toggles
+  // Cleared Balance = Beginning Balance - Cleared Payments + Cleared Deposits
+  const clearedBalance = beginningBalance - clearedPaymentsTotal + clearedDepositsTotal;
   const targetEnding = parseFloat(statementEndingBalance) || 0;
-  const clearedBalance = summary ? summary.clearedBalance : beginningBalance - clearedPaymentsTotal + clearedDepositsTotal;
   const difference = clearedBalance - targetEnding;
   const isBalanced = Math.abs(difference) < 0.01;
 
-  /* Marking requires a reconciliation row — start one on first use
-     with the statement values currently in the form */
-  const ensureStarted = async (): Promise<string | null> => {
-    if (activeId) return activeId;
-    if (!accountId) return null;
-    if (!statementEndingBalance || Number.isNaN(parseFloat(statementEndingBalance))) {
-      showToast('Enter the statement ending balance first');
-      return null;
-    }
-    const res = await reconcileMutations.start({
-      bankAccountId: accountId,
-      statementEndDate: statementEndingDate,
-      statementEndingBalance: parseFloat(statementEndingBalance),
-    });
-    if (!res.ok || !res.data) {
-      showToast(res.error || 'Reconciliation could not be started');
-      return null;
-    }
-    await refreshWorkspace();
-    return res.data.id;
-  };
-
-  const handleToggleTxn = async (id: string) => {
-    const recId = await ensureStarted();
-    if (!recId) return;
-    const line = txns.find((t) => t.id === id);
-    if (!line) return;
-    const res = await reconcileMutations.mark(recId, [id], !line.cleared);
-    if (res.ok) await refreshWorkspace();
-    else showToast(res.error || 'Mark failed');
-  };
-
-  const handleToggleAll = async (type: 'payment' | 'deposit', nextVal: boolean) => {
-    const recId = await ensureStarted();
-    if (!recId) return;
-    const ids = txns.filter((t) => t.type === type && t.cleared !== nextVal).map((t) => t.id);
-    if (!ids.length) return;
-    const res = await reconcileMutations.mark(recId, ids, nextVal);
-    if (res.ok) await refreshWorkspace();
-    else showToast(res.error || 'Mark failed');
+  const handleToggleTxn = (id: string) => {
+    setTxns((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, cleared: !t.cleared } : t))
+    );
   };
 
   const handleToggleAllPayments = (e: React.ChangeEvent<HTMLInputElement>) => {
-    void handleToggleAll('payment', e.target.checked);
+    const nextVal = e.target.checked;
+    setTxns((prev) =>
+      prev.map((t) => (t.type === 'payment' ? { ...t, cleared: nextVal } : t))
+    );
   };
 
   const handleToggleAllDeposits = (e: React.ChangeEvent<HTMLInputElement>) => {
-    void handleToggleAll('deposit', e.target.checked);
+    const nextVal = e.target.checked;
+    setTxns((prev) =>
+      prev.map((t) => (t.type === 'deposit' ? { ...t, cleared: nextVal } : t))
+    );
   };
 
-  const handleFinishNow = async () => {
-    if (!isBalanced) {
-      showToast(`Cannot close: Difference is $${Math.abs(difference).toFixed(2)}. Adjust items or save for later.`);
-      return;
-    }
-    const recId = await ensureStarted();
-    if (!recId) return;
-    const res = await reconcileMutations.finish(recId);
-    if (res.ok) {
-      showToast('Reconciliation complete — period closed.');
-      await refreshWorkspace();
+  const handleFinishNow = () => {
+    if (isBalanced) {
+      showToast('Reconciliation complete! October 2026 period closed.');
       setTimeout(() => onNavigate('finance', 'accounting'), 1200);
-    } else showToast(res.error || 'Finish failed');
+    } else {
+      showToast(`Cannot close: Difference is $${Math.abs(difference).toFixed(2)}. Adjust items or save for later.`);
+    }
   };
 
   const handleSaveForLater = () => {
-    showToast(
-      activeId
-        ? 'Reconciliation progress is saved on the server. Returning to overview.'
-        : 'Nothing started yet — enter a statement balance and check a line to begin.',
-    );
-    if (activeId) onNavigate('finance', 'accounting');
+    showToast('Reconciliation progress saved. Returning to overview.');
+    onNavigate('finance', 'accounting');
   };
 
   return (
@@ -234,11 +123,7 @@ export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreen
           <span className={styles.breadcrumbActive}>Reconcile</span>
         </div>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#5a6355' }}>
-          {workspace?.active
-            ? `In progress — statement ending ${workspace.active.statementEndDate ? fmtDate(workspace.active.statementEndDate) : ''}`
-            : workspace && workspace.pastCount > 0
-              ? `${workspace.pastCount} past reconciliation${workspace.pastCount === 1 ? '' : 's'}`
-              : 'No reconciliations yet'}
+          Period closed: Oct 2026 tie-out
         </div>
       </div>
 
@@ -268,14 +153,12 @@ export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreen
             <label className={styles.fieldLabel}>Account</label>
             <select
               className={styles.fieldInput}
-              value={accountId || ''}
-              onChange={(e) => setAccountId(e.target.value)}
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
             >
-              {bankAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}{a.maskedNumber ? ` •${a.maskedNumber}` : ''} ({a.accountType})
-                </option>
-              ))}
+              <option value="Chase •9910">Chase •9910 (Business Checking)</option>
+              <option value="Visa •4421">Visa •4421 (Credit Card)</option>
+              <option value="Amex •2103">Amex •2103 (Business Gold)</option>
             </select>
           </div>
 
@@ -378,12 +261,12 @@ export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreen
               </thead>
               <tbody>
                 {payments.map((p) => (
-                  <tr key={p.id} onClick={() => void handleToggleTxn(p.id)} style={{ cursor: 'pointer' }}>
+                  <tr key={p.id} onClick={() => handleToggleTxn(p.id)} style={{ cursor: 'pointer' }}>
                     <td onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={p.cleared}
-                        onChange={() => void handleToggleTxn(p.id)}
+                        onChange={() => handleToggleTxn(p.id)}
                         style={{ accentColor: '#0a6400' }}
                       />
                     </td>
@@ -426,12 +309,12 @@ export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreen
               </thead>
               <tbody>
                 {deposits.map((d) => (
-                  <tr key={d.id} onClick={() => void handleToggleTxn(d.id)} style={{ cursor: 'pointer' }}>
+                  <tr key={d.id} onClick={() => handleToggleTxn(d.id)} style={{ cursor: 'pointer' }}>
                     <td onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={d.cleared}
-                        onChange={() => void handleToggleTxn(d.id)}
+                        onChange={() => handleToggleTxn(d.id)}
                         style={{ accentColor: '#0a6400' }}
                       />
                     </td>
@@ -477,7 +360,7 @@ export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreen
             <button
               type="button"
               className={styles.btnPrimary}
-              onClick={() => void handleFinishNow()}
+              onClick={handleFinishNow}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                 fact_check
@@ -485,79 +368,6 @@ export default function ReconcileScreen({ onNavigate, onToast }: ReconcileScreen
               Finish now
             </button>
           </div>
-        </div>
-
-        {/* Bank statements — the record behind the ending balance above */}
-        <div className={styles.sectionCard} style={{ marginTop: 16 }}>
-          <div className={styles.sectionHeader}>
-            <h3 className={styles.sectionTitle}>Bank statements ({(statements || []).length})</h3>
-            <button type="button" className={styles.btnSecondary} onClick={() => { setStatementError(null); setShowStatementForm(!showStatementForm); }}>
-              {showStatementForm ? 'Cancel' : 'Record statement'}
-            </button>
-          </div>
-          {statementError && <div style={{ padding: '0 16px 12px', color: '#b3261e', fontSize: 13 }}>{statementError}</div>}
-          {showStatementForm && (
-            <form
-              style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '0 16px 16px' }}
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                const res = await fetch('/api/bank-statements', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    bankAccountId: String(fd.get('bankAccountId') || ''),
-                    statementStart: String(fd.get('statementStart') || ''),
-                    statementEnd: String(fd.get('statementEnd') || ''),
-                    openingBalance: Number(fd.get('openingBalance') || 0),
-                    closingBalance: Number(fd.get('closingBalance') || 0),
-                  }),
-                });
-                const j = await res.json().catch(() => null);
-                if (!res.ok || j?.error) { setStatementError(j?.error?.message || 'Statement save failed'); return; }
-                setShowStatementForm(false);
-                await loadStatements();
-                showToast('Statement recorded');
-              }}
-            >
-              <select name="bankAccountId" required defaultValue={accountId || ''} style={{ height: 36, border: '1px solid #dad9dd', borderRadius: 6, padding: '0 8px', fontSize: 13 }}>
-                <option value="">— Bank account —</option>
-                {bankAccounts.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
-              </select>
-              <input name="statementStart" type="date" required defaultValue={statementEndingDate ? statementEndingDate.slice(0, 8) + '01' : ''} style={{ height: 36, border: '1px solid #dad9dd', borderRadius: 6, padding: '0 8px', fontSize: 13 }} />
-              <input name="statementEnd" type="date" required defaultValue={statementEndingDate} style={{ height: 36, border: '1px solid #dad9dd', borderRadius: 6, padding: '0 8px', fontSize: 13 }} />
-              <input name="openingBalance" type="number" step="0.01" required defaultValue={beginningBalance} placeholder="Opening balance $" style={{ height: 36, border: '1px solid #dad9dd', borderRadius: 6, padding: '0 8px', fontSize: 13 }} />
-              <input name="closingBalance" type="number" step="0.01" required defaultValue={statementEndingBalance} placeholder="Closing balance $" style={{ height: 36, border: '1px solid #dad9dd', borderRadius: 6, padding: '0 8px', fontSize: 13 }} />
-              <button type="submit" className={styles.btnPrimary} style={{ gridColumn: '1 / -1', justifyContent: 'center' }}>Record statement</button>
-            </form>
-          )}
-          {statements === null ? (
-            <div style={{ padding: '0 16px 16px', fontSize: 13, color: '#5a6355' }}>Loading…</div>
-          ) : statements.length === 0 ? (
-            <div style={{ padding: '0 16px 16px', fontSize: 13, color: '#5a6355' }}>No statements recorded yet. The ending balance you type above is only saved when you record it here.</div>
-          ) : (
-            <div style={{ padding: '0 16px 16px' }}>
-              {statements.map((s) => (
-                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: '1px solid #f2f2f2', fontSize: 13 }}>
-                  <span>
-                    <span style={{ fontWeight: 600 }}>{s.bankAccountName || '—'}</span>
-                    <span style={{ display: 'block', fontSize: 11, color: '#5a6355' }}>{s.statementStart} → {s.statementEnd} · ${s.openingBalance.toFixed(2)} → ${s.closingBalance.toFixed(2)}</span>
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.btnSecondary}
-                    onClick={async () => {
-                      const res = await fetch(`/api/bank-statements/${s.id}`, { method: 'DELETE' });
-                      if (!res.ok) { showToast('Delete failed'); return; }
-                      await loadStatements();
-                      showToast('Statement deleted');
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </main>
 

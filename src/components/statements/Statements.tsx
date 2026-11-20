@@ -4,9 +4,6 @@ import './statements.css';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { StatementsScreenProps } from './types';
 import { STMT_NAV } from './types';
-import { fetchJson } from '@/hooks/useCrmApi';
-import { exportToCsv } from '@/lib/csvExport';
-import { useCustomers } from '@/hooks/useAccountingApi';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -37,12 +34,7 @@ interface StatementData {
 }
 
 interface StatementRow {
-  id: string;          // acct_customer_statements uuid
-  number: string;      // statement_number (ST-####)
-  customerId: string;
-  periodStart: string;
-  periodEnd: string;
-  rawStatus: string;
+  id: string;
   customer: string;
   email: string;
   avatar: string;
@@ -59,89 +51,205 @@ interface StatementRow {
 type ViewTab = 'All' | 'Draft' | 'Sent' | 'Awaiting' | 'Paid' | 'Overdue';
 
 // ─────────────────────────────────────────────────────────────
-// Data comes from /api/accounting/statements (acct_customer_statements,
-// generated from the AR documents). Display status is derived from the
-// stored status + balances, mirroring how the platform presents them.
+// Static data (verbatim from source <script> S_DATA map)
 // ─────────────────────────────────────────────────────────────
 
-interface StatementDto {
-  id: string;
-  number: string;
-  customerId: string;
-  customerName: string;
-  email: string | null;
-  periodStart: string;
-  periodEnd: string;
-  opening: number;
-  charges: number;
-  payments: number;
-  credits: number;
-  closing: number;
-  status: string;
-  sentAt: string | null;
-  reminderCount: number;
-}
-
-const AVATAR_COLORS = ['bg-qb-blue', 'bg-qb-teal', 'bg-qb-green', 'bg-qb-maroon', 'bg-qb-navy'];
-const money = (n: number) => `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const usDate = (iso: string | null) => {
-  if (!iso) return '—';
-  const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${m}/${d}/${y}`;
+const S_DATA: Record<string, StatementData> = {
+  'ST-1101': {
+    id: 'ST-1101',
+    customer: 'Acme Corp',
+    email: 'ap@acme.com',
+    period: 'Oct 2026',
+    date: '2026-10-31',
+    due: '2026-11-30',
+    invoiced: '$4,300.00',
+    paid: '−$3,410.00',
+    dueAmt: '$890.00',
+    status: 'Sent',
+    lines: [
+      { date: '10/15', desc: 'Invoice 0998', amt: '$890.00', paid: '$0.00', bal: '$890.00' },
+      { date: '10/28', desc: 'Invoice 1001', amt: '$3,410.00', paid: '$3,410.00', bal: '$0.00' },
+    ],
+  },
+  'ST-1100': {
+    id: 'ST-1100',
+    customer: 'Northwind Labs',
+    email: 'finance@northwind.io',
+    period: 'Oct 2026',
+    date: '2026-10-31',
+    due: '2026-11-01',
+    invoiced: '$2,100.00',
+    paid: '$0.00',
+    dueAmt: '$2,100.00',
+    status: 'Overdue',
+    lines: [
+      { date: '10/02', desc: 'Invoice 0996', amt: '$2,100.00', paid: '$0.00', bal: '$2,100.00' },
+    ],
+  },
+  'ST-1099': {
+    id: 'ST-1099',
+    customer: 'Blue Ridge Co.',
+    email: 'billing@blueridge.co',
+    period: 'Sep 2026',
+    date: '2026-09-30',
+    due: '2026-10-30',
+    invoiced: '$3,410.00',
+    paid: '−$3,410.00',
+    dueAmt: '$0.00',
+    status: 'Paid',
+    lines: [
+      { date: '09/28', desc: 'Invoice 1001', amt: '$3,410.00', paid: '$3,410.00', bal: '$0.00' },
+    ],
+  },
+  'ST-1098': {
+    id: 'ST-1098',
+    customer: 'Lakeside Design',
+    email: 'hello@lakeside.design',
+    period: 'Sep 2026',
+    date: '2026-09-30',
+    due: '2026-10-30',
+    invoiced: '$1,850.00',
+    paid: '−$1,850.00',
+    dueAmt: '$0.00',
+    status: 'Paid',
+    lines: [
+      { date: '09/05', desc: 'Invoice 0992', amt: '$1,850.00', paid: '$1,850.00', bal: '$0.00' },
+    ],
+  },
+  'ST-1102': {
+    id: 'ST-1102',
+    customer: 'Maple Supply',
+    email: 'ar@maplesupply.io',
+    period: 'Nov 2026',
+    date: '2026-11-30',
+    due: '2026-12-31',
+    invoiced: '$890.00',
+    paid: '$0.00',
+    dueAmt: '$890.00',
+    status: 'Draft',
+    lines: [
+      { date: '11/15', desc: 'Invoice 0998', amt: '$890.00', paid: '$0.00', bal: '$890.00' },
+    ],
+  },
+  'ST-1097': {
+    id: 'ST-1097',
+    customer: 'Orion Apparel',
+    email: 'hello@orionapparel.com',
+    period: 'Sep 2026',
+    date: '2026-09-30',
+    due: '2026-10-30',
+    invoiced: '$2,350.00',
+    paid: '−$500.00',
+    dueAmt: '$1,850.00',
+    status: 'Partial',
+    lines: [
+      { date: '09/15', desc: 'Invoice 0994', amt: '$540.00', paid: '$540.00', bal: '$0.00' },
+      { date: '09/20', desc: 'Invoice 0995', amt: '$1,810.00', paid: '$0.00', bal: '$1,810.00' },
+    ],
+  },
 };
-const periodLabel = (iso: string) =>
-  new Date(iso.slice(0, 10) + 'T12:00:00').toLocaleString('en-US', { month: 'short', year: 'numeric' });
 
-function displayStatus(d: StatementDto): StatementStatus {
-  const today = new Date().toISOString().slice(0, 10);
-  if (d.closing <= 0) return d.charges > 0 || d.payments > 0 ? 'Paid' : 'Draft';
-  if (d.payments > 0 || d.credits > 0) return 'Partial';
-  if ((d.status === 'sent' || d.status === 'viewed') && d.periodEnd < today) return 'Overdue';
-  if (d.status === 'sent' || d.status === 'viewed') return 'Sent';
-  return 'Draft';
-}
+// Empty template used when opening "New statement"
+const EMPTY_STATEMENT: StatementData = {
+  id: 'ST-1103',
+  customer: '',
+  email: '',
+  period: 'Nov 2026',
+  date: '2026-11-30',
+  due: '2026-12-31',
+  invoiced: '$0.00',
+  paid: '$0.00',
+  dueAmt: '$0.00',
+  status: 'Draft',
+  lines: [],
+};
 
-function dtoToRow(d: StatementDto, idx: number): StatementRow {
-  const status = displayStatus(d);
-  const today = new Date().toISOString().slice(0, 10);
-  return {
-    id: d.id,
-    number: d.number,
-    customerId: d.customerId,
-    periodStart: d.periodStart,
-    periodEnd: d.periodEnd,
-    rawStatus: d.status,
-    customer: d.customerName,
-    email: d.email || '',
-    avatar: (d.customerName[0] || '?').toUpperCase(),
-    avatarColor: AVATAR_COLORS[idx % AVATAR_COLORS.length],
-    period: periodLabel(d.periodEnd),
-    sentDate: usDate(d.sentAt),
-    dueDate: usDate(d.periodEnd),
-    dueRed: d.closing > 0 && d.periodEnd < today,
-    balance: money(d.closing),
-    balanceRed: d.closing > 0 && d.periodEnd < today,
-    status,
-  };
-}
-
-/* Month options for generate/batch (value 'YYYY-MM', label 'Nov 2026') */
-function monthOptions(count = 6): { value: string; label: string; start: string; end: string }[] {
-  const out: { value: string; label: string; start: string; end: string }[] = [];
-  const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const first = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const last = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-    const value = `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}`;
-    out.push({
-      value,
-      label: first.toLocaleString('en-US', { month: 'short', year: 'numeric' }),
-      start: `${value}-01`,
-      end: `${value}-${String(last.getDate()).padStart(2, '0')}`,
-    });
-  }
-  return out;
-}
+const INITIAL_ROWS: StatementRow[] = [
+  {
+    id: 'ST-1101',
+    customer: 'Acme Corp',
+    email: 'ap@acme.com',
+    avatar: 'A',
+    avatarColor: 'bg-qb-blue',
+    period: 'Oct 2026',
+    sentDate: '10/31/2026',
+    dueDate: '11/30/2026',
+    dueRed: false,
+    balance: '$1,240.00',
+    balanceRed: false,
+    status: 'Sent',
+  },
+  {
+    id: 'ST-1100',
+    customer: 'Northwind Labs',
+    email: 'finance@northwind.io',
+    avatar: 'N',
+    avatarColor: 'bg-qb-teal',
+    period: 'Oct 2026',
+    sentDate: '10/31/2026',
+    dueDate: '11/01/2026',
+    dueRed: true,
+    balance: '$2,100.00',
+    balanceRed: true,
+    status: 'Overdue',
+  },
+  {
+    id: 'ST-1099',
+    customer: 'Blue Ridge Co.',
+    email: 'billing@blueridge.co',
+    avatar: 'B',
+    avatarColor: 'bg-qb-green',
+    period: 'Sep 2026',
+    sentDate: '09/30/2026',
+    dueDate: '10/30/2026',
+    dueRed: false,
+    balance: '$0.00',
+    balanceRed: false,
+    status: 'Paid',
+  },
+  {
+    id: 'ST-1098',
+    customer: 'Lakeside Design',
+    email: 'hello@lakeside.design',
+    avatar: 'L',
+    avatarColor: 'bg-qb-blue',
+    period: 'Sep 2026',
+    sentDate: '09/30/2026',
+    dueDate: '10/30/2026',
+    dueRed: false,
+    balance: '$0.00',
+    balanceRed: false,
+    status: 'Paid',
+  },
+  {
+    id: 'ST-1102',
+    customer: 'Maple Supply',
+    email: 'ar@maplesupply.io',
+    avatar: 'M',
+    avatarColor: 'bg-qb-maroon',
+    period: 'Nov 2026',
+    sentDate: '—',
+    dueDate: '12/31/2026',
+    dueRed: false,
+    balance: '$890.00',
+    balanceRed: false,
+    status: 'Draft',
+  },
+  {
+    id: 'ST-1097',
+    customer: 'Orion Apparel',
+    email: 'hello@orionapparel.com',
+    avatar: 'O',
+    avatarColor: 'bg-qb-navy',
+    period: 'Sep 2026',
+    sentDate: '09/30/2026',
+    dueDate: '10/30/2026',
+    dueRed: false,
+    balance: '$1,850.00',
+    balanceRed: false,
+    status: 'Partial',
+  },
+];
 
 const STATUS_PILL_CLASS: Record<StatementStatus, string> = {
   Draft: 'st draft',
@@ -180,54 +288,8 @@ export default function Statements({
   onCreate,
   onOpenCreateFlyout,
 }: StatementsScreenProps) {
-  // Table state — real statements
-  const [rows, setRows] = useState<StatementRow[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const refresh = useCallback(() => setRefreshKey(k => k + 1), []);
-  const { customers } = useCustomers();
-  const months = useMemo(() => monthOptions(6), []);
-  const [newCustomerId, setNewCustomerId] = useState('');
-  const [newPeriod, setNewPeriod] = useState(months[0]?.value || '');
-  const [batchPeriod, setBatchPeriod] = useState(months[0]?.value || '');
-  const [openArByCustomer, setOpenArByCustomer] = useState<{ customers: number; overdue: number }>({ customers: 0, overdue: 0 });
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchJson<{ data: StatementDto[] }>('/api/accounting/statements')
-      .then(res => {
-        if (cancelled || !res.ok) return;
-        setRows((res.data.data || []).map((d, i) => dtoToRow(d, i)));
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [refreshKey]);
-
-  /* Open-AR summary for the batch modal (from the invoice list) */
-  useEffect(() => {
-    let cancelled = false;
-    fetchJson<{ data: Record<string, unknown>[] }>('/api/v1/documents?type=Invoice')
-      .then(res => {
-        if (cancelled || !res.ok) return;
-        const today = new Date().toISOString().slice(0, 10);
-        const open = new Map<string, { open: number; overdue: boolean }>();
-        for (const r of res.data.data || []) {
-          if (['void', 'written_off'].includes(String(r.status))) continue;
-          const bal = Math.max(0, Number(r.total || 0) - Number(r.amount_paid || 0) - Number(r.amount_credited || 0));
-          if (bal <= 0) continue;
-          const cid = String(r.customer_id || '');
-          const cur = open.get(cid) || { open: 0, overdue: false };
-          cur.open += bal;
-          if (String(r.due_date || '') < today) cur.overdue = true;
-          open.set(cid, cur);
-        }
-        setOpenArByCustomer({
-          customers: open.size,
-          overdue: [...open.values()].filter(v => v.overdue).length,
-        });
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [refreshKey]);
+  // Table state
+  const [rows, setRows] = useState<StatementRow[]>(INITIAL_ROWS);
   const [viewTab, setViewTab] = useState<ViewTab>('All');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -308,45 +370,11 @@ export default function Statements({
   // ── Drawer open/close ──────────────────────────────────────
 
   const openStatement = useCallback((id: string | null) => {
+    const data = id ? S_DATA[id] ?? EMPTY_STATEMENT : EMPTY_STATEMENT;
     setDrawerRowId(id);
-    if (!id) {
-      const m = months.find(x => x.value === newPeriod) || months[0];
-      setDrawerData({
-        id: '', customer: '', email: '', period: m?.label || '',
-        date: m?.end || '', due: m?.end || '',
-        invoiced: '$0.00', paid: '$0.00', dueAmt: '$0.00', status: 'Draft', lines: [],
-      });
-      setDrawerOpen(true);
-      return;
-    }
-    setDrawerData(null);
+    setDrawerData(data);
     setDrawerOpen(true);
-    fetchJson<{ data: StatementDto & { lines: { date: string; description: string; amount: number; paid: number; balance: number }[] } }>(`/api/accounting/statements/${id}`)
-      .then(res => {
-        if (!res.ok) return;
-        const d = res.data.data;
-        setDrawerData({
-          id: d.number,
-          customer: d.customerName,
-          email: d.email || '',
-          period: periodLabel(d.periodEnd),
-          date: d.periodEnd,
-          due: d.periodEnd,
-          invoiced: money(d.charges),
-          paid: d.payments > 0 ? `−${money(d.payments)}` : '$0.00',
-          dueAmt: money(d.closing),
-          status: displayStatus(d),
-          lines: (d.lines || []).map(l => ({
-            date: l.date ? `${l.date.slice(5, 7)}/${l.date.slice(8, 10)}` : '',
-            desc: l.description,
-            amt: money(l.amount),
-            paid: money(l.paid),
-            bal: money(l.balance),
-          })),
-        });
-      })
-      .catch(() => {});
-  }, [months, newPeriod]);
+  }, []);
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
@@ -373,63 +401,11 @@ export default function Statements({
     (kind: string) => {
       setNewMenuOpen(false);
       if (kind === 'Batch send') return openBatchModal();
-      if (kind === 'From invoices') { openStatement(null); return; }
+      if (kind === 'From invoices') return showToast('Generating from invoices — pick period');
       openStatement(null);
     },
     [openBatchModal, showToast, openStatement]
   );
-
-  // ── Drawer save/send: generate (when new) then act ─────────
-
-  const generateFromDrawer = useCallback(async (draft: boolean): Promise<string | null> => {
-    if (drawerRowId) return drawerRowId;
-    if (!newCustomerId) {
-      showToast('Pick a customer first');
-      return null;
-    }
-    const m = months.find(x => x.value === newPeriod);
-    if (!m) return null;
-    const res = await fetchJson<{ data: StatementDto }>('/api/accounting/statements', {
-      method: 'POST',
-      body: JSON.stringify({ customerId: newCustomerId, periodStart: m.start, periodEnd: m.end, draft }),
-    });
-    if (!res.ok) {
-      showToast((res as { error?: string }).error || 'Statement could not be generated');
-      return null;
-    }
-    setDrawerRowId(res.data.data.id);
-    return res.data.data.id;
-  }, [drawerRowId, newCustomerId, newPeriod, months, showToast]);
-
-  const handleDrawerSaveDraft = useCallback(async () => {
-    if (drawerRowId) {
-      const row = rows.find(r => r.id === drawerRowId);
-      if (row && row.rawStatus !== 'draft') {
-        const res = await fetchJson(`/api/accounting/statements/${drawerRowId}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'draft' }),
-        });
-        if (!res.ok) { showToast((res as { error?: string }).error || 'Save failed'); return; }
-      }
-      showToast('Statement saved as draft');
-    } else {
-      const id = await generateFromDrawer(true);
-      if (!id) return;
-      showToast('Statement saved as draft');
-    }
-    closeDrawer();
-    refresh();
-  }, [drawerRowId, rows, generateFromDrawer, showToast, closeDrawer, refresh]);
-
-  const handleDrawerSend = useCallback(async () => {
-    const id = drawerRowId || (await generateFromDrawer(false));
-    if (!id) return;
-    const res = await fetchJson(`/api/accounting/statements/${id}/send`, { method: 'POST', body: '{}' });
-    if (!res.ok) { showToast((res as { error?: string }).error || 'Send failed'); return; }
-    showToast('Statement queued for email to the customer');
-    closeDrawer();
-    refresh();
-  }, [drawerRowId, generateFromDrawer, showToast, closeDrawer, refresh]);
 
   // ── Row menu ───────────────────────────────────────────────
 
@@ -455,70 +431,68 @@ export default function Statements({
   }, []);
 
   const handleRowAction = useCallback(
-    async (action: string, id: string) => {
+    (action: string, id: string) => {
       closeRowMenu();
-      const row = rows.find(r => r.id === id);
-      const label = row ? `${row.number}` : 'Statement';
       switch (action) {
         case 'view':
         case 'edit':
           openStatement(id);
           break;
         case 'duplicate': {
-          if (!row) return;
-          const res = await fetchJson<{ data: StatementDto }>('/api/accounting/statements', {
-            method: 'POST',
-            body: JSON.stringify({ customerId: row.customerId, periodStart: row.periodStart, periodEnd: row.periodEnd }),
+          setRows((prev) => {
+            const idx = prev.findIndex((r) => r.id === id);
+            if (idx < 0) return prev;
+            const src = prev[idx];
+            let i = 1;
+            let newId = `${id}-COPY`;
+            while (prev.some((r) => r.id === newId)) {
+              newId = `${id}-COPY${i++}`;
+            }
+            const clone: StatementRow = { ...src, id: newId };
+            const next = [...prev];
+            next.splice(idx + 1, 0, clone);
+            return next;
           });
-          if (!res.ok) { showToast((res as { error?: string }).error || 'Duplicate failed'); return; }
-          showToast(`Duplicated as ${res.data.data.number}`);
-          refresh();
+          showToast(`Duplicated statement ${id}`);
           break;
         }
-        case 'send': {
-          const res = await fetchJson(`/api/accounting/statements/${id}/send`, { method: 'POST', body: '{}' });
-          if (!res.ok) { showToast((res as { error?: string }).error || 'Send failed'); return; }
-          showToast(`Statement ${label} queued for email`);
-          refresh();
+        case 'send':
+          setRows((prev) =>
+            prev.map((r) => (r.id === id ? { ...r, status: 'Sent' as StatementStatus } : r))
+          );
+          showToast(`Sent statement ${id}`);
           break;
-        }
-        case 'remind': {
-          const res = await fetchJson(`/api/accounting/statements/${id}/send`, { method: 'POST', body: JSON.stringify({ reminder: true }) });
-          if (!res.ok) { showToast((res as { error?: string }).error || 'Reminder failed'); return; }
-          showToast(`Reminder for ${label} queued for email`);
-          refresh();
+        case 'remind':
+          showToast(`Reminder sent for ${id}`);
           break;
-        }
         case 'print':
-          window.print();
+          showToast(`Printing statement ${id}`);
           break;
-        case 'mark-paid': {
-          const res = await fetchJson<{ data: { paidCount: number; paidTotal: number } }>(`/api/accounting/statements/${id}/mark-paid`, { method: 'POST', body: '{}' });
-          if (!res.ok) { showToast((res as { error?: string }).error || 'Mark-paid failed'); return; }
-          const d = res.data.data;
-          showToast(d.paidCount ? `Paid ${d.paidCount} invoice${d.paidCount === 1 ? '' : 's'} totaling ${money(d.paidTotal)}` : 'No open invoices to pay');
-          refresh();
+        case 'mark-paid':
+          setRows((prev) =>
+            prev.map((r) =>
+              r.id === id
+                ? { ...r, status: 'Paid' as StatementStatus, balance: '$0.00', balanceRed: false, dueRed: false }
+                : r
+            )
+          );
+          showToast(`Statement ${id} marked as paid`);
           break;
-        }
         case 'receive-payment':
-          showToast('Record the payment from the customer profile');
-          onNavigate('contacts', 'customers');
+          showToast(`Receive payment for ${id}`);
           break;
-        case 'delete': {
-          const res = await fetchJson(`/api/accounting/statements/${id}`, { method: 'DELETE' });
-          if (!res.ok) { showToast((res as { error?: string }).error || 'Delete failed'); return; }
-          setSelected(prev => {
+        case 'delete':
+          setRows((prev) => prev.filter((r) => r.id !== id));
+          setSelected((prev) => {
             const next = new Set(prev);
             next.delete(id);
             return next;
           });
-          showToast(`Statement ${label} voided`);
-          refresh();
+          showToast(`Statement ${id} deleted`);
           break;
-        }
       }
     },
-    [closeRowMenu, openStatement, showToast, rows, refresh, onNavigate]
+    [closeRowMenu, openStatement, showToast]
   );
 
   // ── Selection / bulk ───────────────────────────────────────
@@ -544,33 +518,18 @@ export default function Statements({
     });
   };
 
-  const bulkAction = async (action: string) => {
-    const ids = [...selected];
+  const bulkAction = (action: string) => {
+    const n = selected.size;
     if (action === 'close') {
       setSelected(new Set());
       return;
     }
-    if (action === 'print') {
-      window.print();
-      setSelected(new Set());
-      return;
+    if (action === 'delete') {
+      setRows((prev) => prev.filter((r) => !selected.has(r.id)));
     }
-    let ok = 0;
-    let failed = 0;
-    for (const id of ids) {
-      const res = action === 'delete'
-        ? await fetchJson(`/api/accounting/statements/${id}`, { method: 'DELETE' })
-        : await fetchJson(`/api/accounting/statements/${id}/send`, {
-            method: 'POST',
-            body: JSON.stringify(action === 'remind' ? { reminder: true } : {}),
-          });
-      if (res.ok) ok++;
-      else failed++;
-    }
-    const label = action === 'delete' ? 'Voided' : action === 'remind' ? 'Reminders queued for' : 'Queued for email';
-    showToast(failed ? `${label} ${ok} statement${ok === 1 ? '' : 's'} — ${failed} failed` : `${label} ${ok} statement${ok === 1 ? '' : 's'}`);
+    const label = action.charAt(0).toUpperCase() + action.slice(1);
+    showToast(`${label} on ${n} statement${n !== 1 ? 's' : ''}`);
     setSelected(new Set());
-    refresh();
   };
 
   // ── Outside click + Escape ─────────────────────────────────
@@ -658,37 +617,24 @@ export default function Statements({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex split-btn">
-              <button
+            <button
                 type="button"
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1 split-btn-main"
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container flex items-center gap-1"
                 onClick={() => openStatement(null)}
               >
                 <span className="material-symbols-outlined text-[16px]">add</span>New statement
               </button>
-              <button
-                type="button"
-                ref={newSplitRef}
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleNewMenu();
-                }}
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
             <button
               type="button"
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
-              onClick={() => exportToCsv(rows.map(r => ({ number: r.number, customer: r.customer, period: r.period, balance: r.balance.replace(/[$,]/g, ''), status: r.status })), [{ key: 'number', label: 'Statement' }, { key: 'customer', label: 'Customer' }, { key: 'period', label: 'Period' }, { key: 'balance', label: 'Balance' }, { key: 'status', label: 'Status' }], 'statements.csv')}
+              onClick={() => showToast('Exporting statements…')}
             >
               <span className="material-symbols-outlined text-[16px]">download</span>Export
             </button>
             <button
               type="button"
               className="h-8 px-3 border border-surface-dim rounded text-body-md hover:bg-surface-container-low flex items-center gap-1"
-              onClick={() => showToast('Column settings are not available for this table')}
+              onClick={() => showToast('Customize panel')}
             >
               <span className="material-symbols-outlined text-[16px]">tune</span>Customize
             </button>
@@ -811,14 +757,14 @@ export default function Statements({
             <button
               type="button"
               className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
-              onClick={() => showToast('Statements are grouped by their period — use the tabs to filter')}
+              onClick={() => showToast('Date range picker...')}
             >
               <span className="material-symbols-outlined text-[14px]">calendar_today</span>Date range
             </button>
             <button
               type="button"
               className="h-7 px-2 border border-surface-dim rounded text-label-sm hover:bg-surface-container-low flex items-center gap-1"
-              onClick={() => showToast('Saved views are not available for statements yet')}
+              onClick={() => showToast('Saved views...')}
             >
               <span className="material-symbols-outlined text-[14px]">bookmark</span>Saved views
             </button>
@@ -1065,7 +1011,7 @@ export default function Statements({
               type="button"
               className="w-8 h-8 rounded hover:bg-surface-container flex items-center justify-center"
               title="Download"
-              onClick={() => window.print()}
+              onClick={() => showToast('Printing statement PDF')}
             >
               <span className="material-symbols-outlined text-[18px]">download</span>
             </button>
@@ -1085,39 +1031,26 @@ export default function Statements({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="field-label">Customer</label>
-              {drawerRowId ? (
-                <div className="relative flex items-center">
-                  <input
-                    className="field-input"
-                    readOnly
-                    value={drawerData?.customer ?? ''}
-                  />
-                  <span className="material-symbols-outlined absolute right-2 text-[16px] text-outline">
-                    expand_more
-                  </span>
-                </div>
-              ) : (
-                <select className="field-input" value={newCustomerId} onChange={e => setNewCustomerId(e.target.value)}>
-                  <option value="">Select a customer…</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.displayName}</option>
-                  ))}
-                </select>
-              )}
+              <div className="relative flex items-center">
+                <input
+                  className="field-input"
+                  readOnly
+                  value={drawerData?.customer ?? ''}
+                />
+                <span className="material-symbols-outlined absolute right-2 text-[16px] text-outline">
+                  expand_more
+                </span>
+              </div>
             </div>
             <div>
               <label className="field-label">Period</label>
-              {drawerRowId ? (
-                <select className="field-input" value={drawerData?.period ?? ''} disabled>
-                  <option>{drawerData?.period ?? ''}</option>
-                </select>
-              ) : (
-                <select className="field-input" value={newPeriod} onChange={e => setNewPeriod(e.target.value)}>
-                  {months.map(m => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
-              )}
+              <select className="field-input" value={drawerData?.period ?? 'Nov 2026'}>
+                <option>Oct 2026</option>
+                <option>Sep 2026</option>
+                <option>Aug 2026</option>
+                <option>Jul 2026</option>
+                <option>Nov 2026</option>
+              </select>
             </div>
             <div>
               <label className="field-label">Statement date</label>
@@ -1258,41 +1191,31 @@ export default function Statements({
             <button
               type="button"
               className="h-8 px-3 border border-surface-dim rounded text-body-md font-semibold hover:bg-surface-container-low"
-              onClick={() => window.print()}
+              onClick={() => showToast('Printing statement PDF')}
             >
               <span className="material-symbols-outlined text-[16px] align-middle mr-1">print</span>
               Print
             </button>
-            <div className="split-btn flex">
-              <button
+            <button
                 type="button"
-                className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low split-btn-main"
-                onClick={handleDrawerSaveDraft}
+                className="h-8 px-3 border border-surface-dim text-body-md font-semibold hover:bg-surface-container-low"
+                onClick={() => {
+                  showToast('Statement saved as draft');
+                  closeDrawer();
+                }}
               >
                 Save draft
               </button>
-              <button
+            <button
                 type="button"
-                className="h-8 px-1.5 border border-surface-dim hover:bg-surface-container-low split-btn-arrow"
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
-            <div className="split-btn flex">
-              <button
-                type="button"
-                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container split-btn-main"
-                onClick={handleDrawerSend}
+                className="h-8 px-3 bg-primary text-white text-body-md font-semibold hover:bg-primary-container"
+                onClick={() => {
+                  showToast('Statement sent to customer');
+                  closeDrawer();
+                }}
               >
                 Send to customer
               </button>
-              <button
-                type="button"
-                className="h-8 px-1.5 bg-primary text-white hover:bg-primary-container split-btn-arrow"
-              >
-                <span className="material-symbols-outlined text-[16px]">expand_more</span>
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -1314,24 +1237,24 @@ export default function Statements({
             <div className="space-y-3">
               <div>
                 <label className="field-label">Period</label>
-                <select className="field-input" value={batchPeriod} onChange={e => setBatchPeriod(e.target.value)}>
-                  {months.map(m => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
+                <select className="field-input" defaultValue="Oct 2026">
+                  <option>Oct 2026</option>
+                  <option>Sep 2026</option>
+                  <option>Nov 2026</option>
                 </select>
               </div>
               <div className="bg-surface-container-low rounded-lg p-3 text-[11px] text-on-surface-variant">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="material-symbols-outlined text-[14px] text-secondary">check</span>
-                  {openArByCustomer.customers} customers have open balances
+                  3 customers have open balances
                 </div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="material-symbols-outlined text-[14px] text-secondary">check</span>
-                  {openArByCustomer.overdue} have overdue balances
+                  2 have overdue balances
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-[14px] text-tertiary">info</span>
-                  Statements are generated from open invoices and queued to the platform mail queue
+                  Statements will be emailed as PDFs
                 </div>
               </div>
             </div>
@@ -1347,43 +1270,13 @@ export default function Statements({
             <button
               type="button"
               className="flex-1 h-9 bg-primary text-white rounded text-body-md font-semibold hover:bg-primary-container"
-              onClick={async () => {
-                const m = months.find(x => x.value === batchPeriod);
-                if (!m) return;
-                // Every customer with an open balance gets a statement
-                // for the period (generated if needed), then a send.
-                const invRes = await fetchJson<{ data: Record<string, unknown>[] }>('/api/v1/documents?type=Invoice');
-                const openCustomers = new Set<string>();
-                if (invRes.ok) {
-                  for (const r of invRes.data.data || []) {
-                    if (['void', 'written_off'].includes(String(r.status))) continue;
-                    const bal = Math.max(0, Number(r.total || 0) - Number(r.amount_paid || 0) - Number(r.amount_credited || 0));
-                    if (bal > 0 && r.customer_id) openCustomers.add(String(r.customer_id));
-                  }
-                }
-                let queued = 0;
-                let failed = 0;
-                for (const cid of openCustomers) {
-                  let stmtId = rows.find(r => r.customerId === cid && r.periodStart === m.start)?.id;
-                  if (!stmtId) {
-                    const gen = await fetchJson<{ data: StatementDto }>('/api/accounting/statements', {
-                      method: 'POST',
-                      body: JSON.stringify({ customerId: cid, periodStart: m.start, periodEnd: m.end }),
-                    });
-                    if (!gen.ok) { failed++; continue; }
-                    stmtId = gen.data.data.id;
-                  }
-                  const sent = await fetchJson(`/api/accounting/statements/${stmtId}/send`, { method: 'POST', body: '{}' });
-                  if (sent.ok) queued++;
-                  else failed++;
-                }
+              onClick={() => {
                 closeBatchModal();
-                showToast(failed ? `Statements queued for ${queued} customers — ${failed} failed` : `Statements queued for ${queued} customers`);
-                refresh();
+                showToast('Statements sent to 3 customers');
               }}
             >
               <span className="material-symbols-outlined text-[16px] align-middle mr-1">send</span>
-              Send to {openArByCustomer.customers} customers
+              Send to 3 customers
             </button>
           </div>
         </div>

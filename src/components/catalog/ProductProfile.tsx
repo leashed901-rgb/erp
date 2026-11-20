@@ -14,7 +14,7 @@
  *      GET /api/products/[id], which returns product + variants + orders +
  *      shipping + pricing + designs in one unified shape.
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   useProduct,
   fetchJson,
@@ -24,7 +24,7 @@ import {
 import { exportToCsv } from '@/lib/csvExport';
 import ProductFormDrawer, { type ProductFormEditTarget } from './ProductFormDrawer';
 
-type Tab = 'product' | 'variants' | 'orders' | 'shipping' | 'pricing' | 'designs' | 'channels';
+type Tab = 'product' | 'variants' | 'orders' | 'shipping' | 'pricing' | 'designs';
 
 const money = (n: number | null | undefined) =>
   n == null ? '—' : `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -48,7 +48,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'orders', label: 'Orders' },
   { id: 'shipping', label: 'Shipping' },
   { id: 'pricing', label: 'Pricing' },
-  { id: 'channels', label: 'Channels' },
   { id: 'designs', label: 'Associated designs' },
 ];
 
@@ -87,7 +86,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
   const [vColor, setVColor] = useState('');
   const [vPrice, setVPrice] = useState('');
   const [vCompare, setVCompare] = useState('');
-  const [vCost, setVCost] = useState('');
   const [vStock, setVStock] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -97,12 +95,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
   const stats = detail?.stats;
   const designs = detail?.designs || [];
   const shipping = detail?.shipping;
-
-  // Channels data loads on demand when the tab opens (see loadChannels below).
-  useEffect(() => {
-    if (tab === 'channels') loadChannels();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
 
   // Instant-render fallback while the full record loads.
   const displayName = product?.name || summary?.name || 'Unnamed product';
@@ -123,10 +115,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
     is_best_seller: product.is_best_seller,
     is_house_favorite: product.is_house_favorite,
     fulfillment_type: product.fulfillment_type,
-    supplier_id: product.supplier_id,
-    preferred_supplier_id: product.preferred_supplier_id,
-    income_account_id: product.income_account_id,
-    cogs_account_id: product.cogs_account_id,
   } : summary ? {
     id: summary.id,
     name: summary.name,
@@ -157,13 +145,10 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
       exportToCsv(variants.map(v => ({
         sku: v.sku, size: v.size || '', color: v.color || '',
         price: v.price, compare_at: v.compare_at_price ?? '',
-        cost: Number(v.standard_cost || 0) > 0 ? v.standard_cost : '',
-        margin: v.price > 0 && Number(v.standard_cost || 0) > 0 ? (((v.price - Number(v.standard_cost)) / v.price) * 100).toFixed(1) + '%' : '',
         status: v.status, stock: v.stock_quantity ?? '',
       })), [
         { key: 'sku', label: 'SKU' }, { key: 'size', label: 'Size' }, { key: 'color', label: 'Color' },
         { key: 'price', label: 'Price' }, { key: 'compare_at', label: 'Compare at' },
-        { key: 'cost', label: 'Cost' }, { key: 'margin', label: 'Margin' },
         { key: 'status', label: 'Status' }, { key: 'stock', label: 'Stock' },
       ], `${displayName}-variants`);
     } else if (tab === 'orders') {
@@ -212,11 +197,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
       onToast('Price is required (≥ 0)');
       return;
     }
-    const costNum = vCost.trim() === '' ? 0 : Number(vCost);
-    if (Number.isNaN(costNum) || costNum < 0) {
-      onToast('Cost must be a number ≥ 0');
-      return;
-    }
     setSaving(true);
     try {
       const res = await fetchJson(`/api/products/${productId}/variants`, {
@@ -226,7 +206,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
           size: vSize.trim() || null,
           color: vColor.trim() || null,
           price: priceNum,
-          standard_cost: costNum,
           compare_at_price: vCompare.trim() ? Number(vCompare) : null,
           stock_quantity: vStock.trim() ? Number(vStock) : null,
         }),
@@ -234,7 +213,7 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
       if (res.ok) {
         onToast('Variant created');
         setVariantDrawerOpen(false);
-        setVSku(''); setVSize(''); setVColor(''); setVPrice(''); setVCompare(''); setVCost(''); setVStock('');
+        setVSku(''); setVSize(''); setVColor(''); setVPrice(''); setVCompare(''); setVStock('');
         setTab('variants');
         refresh();
       } else {
@@ -248,7 +227,7 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
   /** Inline variant edits (Pricing/Variants tabs) — PATCH /api/variants/[id]. */
   async function saveVariantField(v: ProductVariantRow, field: string, rawValue: string) {
     let value: unknown = rawValue;
-    if (field === 'price' || field === 'compare_at_price' || field === 'stock_quantity' || field === 'standard_cost') {
+    if (field === 'price' || field === 'compare_at_price' || field === 'stock_quantity') {
       value = rawValue === '' ? null : Number(rawValue);
       if (field === 'price' && (value === null || Number.isNaN(value as number) || (value as number) < 0)) {
         onToast('Price must be a number ≥ 0');
@@ -258,137 +237,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
     const res = await fetchJson(`/api/variants/${v.id}`, { method: 'PATCH', body: JSON.stringify({ [field]: value }) });
     if (res.ok) { onToast(`${v.sku}: ${field.replace('_', ' ')} updated`); refresh(); }
     else onToast(`Update failed: ${res.error}`);
-  }
-
-  /* ── Bulk reprice (Pricing tab) — POST /api/products/[id]/reprice
-   *  (registry `product.reprice` → app_reprice_variants). ── */
-  const [repriceMode, setRepriceMode] = useState<'price' | 'percent'>('percent');
-  const [repriceValue, setRepriceValue] = useState('');
-  const [repriceCompare, setRepriceCompare] = useState(false);
-  const [repriceRound, setRepriceRound] = useState(false);
-  const [repriceSelected, setRepriceSelected] = useState<Set<string>>(new Set());
-  const [repriceBusy, setRepriceBusy] = useState(false);
-
-  async function submitReprice() {
-    const val = Number(repriceValue);
-    if (!Number.isFinite(val)) { onToast('Enter a price or a percentage'); return; }
-    if (repriceMode === 'price' && val < 0.01) { onToast('Price must be at least $0.01'); return; }
-    setRepriceBusy(true);
-    const res = await fetchJson<{ data: { updated: number } }>(`/api/products/${productId}/reprice`, {
-      method: 'POST',
-      body: JSON.stringify({
-        variant_ids: repriceSelected.size > 0 ? [...repriceSelected] : undefined,
-        price: repriceMode === 'price' ? val : undefined,
-        percent: repriceMode === 'percent' ? val : undefined,
-        set_compare_at: repriceCompare,
-        round_to_99: repriceRound,
-      }),
-    });
-    setRepriceBusy(false);
-    if (!res.ok) { onToast(`Reprice failed: ${res.error}`); return; }
-    onToast(`Repriced ${res.data?.data.updated ?? 0} variant(s)`);
-    setRepriceValue(''); setRepriceSelected(new Set());
-    refresh();
-  }
-
-  /* ── Channels + listing categories (Channels tab) ── */
-  interface ChannelRow { id: string | null; channelId: string; channelCode: string; channelName: string; channelType: string; channelActive: boolean; listed: boolean; published: boolean; syncStatus: string | null }
-  interface ListingNode { id: string; name: string; slug: string; path: string; depth: number; status: string; product_count: number }
-  interface UnmappedRow { supplier_id: string | null; supplier_name: string | null; source_category_id: string | null; source_path: string | null; products: number; listed: number }
-  const [channels, setChannels] = useState<ChannelRow[]>([]);
-  const [channelsLoaded, setChannelsLoaded] = useState(false);
-  const [nodes, setNodes] = useState<ListingNode[]>([]);
-  const [unmapped, setUnmapped] = useState<UnmappedRow[]>([]);
-  const [newChCode, setNewChCode] = useState('');
-  const [newChName, setNewChName] = useState('');
-  const [newChType, setNewChType] = useState('website');
-  const [newChBusy, setNewChBusy] = useState(false);
-  const [newNodeName, setNewNodeName] = useState('');
-  const [newNodeParent, setNewNodeParent] = useState('');
-  const [newNodeBusy, setNewNodeBusy] = useState(false);
-  const [mapNodeId, setMapNodeId] = useState('');
-  const [mapSourcePath, setMapSourcePath] = useState('');
-  const [mapBusy, setMapBusy] = useState(false);
-  const [publishResult, setPublishResult] = useState<{ added: number; removed: number; unchanged: number } | null>(null);
-
-  async function loadChannels() {
-    setChannelsLoaded(false);
-    const [ch, nd, un] = await Promise.all([
-      fetchJson<{ data: ChannelRow[] }>(`/api/products/${productId}/channels`),
-      fetchJson<{ data: ListingNode[] }>('/api/products/listings/nodes'),
-      fetchJson<{ data: UnmappedRow[] }>('/api/products/listings/unmapped'),
-    ]);
-    if (ch.ok && ch.data) setChannels(ch.data.data);
-    if (nd.ok && nd.data) setNodes(nd.data.data);
-    if (un.ok && un.data) setUnmapped(un.data.data);
-    setChannelsLoaded(true);
-  }
-
-  async function toggleChannel(c: ChannelRow) {
-    const res = await fetchJson(`/api/products/${productId}/channels`, {
-      method: 'POST',
-      body: JSON.stringify({ channel_id: c.channelId, published: !c.published }),
-    });
-    if (!res.ok) { onToast(`Channel update failed: ${res.error}`); return; }
-    onToast(`${c.channelName}: ${!c.published ? 'listed' : 'unlisted'}`);
-    loadChannels();
-  }
-
-  async function submitNewChannel() {
-    if (!newChCode.trim() || !newChName.trim()) { onToast('Channel code and name are required'); return; }
-    setNewChBusy(true);
-    const res = await fetchJson('/api/products/channels', {
-      method: 'POST',
-      body: JSON.stringify({ code: newChCode.trim(), name: newChName.trim(), channel_type: newChType }),
-    });
-    setNewChBusy(false);
-    if (!res.ok) { onToast(`Channel failed: ${res.error}`); return; }
-    onToast(`Channel "${newChName.trim()}" added`);
-    setNewChCode(''); setNewChName('');
-    loadChannels();
-  }
-
-  async function submitNewNode() {
-    if (!newNodeName.trim()) { onToast('Category name is required'); return; }
-    setNewNodeBusy(true);
-    const res = await fetchJson<{ data: ListingNode }>('/api/products/listings/nodes', {
-      method: 'POST',
-      body: JSON.stringify({ name: newNodeName.trim(), parent_id: newNodeParent || null }),
-    });
-    setNewNodeBusy(false);
-    if (!res.ok) { onToast(`Category failed: ${res.error}`); return; }
-    onToast(`Listing category "${newNodeName.trim()}" created`);
-    setNewNodeName(''); setNewNodeParent('');
-    loadChannels();
-  }
-
-  async function submitMap() {
-    if (!mapNodeId) { onToast('Pick a listing category to map to'); return; }
-    if (!mapSourcePath.trim()) { onToast('Enter a supplier source path to map — e.g. the path from an unmapped row below'); return; }
-    setMapBusy(true);
-    const res = await fetchJson('/api/products/listings/map', {
-      method: 'POST',
-      body: JSON.stringify({
-        node_id: mapNodeId,
-        source_path: mapSourcePath.trim(),
-      }),
-    });
-    setMapBusy(false);
-    if (!res.ok) { onToast(`Map failed: ${res.error}`); return; }
-    onToast('Source path mapped to the listing category');
-    setMapSourcePath('');
-    loadChannels();
-  }
-
-  async function submitPublishListings() {
-    const res = await fetchJson<{ data: { added: number; removed: number; unchanged: number } }>('/api/products/listings/publish', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) { onToast(`Publish failed: ${res.error}`); return; }
-    setPublishResult(res.data?.data ?? null);
-    onToast(`Listings published — ${res.data?.data.added ?? 0} added, ${res.data?.data.removed ?? 0} removed`);
-    loadChannels();
   }
 
   return (
@@ -629,7 +477,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
                       <tr>
                         <th>SKU</th><th>Size</th><th>Color</th>
                         <th className="text-right">Price</th><th className="text-right">Compare at</th>
-                        <th className="text-right">Cost</th><th className="text-right">Margin</th>
                         <th>Stock</th><th>Status</th><th className="text-right">Updated</th>
                       </tr>
                     </thead>
@@ -648,8 +495,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
                           </td>
                           <td className="text-right tabular-nums">{money(v.price)}</td>
                           <td className="text-right tabular-nums text-on-surface-variant">{money(v.compare_at_price)}</td>
-                          <td className="text-right tabular-nums">{Number(v.standard_cost || 0) > 0 ? money(v.standard_cost) : '—'}</td>
-                          <td className="text-right tabular-nums">{v.price > 0 && Number(v.standard_cost || 0) > 0 ? `${(((v.price - Number(v.standard_cost)) / v.price) * 100).toFixed(1)}%` : '—'}</td>
                           <td>{v.stock_quantity != null ? v.stock_quantity : (v.in_stock == null ? '—' : v.in_stock ? 'In stock' : 'Out')}</td>
                           <td><span className={`pill status role ${v.status === 'active' ? 'customer' : 'contact'}`}>{v.status}</span></td>
                           <td className="text-right text-[11px] text-on-surface-variant">{fmtDate(v.updated_at)}</td>
@@ -787,7 +632,7 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
               ) : (
                 <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
                   <table className="data-table">
-                    <thead className="sticky top-0 bg-white"><tr><th>SKU</th><th>Size</th><th>Color</th><th className="text-right">Price</th><th className="text-right">Compare at</th><th className="text-right">Cost</th><th className="text-right">Margin</th><th className="text-right">Effective discount</th></tr></thead>
+                    <thead className="sticky top-0 bg-white"><tr><th>SKU</th><th>Size</th><th>Color</th><th className="text-right">Price</th><th className="text-right">Compare at</th><th className="text-right">Effective discount</th></tr></thead>
                     <tbody>
                       {variants.map(v => {
                         const discount = v.compare_at_price && v.compare_at_price > v.price
@@ -814,16 +659,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
                                 aria-label={`Compare-at price for ${v.sku}`}
                               />
                             </td>
-                            <td className="text-right">
-                              <input
-                                className="w-20 h-7 px-2 border border-surface-dim rounded text-[12px] text-right tabular-nums"
-                                defaultValue={v.standard_cost ?? ''}
-                                placeholder="—"
-                                onBlur={e => { const cur = v.standard_cost != null ? String(v.standard_cost) : ''; if (e.target.value !== cur) saveVariantField(v, 'standard_cost', e.target.value); }}
-                                aria-label={`Cost for ${v.sku}`}
-                              />
-                            </td>
-                            <td className="text-right text-[12px] tabular-nums">{v.price > 0 && Number(v.standard_cost || 0) > 0 ? `${(((v.price - Number(v.standard_cost)) / v.price) * 100).toFixed(1)}%` : '—'}</td>
                             <td className="text-right text-[12px]">{discount != null ? `${discount}% off` : '—'}</td>
                           </tr>
                         );
@@ -831,56 +666,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
-            {/* Bulk reprice — registry product.reprice → app_reprice_variants */}
-            <div className="bg-white border border-surface-dim rounded-xl p-6">
-              <h3 className="font-semibold text-[15px] mb-1">Bulk reprice</h3>
-              <p className="text-[12px] text-on-surface-variant mb-4">Reprice all variants at once, or tick the ones to change. Percent is relative (e.g. 10 = +10%).</p>
-              {variants.length === 0 ? (
-                <div className="text-[13px] text-on-surface-variant py-2 text-center">No variants to reprice yet.</div>
-              ) : (
-                <>
-                  <div className="flex items-end gap-3 flex-wrap mb-3">
-                    <div>
-                      <label className="field-label" htmlFor="rp-mode">Mode</label>
-                      <select id="rp-mode" className="field-input" value={repriceMode} onChange={e => setRepriceMode(e.target.value as 'price' | 'percent')}>
-                        <option value="percent">Percent change</option>
-                        <option value="price">Set price</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="field-label" htmlFor="rp-value">{repriceMode === 'price' ? 'New price ($)' : 'Percent (%)'}</label>
-                      <input id="rp-value" className="field-input" type="number" step="0.01" placeholder={repriceMode === 'price' ? '24.00' : '10'} value={repriceValue} onChange={e => setRepriceValue(e.target.value)} style={{ width: 120 }} />
-                    </div>
-                    <label className="flex items-center gap-2 text-[13px] pb-2">
-                      <input type="checkbox" checked={repriceCompare} onChange={e => setRepriceCompare(e.target.checked)} /> Set compare-at to old price
-                    </label>
-                    <label className="flex items-center gap-2 text-[13px] pb-2">
-                      <input type="checkbox" checked={repriceRound} onChange={e => setRepriceRound(e.target.checked)} /> Round to .99
-                    </label>
-                    <button className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold hover:bg-primary-container disabled:opacity-50" disabled={repriceBusy || repriceValue === ''} onClick={submitReprice}>
-                      {repriceBusy ? 'Repricing…' : `Reprice ${repriceSelected.size > 0 ? `${repriceSelected.size} selected` : 'all variants'}`}
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {variants.map(v => (
-                      <label key={v.id} className="flex items-center gap-1.5 text-[12px] border border-surface-dim rounded-full px-2.5 py-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={repriceSelected.has(v.id)}
-                          onChange={() => setRepriceSelected(prev => {
-                            const next = new Set(prev);
-                            if (next.has(v.id)) next.delete(v.id);
-                            else next.add(v.id);
-                            return next;
-                          })}
-                        />
-                        <span className="font-mono">{v.sku}</span> {money(v.price)}
-                      </label>
-                    ))}
-                  </div>
-                </>
               )}
             </div>
             {/* Design retail prices */}
@@ -901,112 +686,6 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
                     ))}
                   </tbody>
                 </table>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* 5b. Channels — per-channel publish toggles + listing categories */}
-        {tab === 'channels' && (
-          <div className="space-y-4">
-            <div className="bg-white border border-surface-dim rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-[15px]">Channel listings</h3>
-                  <p className="text-[12px] text-on-surface-variant mt-0.5">Where this product is listed. Toggling publishes or unlists it on that channel.</p>
-                </div>
-                <button className="h-8 px-3 border border-surface-dim rounded text-[13px] hover:bg-surface-container-low" onClick={loadChannels}>Refresh</button>
-              </div>
-              {!channelsLoaded ? (
-                <div className="text-[13px] text-on-surface-variant py-4 text-center">Loading channels…</div>
-              ) : channels.length === 0 ? (
-                <div className="text-[13px] text-on-surface-variant py-4 text-center">No channels yet — add the first one below.</div>
-              ) : (
-                <div className="divide-y divide-surface-dim">
-                  {channels.map(c => (
-                    <div key={c.channelId} className="py-2.5 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-[13px]">{c.channelName}</div>
-                        <div className="text-[11px] text-on-surface-variant font-mono">{c.channelCode} · {c.channelType}{c.syncStatus ? ` · sync ${c.syncStatus}` : ''}{c.listed ? '' : ' · not listed'}</div>
-                      </div>
-                      <span className={`pill status role ${c.published ? 'customer' : 'contact'}`}>{c.published ? 'Published' : 'Unlisted'}</span>
-                      <button className="h-7 px-3 border border-surface-dim rounded text-[12px] hover:bg-surface-container-low" disabled={!c.channelActive} onClick={() => toggleChannel(c)}>
-                        {c.published ? 'Unlist' : 'Publish'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex items-end gap-2 flex-wrap mt-4 pt-4 border-t border-surface-dim">
-                <div>
-                  <label className="field-label" htmlFor="nc-code">New channel code</label>
-                  <input id="nc-code" className="field-input" placeholder="e.g. shopify" value={newChCode} onChange={e => setNewChCode(e.target.value)} style={{ width: 140 }} />
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="nc-name">Name</label>
-                  <input id="nc-name" className="field-input" placeholder="e.g. Shopify" value={newChName} onChange={e => setNewChName(e.target.value)} style={{ width: 180 }} />
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="nc-type">Type</label>
-                  <select id="nc-type" className="field-input" value={newChType} onChange={e => setNewChType(e.target.value)}>
-                    <option value="website">Website</option>
-                    <option value="pos">POS</option>
-                    <option value="marketplace">Marketplace</option>
-                    <option value="social">Social</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-                <button className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold disabled:opacity-50" disabled={newChBusy} onClick={submitNewChannel}>{newChBusy ? 'Adding…' : 'Add channel'}</button>
-              </div>
-            </div>
-
-            <div className="bg-white border border-surface-dim rounded-xl p-6">
-              <h3 className="font-semibold text-[15px] mb-1">Listing categories</h3>
-              <p className="text-[12px] text-on-surface-variant mb-4">Map a supplier source path into the canonical listing taxonomy, then publish the listings. Product pins use supplier catalog products, not storefront products — source-path mapping is the flow that covers the POD catalog. Click an unmapped row below to fill its path.</p>
-              <div className="flex items-end gap-2 flex-wrap mb-4">
-                <div>
-                  <label className="field-label" htmlFor="map-node">Listing category</label>
-                  <select id="map-node" className="field-input" value={mapNodeId} onChange={e => setMapNodeId(e.target.value)} style={{ minWidth: 220 }}>
-                    <option value="">Pick a category…</option>
-                    {nodes.map(n => <option key={n.id} value={n.id}>{n.path} ({n.product_count})</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="map-path">Source path</label>
-                  <input id="map-path" className="field-input" placeholder="e.g. Men's clothing / T-shirts" value={mapSourcePath} onChange={e => setMapSourcePath(e.target.value)} style={{ width: 240 }} />
-                </div>
-                <button className="h-8 px-4 bg-primary text-white rounded text-[13px] font-semibold disabled:opacity-50" disabled={mapBusy} onClick={submitMap}>{mapBusy ? 'Mapping…' : 'Map source path'}</button>
-                <button className="h-8 px-4 border border-surface-dim rounded text-[13px] hover:bg-surface-container-low" onClick={submitPublishListings}>Publish listings</button>
-              </div>
-              {publishResult && (
-                <div className="text-[12px] text-on-surface-variant mb-3">Last publish: {publishResult.added} added · {publishResult.removed} removed · {publishResult.unchanged} unchanged</div>
-              )}
-              <div className="flex items-end gap-2 flex-wrap mb-4">
-                <div>
-                  <label className="field-label" htmlFor="nn-name">New listing category</label>
-                  <input id="nn-name" className="field-input" placeholder="e.g. T-shirts" value={newNodeName} onChange={e => setNewNodeName(e.target.value)} style={{ width: 200 }} />
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="nn-parent">Parent</label>
-                  <select id="nn-parent" className="field-input" value={newNodeParent} onChange={e => setNewNodeParent(e.target.value)} style={{ minWidth: 180 }}>
-                    <option value="">Top level</option>
-                    {nodes.map(n => <option key={n.id} value={n.id}>{n.path}</option>)}
-                  </select>
-                </div>
-                <button className="h-8 px-4 border border-surface-dim rounded text-[13px] disabled:opacity-50" disabled={newNodeBusy} onClick={submitNewNode}>{newNodeBusy ? 'Creating…' : 'Create category'}</button>
-              </div>
-              {unmapped.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-[13px] mb-2">Unmapped source categories ({unmapped.length})</h4>
-                  <div className="max-h-48 overflow-y-auto border border-surface-dim rounded-lg divide-y divide-surface-dim">
-                    {unmapped.slice(0, 20).map((u, i) => (
-                      <button key={i} className="w-full px-3 py-2 text-[12px] flex items-center justify-between gap-3 hover:bg-surface-container-low text-left" onClick={() => setMapSourcePath(u.source_path || '')} title="Fill this path into the map form">
-                        <span className="truncate">{u.source_path || '—'}{u.supplier_name ? ` · ${u.supplier_name}` : ''}</span>
-                        <span className="text-on-surface-variant shrink-0">{u.products} products · {u.listed} listed</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
               )}
             </div>
           </div>
@@ -1106,20 +785,13 @@ export default function ProductProfile({ productId, summary, backLabel, onToast,
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="field-label" htmlFor="nv-cost">Cost <span className="font-normal text-on-surface-variant">(margin is measured against this)</span></label>
-                  <input id="nv-cost" className="field-input" type="number" min="0" step="0.01" placeholder="—" value={vCost} onChange={e => setVCost(e.target.value)} />
-                </div>
-                <div>
                   <label className="field-label" htmlFor="nv-compare">Compare-at price</label>
                   <input id="nv-compare" className="field-input" type="number" min="0" step="0.01" placeholder="—" value={vCompare} onChange={e => setVCompare(e.target.value)} />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="field-label" htmlFor="nv-stock">Stock qty</label>
                   <input id="nv-stock" className="field-input" type="number" min="0" placeholder="—" value={vStock} onChange={e => setVStock(e.target.value)} />
                 </div>
-                <div className="text-[11px] text-on-surface-variant self-end pb-2">Leave cost blank when unknown — the variant counts as uncosted, not 100% margin.</div>
               </div>
             </div>
             <div className="p-4 border-t border-surface-dim flex justify-end gap-2 shrink-0">

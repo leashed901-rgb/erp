@@ -10,7 +10,7 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
     id: 'invoices', entity: 'document', documentType: 'Invoice', title: 'Invoices',
     columns: [
       { id: 'invoice_number', label: 'Invoice #', kind: 'text', sortable: true, defaultVisible: true },
-      { id: 'party_name', label: 'Customer', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Customer' },
+      { id: 'customer_id', label: 'Customer', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Customer' },
       { id: 'invoice_date', label: 'Invoice date', kind: 'date', sortable: true, defaultVisible: true },
       { id: 'due_date', label: 'Due date', kind: 'date', sortable: true, defaultVisible: true },
       { id: 'total', label: 'Amount', kind: 'money', sortable: true, defaultVisible: true, align: 'right' },
@@ -34,7 +34,7 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
     rowClick: 'page',
     bulkActions: ['send', 'remind', 'print', 'tag', 'export', 'record_payment'],
     supportsImport: false, supportsExport: true,
-    totalsFooter: ['sum:total', 'sum:open_balance'],
+    totalsFooter: ['sum:total', 'sum:balance'],
     apiPath: '/api/v1/documents?type=Invoice',
   },
 
@@ -42,7 +42,7 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
   bills: {
     id: 'bills', entity: 'document', documentType: 'Bill', title: 'Bills',
     columns: [
-      { id: 'party_name', label: 'Vendor', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Vendor' },
+      { id: 'vendor_id', label: 'Vendor', kind: 'party', sortable: true, defaultVisible: true, roleFilter: 'Vendor' },
       { id: 'bill_number', label: 'Bill no', kind: 'text', sortable: true, defaultVisible: true },
       { id: 'bill_date', label: 'Bill date', kind: 'date', sortable: true, defaultVisible: true },
       { id: 'due_date', label: 'Due date', kind: 'date', sortable: true, defaultVisible: true },
@@ -65,7 +65,7 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
     rowClick: 'page',
     bulkActions: ['approve', 'pay', 'categorize', 'tag', 'print_checks'],
     supportsImport: true, supportsExport: true,
-    totalsFooter: ['sum:total', 'sum:open_balance'],
+    totalsFooter: ['sum:total', 'sum:balance'],
     apiPath: '/api/v1/documents?type=Bill',
   },
 
@@ -309,7 +309,7 @@ export const VIEW_DEFS: Record<string, ViewDef> = {
     ],
     rowClick: 'page',
     bulkActions: ['batch_slips', 'mark_shipped', 'push_to_supplier', 'tag', 'export'],
-    supportsImport: true, supportsExport: true,
+    supportsImport: false, supportsExport: true,
     apiPath: '/api/orders',
   },
 

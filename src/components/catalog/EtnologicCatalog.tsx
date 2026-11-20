@@ -143,8 +143,8 @@ export default function EtnologicCatalog({ onToast, onNavigate }: Props) {
   ];
 
   return (
-    <div className="app" style={{ display: 'block', height: 'auto' }}>
-      <div className="main-col" style={{ display: 'block' }}>
+    <div className="app" style={{ gridTemplateColumns: '0 1fr 0', height: 'calc(100vh - 0px)' }}>
+      <div className="main-col">
         {/* Top bar */}
         <header className="topbar" style={{ position: 'sticky', top: 0, zIndex: 40 }}>
           <div className="crumbs">

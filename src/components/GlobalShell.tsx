@@ -1080,7 +1080,7 @@ export default function GlobalShell() {
         />
       )}
 
-      {!focusMode && activeDomain !== 'dashboard' && (
+      {!focusMode && activeDomain !== 'dashboard' && activeScreen !== 'catalog-overview' && (
         <SideRail
           activeDomain={activeDomain}
           activeScreen={activeScreen}

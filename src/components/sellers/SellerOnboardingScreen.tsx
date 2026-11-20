@@ -14,6 +14,7 @@ import {
   createSeller,
   updateSellerProfile,
   decideAppeal,
+  decideSellerApplication,
   sellerDisplayName,
   initials,
   fmtDate,
@@ -62,7 +63,7 @@ export default function SellerOnboardingScreen({ onToast, onNavigate }: SellerOn
   function openDetail(s: SellerSummary) {
     setSelectedSellerId(s.seller_id);
     setRowMenuForId(null);
-    onNavigate?.('contacts', 'seller-profile');
+    onNavigate?.('contacts', 'seller-detail');
   }
 
   async function saveSeller() {
@@ -100,6 +101,17 @@ export default function SellerOnboardingScreen({ onToast, onNavigate }: SellerOn
     setBusySellerId(null);
     if (!res.ok) { onToast(`Save failed: ${res.error}`); return; }
     onToast(`Tax form marked received for ${sellerDisplayName(s)}`);
+    refresh();
+  }
+
+  async function handleDecideApplication(s: SellerSummary, decision: 'approved' | 'closed') {
+    setBusySellerId(s.seller_id);
+    const res = await decideSellerApplication(s.seller_id, decision);
+    setBusySellerId(null);
+    if (!res.ok) { onToast(`Decision failed: ${res.error}`); return; }
+    onToast(decision === 'approved'
+      ? `${sellerDisplayName(s)} approved — the seller is live`
+      : `Application closed for ${sellerDisplayName(s)}`);
     refresh();
   }
 
@@ -204,6 +216,58 @@ export default function SellerOnboardingScreen({ onToast, onNavigate }: SellerOn
                     disabled={busyAppealId === a.id}
                   >
                     <span className="material-symbols-outlined text-[14px]">close</span>Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* APPLICATIONS — sellers awaiting an onboarding decision.
+          Same party data as the Sellers list; this is the queue lens. */}
+      <div className="bg-white rounded-xl border border-surface-dim mb-4 overflow-hidden">
+        <div className="px-4 py-3 border-b border-surface-dim flex items-center justify-between">
+          <h2 className="text-headline-sm flex items-center gap-2">
+            <span className="material-symbols-outlined text-[20px] text-primary">how_to_reg</span>
+            Applications awaiting decision
+            <span className="text-on-surface-variant text-body-sm font-normal">({queue.filter(s => s.status === 'applied').length})</span>
+          </h2>
+        </div>
+        {queue.filter(s => s.status === 'applied').length === 0 ? (
+          <div className="px-4 py-6 text-center text-body-sm text-on-surface-variant">No applications awaiting a decision.</div>
+        ) : (
+          <div className="divide-y divide-surface-dim">
+            {queue.filter(s => s.status === 'applied').map(s => (
+              <div key={s.seller_id} className="px-4 py-3 flex items-center gap-3">
+                <div className="avatar-warm w-9 h-9 rounded-full flex items-center justify-center text-label-md font-bold shrink-0">{initials(sellerDisplayName(s))}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{sellerDisplayName(s)}</div>
+                  <div className="text-[11px] text-on-surface-variant">
+                    {s.legal_name || '—'}{s.email ? ` · ${s.email}` : ''} · applied {fmtDate(s.created_at)}
+                  </div>
+                </div>
+                <span className="pill warn">applied</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    className="h-7 px-2.5 bg-primary text-white rounded text-label-sm font-semibold hover:bg-primary-container flex items-center gap-1 disabled:opacity-50"
+                    onClick={() => handleDecideApplication(s, 'approved')}
+                    disabled={busySellerId === s.seller_id}
+                  >
+                    <span className="material-symbols-outlined text-[14px]">check</span>Approve
+                  </button>
+                  <button
+                    className="h-7 px-2.5 border border-error text-error rounded text-label-sm font-semibold hover:bg-error/5 flex items-center gap-1 disabled:opacity-50"
+                    onClick={() => handleDecideApplication(s, 'closed')}
+                    disabled={busySellerId === s.seller_id}
+                  >
+                    <span className="material-symbols-outlined text-[14px]">close</span>Reject
+                  </button>
+                  <button
+                    className="h-7 px-2.5 border border-surface-dim rounded text-label-sm font-medium hover:bg-surface-container-low"
+                    onClick={() => openDetail(s)}
+                  >
+                    Review
                   </button>
                 </div>
               </div>

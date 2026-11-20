@@ -203,37 +203,31 @@ export const DOMAINS: Record<DomainKey, DomainConfig> = {
     label: 'Catalog',
     icon: 'inventory_2',
     groups: [
-      // Each top-level area is its OWN GROUP — own icon, own badge, own
-      // chevron, own children list (flat leaves, no nested parents). This
-      // mirrors every other module: the parent owns its sub-views.
       {
-        name: 'Catalog Overview',
-        icon: 'play_circle',
+        name: 'Workspace',
+        icon: 'home',
         bg: 'bg-qb-navy',
         screens: [
-          { id: 'catalog-overview', label: 'Overview', type: 'overview' },
+          { id: 'catalog-overview', label: 'Home', type: 'overview' },
         ],
       },
       {
-        name: 'Products',
+        name: 'Tables',
         icon: 'inventory_2',
         bg: 'bg-qb-green',
         screens: [
-          { id: 'products', label: 'Products', type: 'list' },
-          { id: 'listings', label: 'Listings', type: 'list' },
+          { id: 'products', label: 'Inventory Management', type: 'list' },
+          { id: 'listings', label: 'Product Catalog', type: 'list' },
+          { id: 'categories', label: 'Stock Updates', type: 'list' },
+          { id: 'bundles', label: 'Warehouse Management', type: 'list' },
         ],
       },
       {
-        name: 'Categories',
+        name: 'Catalog',
         icon: 'category',
         bg: 'bg-qb-maroon',
         screens: [
-          { id: 'categories', label: 'Categories', type: 'list' },
-          { id: 'bundles', label: 'Bundles', type: 'list' },
           { id: 'brands', label: 'Brands', type: 'list' },
-          // Pricing is NOT a standalone page — it's a quick-action drawer
-          // that opens on a product/item row (see PricingDrawer.tsx, wired
-          // into CatalogProductsScreen). Don't add it back to the sidebar.
         ],
       },
     ],
